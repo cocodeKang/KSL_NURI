@@ -1235,6 +1235,8 @@
     let currentIndex = 0;
     let currentPoolIndex = 0;
     let playbackMode = "MANUAL";
+    let groupShuffleSeed = null;
+    let exampleShuffleSeed = null;
 
     let selectionModeActive = false;
 
@@ -1512,6 +1514,39 @@
         [copy[i], copy[j]] = [copy[j], copy[i]];
       }
       return copy;
+    }
+
+    function hashString(value){
+      const str = String(value ?? "");
+      let hash = 2166136261;
+      for (let i = 0; i < str.length; i++){
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    function makeExampleShuffleKey(item){
+      return `${safe(item.groupId)}|${safe(item.word)}|${safe(item.text)}|${safe(item.video)}`;
+    }
+
+    function applyDeterministicShuffleOrder(){
+      if (groupShuffleSeed !== null){
+        filteredGroups.sort((a, b) => {
+          const diff = hashString(`${groupShuffleSeed}|${safe(a.id)}`) - hashString(`${groupShuffleSeed}|${safe(b.id)}`);
+          return diff || safe(a.word).localeCompare(safe(b.word), "ko") || String(a.id).localeCompare(String(b.id), "ko");
+        });
+      }
+
+      if (exampleShuffleSeed !== null){
+        filteredExamplePool.sort((a, b) => {
+          const diff = hashString(`${exampleShuffleSeed}|${makeExampleShuffleKey(a)}`) - hashString(`${exampleShuffleSeed}|${makeExampleShuffleKey(b)}`);
+          return diff
+            || safe(a.word).localeCompare(safe(b.word), "ko")
+            || safe(a.text).localeCompare(safe(b.text), "ko")
+            || String(a.groupId).localeCompare(String(b.groupId), "ko");
+        });
+      }
     }
 
     function parseCSV(text){
@@ -1917,6 +1952,8 @@ async function saveState(){
       if (typeof state.abLoopStart === "number" || state.abLoopStart === null) abLoopStart = state.abLoopStart;
       if (typeof state.abLoopEnd === "number" || state.abLoopEnd === null) abLoopEnd = state.abLoopEnd;
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
+      if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
+      if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
       updateExactMatchButton();
     }
 
@@ -2092,6 +2129,7 @@ async function saveState(){
       if (qNorm) sortFilteredExamplesByWordLength(exampleCandidates);
 
       filteredExamplePool = selectionModeActive ? buildBalancedExamplePool(exampleCandidates) : exampleCandidates;
+      applyDeterministicShuffleOrder();
 
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
@@ -2362,7 +2400,9 @@ function buildStatePayload(){
     currentVideoTime,
     abLoopStart,
     abLoopEnd,
-    exactMatch
+    exactMatch,
+    groupShuffleSeed,
+    exampleShuffleSeed
   };
 }
 
@@ -3025,16 +3065,19 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     async function shuffleCurrentOrder(){
       currentVideoTime = 0;
       const keepMode = currentMode;
+      const newSeed = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
       if (isExampleMode()){
         if (filteredExamplePool.length <= 1) return;
-        filteredExamplePool = shuffleArray(filteredExamplePool);
-        currentPoolIndex = 0;
+        exampleShuffleSeed = newSeed;
       } else {
         if (filteredGroups.length <= 1) return;
-        filteredGroups = shuffleArray(filteredGroups);
-        currentIndex = 0;
+        groupShuffleSeed = newSeed;
       }
+
+      applyDeterministicShuffleOrder();
+      currentIndex = 0;
+      currentPoolIndex = 0;
 
       render(getShouldAutoplay());
       await saveState();
@@ -3061,6 +3104,8 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       currentVideoTime = 0;
       abLoopStart = null;
       abLoopEnd = null;
+      groupShuffleSeed = null;
+      exampleShuffleSeed = null;
 
       els.modeBtns.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.mode === "Q");
