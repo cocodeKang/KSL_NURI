@@ -1302,6 +1302,10 @@
     let pendingFirebaseDatasetTimer = null;
     let isApplyingRemoteState = false;
     let isApplyingRemoteDataset = false;
+    let lastFirebaseStatusText = "";
+    let lastFirebaseStatusTone = "normal";
+    let lastFirebaseStatusAt = 0;
+    let firebaseOfflineStatusTimer = null;
 
     let abLoopStart = null;
     let abLoopEnd = null;
@@ -1972,16 +1976,52 @@ async function saveState(){
       }
     }
 
+    function findPreviewExampleByGroupId(groupId, preferredText = ""){
+      const key = String(groupId || "");
+      if (!key) return null;
+      if (preferredText){
+        return examplePool.find(ex => String(ex.groupId) === key && ex.text === preferredText) || null;
+      }
+      return examplePool.find(ex => String(ex.groupId) === key) || null;
+    }
+
     function previewSuggestionItem(item){
       if (!item) return;
       isSearchPreviewing = true;
-      if (item.type === "word"){
-        showMainText(item.word || "");
-        els.statusText.textContent = `미리보기 | ${item.word || ""}`;
-      } else {
-        showMainText(item.text || "");
-        els.statusText.textContent = `미리보기 | ${item.word || ""}`;
+
+      const group = groupById.get(String(item.id || "")) || null;
+      const example = item.type === "example"
+        ? findPreviewExampleByGroupId(item.id, item.text)
+        : findPreviewExampleByGroupId(item.id);
+      const labelWord = group?.word || item.word || "";
+      const modeLabel = MODES[currentMode] || currentMode;
+
+      if (currentMode === "Q"){
+        showMainText(labelWord || item.text || "");
+      } else if (currentMode === "W"){
+        if (group?.wordVideo) showMainVideo(group.wordVideo, false);
+        else showMainText(labelWord || item.text || "");
+      } else if (currentMode === "E"){
+        if (group?.wordSignImage) showMainImage(group.wordSignImage, "표제어 수어문자");
+        else showMainText(labelWord || item.text || "");
+      } else if (currentMode === "G"){
+        if (group?.handShapeImage) showMainImage(group.handShapeImage, "표제어 수형그림");
+        else showMainText(labelWord || item.text || "");
+      } else if (currentMode === "A"){
+        showMainText(example?.text || item.text || labelWord || "");
+      } else if (currentMode === "S"){
+        if (example?.video) showMainVideo(example.video, false);
+        else if (group?.wordVideo) showMainVideo(group.wordVideo, false);
+        else showMainText(example?.text || item.text || labelWord || "");
+      } else if (currentMode === "D"){
+        if (example?.signImage) showMainImage(example.signImage, "용례 수어문자");
+        else if (group?.wordSignImage) showMainImage(group.wordSignImage, "표제어 수어문자");
+        else showMainText(example?.text || item.text || labelWord || "");
       }
+
+      setImage(els.wordSignImg, group?.wordSignImage || "", "표제어 수어문자");
+      setImage(els.handShapeImg, group?.handShapeImage || "", "수형그림");
+      els.statusText.textContent = `미리보기 | ${labelWord || item.text || ""} | ${modeLabel}`;
     }
 
     function restoreSearchPreview(){
@@ -2272,6 +2312,9 @@ function makeDataHash(text){
 function updateFirebaseStatus(text, tone = "normal"){
   if (!els.firebaseStatus) return;
   const fullText = safe(text) || "대기중";
+  const now = Date.now();
+  if (fullText === lastFirebaseStatusText && tone === lastFirebaseStatusTone && (now - lastFirebaseStatusAt) < 1200) return;
+
   const mobileShort = (() => {
     if (/연결됨|연결 완료/i.test(fullText)) return "연결됨";
     if (/오프라인/i.test(fullText)) return "오프라인";
@@ -2289,6 +2332,9 @@ function updateFirebaseStatus(text, tone = "normal"){
   els.firebaseStatus.classList.remove("ok", "error");
   if (tone === "ok") els.firebaseStatus.classList.add("ok");
   if (tone === "error") els.firebaseStatus.classList.add("error");
+  lastFirebaseStatusText = fullText;
+  lastFirebaseStatusTone = tone;
+  lastFirebaseStatusAt = now;
 }
 
 function cloneSelectionPresetsForSync(){
@@ -2344,7 +2390,7 @@ async function pushStateToFirebase(payload = null){
   });
 
   lastPushedStateSignature = signature;
-  updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+  if (!/연결됨/.test(els.firebaseStatus?.title || "")) updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
 }
 
 function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false){
@@ -2489,10 +2535,13 @@ function startFirebaseLiveWatchers(){
 
   firebaseConnectionUnsub = onValue(connectedRef, (snapshot) => {
     const connected = !!snapshot.val();
+    clearTimeout(firebaseOfflineStatusTimer);
     if (connected){
       updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
     } else {
-      updateFirebaseStatus(`오프라인 대기중 · ${syncRoomKey}`);
+      firebaseOfflineStatusTimer = setTimeout(() => {
+        updateFirebaseStatus(`오프라인 대기중 · ${syncRoomKey}`);
+      }, 1200);
     }
   });
 
@@ -2785,6 +2834,22 @@ async function initFirebaseSync(){
       applyFilter();
       renderInfo();
       saveState();
+    }
+
+    function addCurrentGroupToSelection(){
+      const id = isExampleMode() ? safe(getCurrentPoolItem()?.groupId) : safe(getCurrentGroup()?.id);
+      if (!id) {
+        showOverlay("현재 추가할 표제어가 없습니다", 1200);
+        return;
+      }
+      if (selectedGroupIds.includes(id)) {
+        showOverlay("이미 선택학습에 추가된 표제어입니다", 1200);
+        return;
+      }
+      addSelectedGroup(id);
+      const word = groupById.get(String(id))?.word || "표제어";
+      showOverlay(`선택학습 추가
+${word}`, 1100);
     }
 
     async function saveCurrentSelectionPreset(){
@@ -3810,6 +3875,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       if (key === "s"){ e.preventDefault(); setMode("S"); return; }
       if (key === "d"){ e.preventDefault(); setMode("D"); return; }
       if (key === "g"){ e.preventDefault(); setMode("G"); return; }
+      if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
