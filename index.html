@@ -191,6 +191,14 @@
       z-index:8;
       display:none;
       background:transparent;
+      border:none;
+      outline:none;
+      padding:0;
+      margin:0;
+      appearance:none;
+      -webkit-appearance:none;
+      box-shadow:none;
+      -webkit-tap-highlight-color:transparent;
     }
 
     .stage-tap-zone.left{ left:0; }
@@ -223,8 +231,9 @@
       color:rgba(255,255,255,.75);
       font-size:22px;
       font-weight:700;
-      opacity:.6;
+      opacity:0;
       pointer-events:none;
+      display:none;
     }
 
     .stage-tap-zone.left .tap-arrow{ left:14px; }
@@ -369,6 +378,16 @@
     .main-image{
       user-select:none;
       -webkit-user-drag:none;
+      transform-origin:center center;
+      will-change:transform;
+    }
+
+    .main-image.zoomable{
+      touch-action:none;
+    }
+
+    .main-image.zoomed{
+      cursor:grab;
     }
 
     .main-text{
@@ -759,6 +778,23 @@
       transform:translateY(0);
     }
 
+    .mobile-list-btn{
+      width:100%;
+      min-height:44px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:var(--panel-2);
+      color:var(--text);
+      text-align:left;
+      padding:10px 12px;
+      margin-bottom:8px;
+    }
+
+    .mobile-list-btn.active{
+      border-color:var(--accent);
+      background:rgba(110,168,255,.15);
+    }
+
     .mobile-sheet-header{
       display:flex;
       align-items:center;
@@ -1084,7 +1120,7 @@
     <div class="mobile-sheet-header">
       <div style="width:100%">
         <div class="sheet-handle"></div>
-        <strong>학습 정보</strong>
+        <strong id="mobileSheetTitle">학습 정보</strong>
       </div>
       <button id="mobileSheetClose" class="icon-btn" style="height:38px;min-width:38px;">닫기</button>
     </div>
@@ -1161,6 +1197,7 @@
       mobileInfoBtn: document.getElementById("mobileInfoBtn"),
       mobileSheet: document.getElementById("mobileSheet"),
       mobileSheetBody: document.getElementById("mobileSheetBody"),
+      mobileSheetTitle: document.getElementById("mobileSheetTitle"),
       mobileSheetClose: document.getElementById("mobileSheetClose"),
       stage: document.getElementById("stage"),
       tapPrevZone: document.getElementById("tapPrevZone"),
@@ -1225,6 +1262,24 @@
 
     let touchStartX = 0;
     let touchStartY = 0;
+    let mobileSheetMode = "info";
+    const imageZoom = {
+      scale: 1,
+      x: 0,
+      y: 0,
+      min: 1,
+      max: 4,
+      startScale: 1,
+      startDistance: 0,
+      startX: 0,
+      startY: 0,
+      startOffsetX: 0,
+      startOffsetY: 0,
+      panning: false,
+      pinching: false,
+      moved: false,
+      lastTapAt: 0
+    };
     let dragCounter = 0;
     let isSearchPreviewing = false;
     let currentSourceName = "";
@@ -1722,6 +1777,112 @@ async function saveState(){
       return (await idbGet(`${CACHE_KEYS.STATE}:${syncRoomKey}`)) || await idbGet(CACHE_KEYS.STATE);
     }
 
+    function clamp(value, min, max){
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function canUseImageZoom(){
+      return isMobileViewport()
+        && currentMode === "D"
+        && els.mainImage
+        && els.mainImage.style.display !== "none"
+        && !!els.mainImage.getAttribute("src");
+    }
+
+    function getRenderedImageMetrics(){
+      const stageRect = els.stage.getBoundingClientRect();
+      const naturalW = els.mainImage.naturalWidth || stageRect.width || 1;
+      const naturalH = els.mainImage.naturalHeight || stageRect.height || 1;
+      const scale = Math.min(stageRect.width / naturalW, stageRect.height / naturalH) || 1;
+      const drawWidth = naturalW * scale;
+      const drawHeight = naturalH * scale;
+      return { stageRect, drawWidth, drawHeight };
+    }
+
+    function clampImageOffset(x, y, scale = imageZoom.scale){
+      const { drawWidth, drawHeight } = getRenderedImageMetrics();
+      const maxX = Math.max(0, (drawWidth * scale - drawWidth) / 2);
+      const maxY = Math.max(0, (drawHeight * scale - drawHeight) / 2);
+      return {
+        x: clamp(x, -maxX, maxX),
+        y: clamp(y, -maxY, maxY)
+      };
+    }
+
+    function isImageGestureActive(){
+      return canUseImageZoom() && (imageZoom.scale > 1.01 || imageZoom.panning || imageZoom.pinching);
+    }
+
+    function updateStageGestureState(){
+      const disableTapZones = isMobileViewport() && currentMode === "D" && !!els.mainImage.getAttribute("src");
+      [els.tapPrevZone, els.tapNextZone].forEach(zone => {
+        if (!zone) return;
+        zone.style.pointerEvents = disableTapZones ? "none" : "auto";
+        zone.style.opacity = disableTapZones ? "0" : "1";
+      });
+    }
+
+    function applyImageZoom(){
+      if (!canUseImageZoom()){
+        imageZoom.scale = 1;
+        imageZoom.x = 0;
+        imageZoom.y = 0;
+        imageZoom.panning = false;
+        imageZoom.pinching = false;
+        imageZoom.moved = false;
+        els.mainImage.classList.remove("zoomable", "zoomed");
+        els.mainImage.style.transform = "translate3d(0,0,0) scale(1)";
+        updateStageGestureState();
+        return;
+      }
+
+      els.mainImage.classList.add("zoomable");
+      if (imageZoom.scale <= 1.01){
+        imageZoom.scale = 1;
+        imageZoom.x = 0;
+        imageZoom.y = 0;
+        els.mainImage.classList.remove("zoomed");
+        els.mainImage.style.transform = "translate3d(0,0,0) scale(1)";
+      } else {
+        const clamped = clampImageOffset(imageZoom.x, imageZoom.y, imageZoom.scale);
+        imageZoom.x = clamped.x;
+        imageZoom.y = clamped.y;
+        els.mainImage.classList.add("zoomed");
+        els.mainImage.style.transform = `translate3d(${imageZoom.x}px, ${imageZoom.y}px, 0) scale(${imageZoom.scale})`;
+      }
+      updateStageGestureState();
+    }
+
+    function resetImageZoom(){
+      imageZoom.scale = 1;
+      imageZoom.x = 0;
+      imageZoom.y = 0;
+      imageZoom.panning = false;
+      imageZoom.pinching = false;
+      imageZoom.moved = false;
+      applyImageZoom();
+    }
+
+    function zoomImageAt(scale, clientX, clientY){
+      if (!canUseImageZoom()) return;
+      const nextScale = clamp(scale, imageZoom.min, imageZoom.max);
+      if (nextScale <= 1.01){
+        resetImageZoom();
+        return;
+      }
+      const { stageRect } = getRenderedImageMetrics();
+      const centerX = stageRect.left + stageRect.width / 2;
+      const centerY = stageRect.top + stageRect.height / 2;
+      imageZoom.scale = nextScale;
+      imageZoom.x = (centerX - clientX) * (nextScale - 1);
+      imageZoom.y = (centerY - clientY) * (nextScale - 1);
+      applyImageZoom();
+    }
+
+    function touchDistance(t1, t2){
+      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    }
+
     function applyRestoredUIState(state){
       if (!state) return;
       if (state.currentMode && MODES[state.currentMode]) currentMode = state.currentMode;
@@ -1919,6 +2080,7 @@ async function saveState(){
     }
 
     function showMainText(text){
+      resetImageZoom();
       els.mainVideo.pause();
       els.mainVideo.removeAttribute("src");
       els.mainVideo.load();
@@ -1935,6 +2097,7 @@ async function saveState(){
     }
 
     function showMainVideo(url, autoPlay = false){
+      resetImageZoom();
       hideAllMainPanels();
       els.mainVideo.style.display = "block";
       applyVideoLoopState();
@@ -1972,6 +2135,7 @@ async function saveState(){
         els.mainImage.alt = "";
         els.mainImage.style.display = "none";
       }
+      resetImageZoom();
     }
 
     function getShouldAutoplay(){
@@ -1994,6 +2158,7 @@ async function saveState(){
     }
 
     function renderMainStage(autoPlay = false){
+      resetImageZoom();
       // 항상 뷰어 하단 영역을 숨겨 하나의 화면만 표시합니다.
       if (els.viewerBottom) {
         els.viewerBottom.style.display = "none";
@@ -3309,10 +3474,13 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       const html = buildInfoHtml();
       els.infoScroll.innerHTML = html;
-      els.mobileSheetBody.innerHTML = html;
-
       bindDynamicInfoEvents(els.infoScroll);
-      bindDynamicInfoEvents(els.mobileSheetBody);
+
+      if (mobileSheetMode === "info"){
+        if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "학습 정보";
+        els.mobileSheetBody.innerHTML = html;
+        bindDynamicInfoEvents(els.mobileSheetBody);
+      }
 
       els.selectionModeBtn.classList.toggle("active", selectionModeActive);
       els.selectionExitBtn.style.display = selectionModeActive ? "inline-flex" : "none";
@@ -3323,7 +3491,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       if (selector){
         const newInput =
           els.infoScroll.querySelector(selector) ||
-          els.mobileSheetBody.querySelector(selector);
+          (mobileSheetMode === "info" ? els.mobileSheetBody.querySelector(selector) : null);
 
         if (newInput){
           newInput.focus();
@@ -3466,7 +3634,34 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       return false;
     }
 
-    function openMobileSheet(){
+    function renderInfoSheet(){
+      mobileSheetMode = "info";
+      if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "학습 정보";
+      const html = buildInfoHtml();
+      els.mobileSheetBody.innerHTML = html;
+      bindDynamicInfoEvents(els.mobileSheetBody);
+    }
+
+    function openCategorySheet(){
+      mobileSheetMode = "category";
+      if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "카테고리 선택";
+      const options = [...els.categorySelect.options].map(opt => ({ value: opt.value, label: opt.textContent || opt.value || "전체 카테고리" }));
+      els.mobileSheetBody.innerHTML = options.map(opt => `
+        <button class="mobile-list-btn ${opt.value === els.categorySelect.value ? "active" : ""}" data-category-value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</button>
+      `).join("");
+      [...els.mobileSheetBody.querySelectorAll('[data-category-value]')].forEach(btn => {
+        btn.addEventListener('click', () => {
+          els.categorySelect.value = btn.dataset.categoryValue || "";
+          updateQuickButtons();
+          applyFilter();
+          closeMobileSheet();
+        });
+      });
+      openMobileSheet("category");
+    }
+
+    function openMobileSheet(mode = "info"){
+      if (mode === "info") renderInfoSheet();
       els.mobileSheet.style.display = "block";
       requestAnimationFrame(() => {
         els.mobileSheet.classList.add("open");
@@ -3478,6 +3673,9 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       setTimeout(() => {
         if (!els.mobileSheet.classList.contains("open")){
           els.mobileSheet.style.display = "none";
+          if (mobileSheetMode !== "info"){
+            mobileSheetMode = "info";
+          }
         }
       }, 220);
     }
@@ -3718,6 +3916,10 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       if (els.categoryQuickBtn){
         els.categoryQuickBtn.addEventListener("click", () => {
+          if (isMobileViewport()){
+            openCategorySheet();
+            return;
+          }
           const options = [...els.categorySelect.options].map(opt => opt.value);
           if (typeof els.categorySelect.showPicker === "function"){
             els.categorySelect.showPicker();
@@ -3775,7 +3977,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       document.addEventListener("keydown", handleGlobalKeydown);
 
-      els.mobileInfoBtn.addEventListener("click", openMobileSheet);
+      els.mobileInfoBtn.addEventListener("click", () => openMobileSheet("info"));
       els.mobileSheetClose.addEventListener("click", closeMobileSheet);
 
       els.loadFileBtn.addEventListener("click", () => {
@@ -3838,12 +4040,14 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       }
 
       els.stage.addEventListener("touchstart", (e) => {
+        if (e.target === els.mainImage && isImageGestureActive()) return;
         if (!e.touches || !e.touches.length) return;
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
       }, {passive:true});
 
       els.stage.addEventListener("touchend", (e) => {
+        if (e.target === els.mainImage && isImageGestureActive()) return;
         if (!e.changedTouches || !e.changedTouches.length) return;
         const dx = e.changedTouches[0].clientX - touchStartX;
         const dy = e.changedTouches[0].clientY - touchStartY;
@@ -3860,11 +4064,12 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         el.addEventListener("touchstart", () => { moved = false; }, { passive:true });
         el.addEventListener("touchmove", () => { moved = true; }, { passive:true });
         el.addEventListener("touchend", (e) => {
-          if (moved) return;
+          if (moved || isImageGestureActive()) return;
           e.preventDefault();
           fn();
         }, { passive:false });
         el.addEventListener("click", (e) => {
+          if (isImageGestureActive()) return;
           e.preventDefault();
           fn();
         });
@@ -3872,6 +4077,96 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       bindTapZone(els.tapPrevZone, () => goPrev(getShouldAutoplay()));
       bindTapZone(els.tapNextZone, () => goNext(getShouldAutoplay()));
+
+      els.mainImage.addEventListener("load", () => {
+        applyImageZoom();
+      });
+
+      els.mainImage.addEventListener("dblclick", (e) => {
+        if (!canUseImageZoom()) return;
+        e.preventDefault();
+        if (imageZoom.scale > 1.01) resetImageZoom();
+        else zoomImageAt(2.2, e.clientX, e.clientY);
+      });
+
+      els.mainImage.addEventListener("touchstart", (e) => {
+        if (!canUseImageZoom()) return;
+        if (e.touches.length === 2){
+          imageZoom.pinching = true;
+          imageZoom.panning = false;
+          imageZoom.moved = true;
+          imageZoom.startDistance = touchDistance(e.touches[0], e.touches[1]);
+          imageZoom.startScale = imageZoom.scale;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.touches.length === 1 && imageZoom.scale > 1.01){
+          imageZoom.panning = true;
+          imageZoom.pinching = false;
+          imageZoom.moved = false;
+          imageZoom.startX = e.touches[0].clientX;
+          imageZoom.startY = e.touches[0].clientY;
+          imageZoom.startOffsetX = imageZoom.x;
+          imageZoom.startOffsetY = imageZoom.y;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, { passive:false });
+
+      els.mainImage.addEventListener("touchmove", (e) => {
+        if (!canUseImageZoom()) return;
+        if (e.touches.length === 2 && imageZoom.pinching){
+          const dist = touchDistance(e.touches[0], e.touches[1]);
+          if (imageZoom.startDistance > 0){
+            imageZoom.scale = clamp(imageZoom.startScale * (dist / imageZoom.startDistance), imageZoom.min, imageZoom.max);
+            applyImageZoom();
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.touches.length === 1 && imageZoom.panning && imageZoom.scale > 1.01){
+          const dx = e.touches[0].clientX - imageZoom.startX;
+          const dy = e.touches[0].clientY - imageZoom.startY;
+          imageZoom.moved = imageZoom.moved || Math.abs(dx) > 3 || Math.abs(dy) > 3;
+          imageZoom.x = imageZoom.startOffsetX + dx;
+          imageZoom.y = imageZoom.startOffsetY + dy;
+          applyImageZoom();
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, { passive:false });
+
+      els.mainImage.addEventListener("touchend", (e) => {
+        if (!canUseImageZoom()) return;
+        if (imageZoom.pinching && e.touches.length < 2){
+          imageZoom.pinching = false;
+          if (imageZoom.scale <= 1.02) resetImageZoom();
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (imageZoom.panning && e.touches.length === 0){
+          imageZoom.panning = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.changedTouches && e.changedTouches.length === 1 && !imageZoom.moved){
+          const now = Date.now();
+          const t = e.changedTouches[0];
+          if (now - imageZoom.lastTapAt < 300){
+            if (imageZoom.scale > 1.01) resetImageZoom();
+            else zoomImageAt(2.2, t.clientX, t.clientY);
+            imageZoom.lastTapAt = 0;
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          imageZoom.lastTapAt = now;
+        }
+      }, { passive:false });
 
       els.mainVideo.addEventListener("error", () => {
         showOverlay("영상 자료를 불러오지 못했습니다", 1600);
@@ -3904,6 +4199,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       });
 
       window.addEventListener("resize", () => {
+        applyImageZoom();
         updateQuickButtons();
         updateFirebaseStatus(els.firebaseStatus?.title || els.firebaseStatus?.textContent || "대기중",
           els.firebaseStatus?.classList.contains("error") ? "error" : (els.firebaseStatus?.classList.contains("ok") ? "ok" : "normal"));
@@ -3912,6 +4208,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       setupDragAndDrop();
       updatePlaybackButton();
       updateQuickButtons();
+      updateStageGestureState();
     }
 
     function initEmptyState(){
