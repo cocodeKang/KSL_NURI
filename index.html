@@ -1,0 +1,3682 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>수어 학습 사이트</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b0d12;
+      --panel:#121722;
+      --panel-2:#1a2230;
+      --line:#2b3445;
+      --text:#edf2ff;
+      --sub:#a9b6cc;
+      --accent:#6ea8ff;
+      --accent-2:#8ef0c2;
+      --warning:#ffc76e;
+      --danger:#ff7b7b;
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --radius:18px;
+      --header-h:176px;
+      --footer-h:116px;
+    }
+
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      width:100%;
+      height:100%;
+      background:var(--bg);
+      color:var(--text);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+      overflow:hidden;
+    }
+
+    body{
+      height:100vh;
+      height:100dvh;
+    }
+
+    button,select,input{
+      font:inherit;
+    }
+
+    .app{
+      display:grid;
+      grid-template-rows: var(--header-h) 1fr var(--footer-h);
+      height:100%;
+      width:100%;
+    }
+
+    .header{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      padding:10px 14px;
+      border-bottom:1px solid var(--line);
+      background:rgba(10,13,18,.94);
+      backdrop-filter:blur(10px);
+      position:relative;
+      z-index:50;
+    }
+
+    .header-row{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+      flex-wrap:wrap;
+    }
+
+    .search-wrap{
+      position:relative;
+      flex:1;
+      min-width:220px;
+    }
+
+    .search{
+      width:100%;
+      height:42px;
+      border:none;
+      outline:none;
+      border-radius:12px;
+      padding:0 14px;
+      background:#fff;
+      color:#111;
+      font-size:15px;
+    }
+
+    .search-suggestions{
+      position:absolute;
+      top:calc(100% + 6px);
+      left:0;
+      right:0;
+      background:#fff;
+      color:#111;
+      border-radius:14px;
+      box-shadow:0 18px 40px rgba(0,0,0,.32);
+      overflow:auto;
+      display:none;
+      max-height:min(62vh, 520px);
+      z-index:9999;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+      touch-action:pan-y;
+    }
+
+    .search-suggestions.open{
+      display:block;
+    }
+
+    .suggestion-item{
+      padding:10px 12px;
+      border-bottom:1px solid #eceff4;
+      cursor:pointer;
+      line-height:1.45;
+      font-size:14px;
+      touch-action:pan-y manipulation;
+      user-select:none;
+      -webkit-tap-highlight-color:transparent;
+    }
+
+    .suggestion-item:last-child{
+      border-bottom:none;
+    }
+
+    .suggestion-item:hover,
+    .suggestion-item.active{
+      background:#eef5ff;
+    }
+
+    .suggestion-sub{
+      display:block;
+      font-size:12px;
+      color:#56657d;
+      margin-top:4px;
+    }
+
+    .scope-select,
+    .category-select{
+      height:42px;
+      min-width:132px;
+      border:none;
+      outline:none;
+      border-radius:12px;
+      padding:0 12px;
+      background:#fff;
+      color:#111;
+      cursor:pointer;
+      font-size:14px;
+    }
+
+    .count-badge{
+      white-space:nowrap;
+      color:var(--sub);
+      font-size:13px;
+      padding:0 4px;
+      /* 고정 폭을 부여하여 자릿수 증가로 인해 인터페이스가 변경되지 않도록 함 */
+      min-width:72px;
+      display:inline-flex;
+      justify-content:center;
+      align-items:center;
+    }
+
+
+.sync-room-input{
+  height:42px;
+  min-width:150px;
+  border:none;
+  outline:none;
+  border-radius:12px;
+  padding:0 12px;
+  background:#fff;
+  color:#111;
+  font-size:14px;
+  flex:1 1 180px;
+}
+
+.firebase-status{
+  min-height:42px;
+  padding:0 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:var(--panel-2);
+  color:var(--sub);
+  font-size:13px;
+  display:inline-flex;
+  align-items:center;
+  white-space:nowrap;
+}
+
+.firebase-status.ok{
+  color:#dffbe8;
+  border-color:#2f855a;
+  background:rgba(47,133,90,.18);
+}
+
+.firebase-status.error{
+  color:#ffdada;
+  border-color:#b84b4b;
+  background:rgba(184,75,75,.16);
+}
+
+    .icon-btn,.mode-btn,.nav-btn,.playback-btn,.select-btn,.link-btn{
+      border:none;
+      outline:none;
+      cursor:pointer;
+      color:var(--text);
+      background:var(--panel-2);
+      border:1px solid var(--line);
+      transition:.15s ease;
+      border-radius:12px;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .icon-btn:hover,.mode-btn:hover,.nav-btn:hover,.playback-btn:hover,.select-btn:hover,.link-btn:hover{
+      transform:translateY(-1px);
+      border-color:#45618d;
+    }
+
+    .icon-btn,.playback-btn,.select-btn,.link-btn{
+      height:42px;
+      min-width:42px;
+      padding:0 12px;
+      white-space:nowrap;
+      font-size:14px;
+    }
+
+    .select-btn.active,
+    .playback-btn.active{
+      background:linear-gradient(180deg,#5f4d16,#47390f);
+      border-color:var(--warning);
+      color:#fff3d4;
+    }
+
+    .main{
+      display:grid;
+      grid-template-columns:1.35fr .9fr;
+      gap:14px;
+      padding:14px;
+      min-height:0;
+      overflow:hidden;
+    }
+
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      min-height:0;
+      overflow:hidden;
+    }
+
+    .viewer{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+      position:relative;
+    }
+
+    .stage{
+      flex:1;
+      min-height:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#000;
+      position:relative;
+      overflow:hidden;
+      touch-action:pan-y pinch-zoom;
+    }
+
+    video,
+    .main-image,
+    .main-text{
+      width:100%;
+      height:100%;
+      display:none;
+      background:#000;
+    }
+
+    video,
+    .main-image{
+      object-fit:contain;
+    }
+
+    .main-image{
+      user-select:none;
+      -webkit-user-drag:none;
+    }
+
+    .main-text{
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:clamp(18px,4vw,64px);
+      text-align:center;
+      font-weight:800;
+      line-height:1.5;
+      white-space:pre-wrap;
+      word-break:keep-all;
+      color:#f7f9ff;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(110,168,255,.18), transparent 28%),
+        radial-gradient(circle at 82% 28%, rgba(142,240,194,.12), transparent 28%),
+        linear-gradient(180deg, #0b0f17 0%, #101725 100%);
+      font-size:clamp(28px,4.2vw,68px);
+    }
+
+    .overlay-msg{
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform:translate(-50%,-50%);
+      background:rgba(0,0,0,.74);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.15);
+      padding:12px 16px;
+      border-radius:12px;
+      font-size:16px;
+      z-index:60;
+      display:none;
+      text-align:center;
+      max-width:min(84vw, 900px);
+      line-height:1.7;
+      white-space:pre-wrap;
+      word-break:keep-all;
+      box-shadow:0 10px 30px rgba(0,0,0,.4);
+    }
+
+    .drop-hint{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,.45);
+      color:#e8f0ff;
+      font-size:18px;
+      font-weight:700;
+      z-index:55;
+      pointer-events:none;
+      opacity:0;
+      transition:opacity .15s ease;
+      text-align:center;
+      padding:24px;
+      line-height:1.6;
+    }
+
+    .drop-hint.show{
+      opacity:1;
+    }
+
+    .viewer-bottom{
+      /* hide bottom preview images in non-fullscreen to only show a single active panel */
+      display:none;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      padding:10px;
+      border-top:1px solid var(--line);
+      background:var(--panel);
+    }
+
+    .img-box{
+      min-height:126px;
+      background:#0d1118;
+      border:1px solid var(--line);
+      border-radius:14px;
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+    }
+
+    .img-box img{
+      max-width:100%;
+      max-height:100%;
+      object-fit:contain;
+      display:block;
+    }
+
+    .img-label{
+      position:absolute;
+      left:10px;
+      top:10px;
+      font-size:12px;
+      color:#d7e2f7;
+      background:rgba(0,0,0,.45);
+      border:1px solid rgba(255,255,255,.12);
+      padding:4px 8px;
+      border-radius:999px;
+    }
+
+    .info{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+
+    .info-scroll{
+      flex:1;
+      overflow:auto;
+      padding:18px 18px 14px;
+      -webkit-overflow-scrolling:touch;
+    }
+
+    .info-scroll::-webkit-scrollbar{width:10px;}
+    .info-scroll::-webkit-scrollbar-thumb{
+      background:#2a3445;
+      border-radius:999px;
+      border:2px solid transparent;
+      background-clip:padding-box;
+    }
+
+    .title-row{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      justify-content:space-between;
+      margin-bottom:10px;
+    }
+
+    .word{
+      font-size:30px;
+      font-weight:800;
+      line-height:1.15;
+      margin:0;
+      word-break:keep-all;
+    }
+
+    .meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:12px;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      min-height:30px;
+      padding:0 10px;
+      border-radius:999px;
+      background:var(--panel-2);
+      border:1px solid var(--line);
+      color:var(--sub);
+      font-size:13px;
+    }
+
+    .section{
+      margin-top:14px;
+      padding:14px;
+      border-radius:16px;
+      background:var(--panel);
+      border:1px solid var(--line);
+    }
+
+    .section h3{
+      margin:0 0 10px;
+      font-size:15px;
+      color:#cfe0ff;
+    }
+
+    .section .content{
+      font-size:15px;
+      line-height:1.7;
+      color:#f4f7ff;
+      word-break:keep-all;
+      white-space:pre-wrap;
+    }
+
+    .selection-panel{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .selection-top{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .selection-search-wrap{
+      position:relative;
+      flex:1;
+      min-width:220px;
+    }
+
+    .selection-search{
+      width:100%;
+      height:40px;
+      border:none;
+      outline:none;
+      border-radius:12px;
+      padding:0 12px;
+      background:#fff;
+      color:#111;
+      font-size:14px;
+    }
+
+    .selection-suggestions{
+      position:absolute;
+      top:calc(100% + 6px);
+      left:0;
+      right:0;
+      background:#fff;
+      color:#111;
+      border-radius:14px;
+      box-shadow:0 18px 40px rgba(0,0,0,.32);
+      overflow:auto;
+      display:none;
+      max-height:320px;
+      z-index:9999;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+      touch-action:pan-y;
+    }
+
+    .selection-suggestions.open{
+      display:block;
+    }
+
+    .preset-row{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .preset-input,
+    .preset-select{
+      height:38px;
+      border:none;
+      outline:none;
+      border-radius:12px;
+      padding:0 10px;
+      background:#fff;
+      color:#111;
+      font-size:14px;
+    }
+
+    .preset-input{
+      min-width:140px;
+      flex:1;
+    }
+
+    .preset-select{
+      min-width:140px;
+      flex:1;
+    }
+
+    .selected-chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      min-height:22px;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      background:#20324a;
+      border:1px solid #3b5d88;
+      color:#edf4ff;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:13px;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color:transparent;
+    }
+
+    .chip:active{
+      transform:scale(.98);
+      background:#294061;
+    }
+
+    .chip button{
+      border:none;
+      background:none;
+      color:#cfe0ff;
+      cursor:pointer;
+      font-size:14px;
+      padding:0;
+      line-height:1;
+      pointer-events:none;
+    }
+
+    .footer{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 14px;
+      border-top:1px solid var(--line);
+      background:rgba(10,13,18,.94);
+      backdrop-filter:blur(10px);
+    }
+
+    .nav-group,.mode-group,.extra-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+      flex-wrap:wrap;
+    }
+
+    .nav-btn{
+      min-width:56px;
+      height:46px;
+      border-radius:14px;
+      font-size:18px;
+      padding:0 14px;
+    }
+
+    .mode-btn{
+      min-width:42px;
+      height:46px;
+      border-radius:14px;
+      padding:0 10px;
+      font-weight:700;
+      font-size:14px;
+    }
+
+    .mode-btn.active{
+      background:linear-gradient(180deg, #2b4f8d, #224073);
+      border-color:#6ea8ff;
+    }
+
+    .status{
+      /* 설명 텍스트를 항상 숨깁니다. 홈 버튼과 모드 버튼 사이에 여백이 생기지 않도록 display:none 처리 */
+      display:none;
+      color:var(--sub);
+      font-size:13px;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      text-align:center;
+      flex:1;
+    }
+
+    .empty{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100%;
+      text-align:center;
+      color:var(--sub);
+      padding:20px;
+      line-height:1.8;
+    }
+
+    .mobile-sheet{
+      position:fixed;
+      left:0;
+      right:0;
+      bottom:72px;
+      max-height:60vh;
+      background:#0f141d;
+      border-top-left-radius:20px;
+      border-top-right-radius:20px;
+      border:1px solid var(--line);
+      box-shadow:0 -10px 30px rgba(0,0,0,.35);
+      transform:translateY(110%);
+      transition:.22s ease;
+      z-index:160;
+      overflow:hidden;
+      display:none;
+    }
+
+    .mobile-sheet.open{
+      transform:translateY(0);
+    }
+
+    .mobile-sheet-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      padding:12px 14px;
+      border-bottom:1px solid var(--line);
+      background:#111826;
+    }
+
+    .mobile-sheet-body{
+      overflow:auto;
+      max-height:calc(60vh - 56px);
+      padding:12px 14px 18px;
+    }
+
+    .sheet-handle{
+      width:54px;
+      height:5px;
+      background:#47546a;
+      border-radius:999px;
+      margin:0 auto 8px;
+    }
+
+    .desktop-only{display:inline-flex;}
+    .mobile-only{display:none;}
+
+    @media (max-width: 1180px){
+      .main{
+        grid-template-columns:1fr;
+      }
+      .info{
+        display:none;
+      }
+      .viewer-bottom{
+        display:none;
+      }
+      .desktop-only{display:none;}
+      .mobile-only{display:inline-flex;}
+    }
+
+    @media (max-width: 760px){
+      :root{
+        --header-h:210px;
+        --footer-h:214px;
+      }
+
+      .header{
+        padding:10px 10px 8px;
+      }
+
+      .header-row{
+        gap:6px;
+      }
+
+      .search-wrap{
+        min-width:100%;
+      }
+
+      .scope-select,
+      .category-select{
+        flex:1;
+        min-width:120px;
+      }
+
+      .main{
+        padding:8px;
+        gap:8px;
+      }
+
+      .footer{
+        padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+        align-items:flex-start;
+        flex-direction:column;
+      }
+
+      .nav-group,.mode-group,.extra-group{
+        width:100%;
+      }
+
+      .mode-group{
+        display:grid;
+        grid-template-columns:repeat(4, minmax(0,1fr));
+        gap:8px;
+      }
+
+      .mode-btn{
+        min-width:0;
+        width:100%;
+        height:42px;
+      }
+
+      .nav-btn{
+        flex:1;
+        min-width:0;
+        height:44px;
+      }
+
+      .icon-btn,.playback-btn,.select-btn,.link-btn{
+        height:40px;
+        min-width:40px;
+        padding:0 10px;
+      }
+
+      /* 모바일에서 상태 텍스트를 표시하지 않음 */
+      .status{
+        display:none;
+      }
+      /* 모바일에서 풋터 간격을 줄여 홈과 모드 버튼 사이 여백을 최소화 */
+      .footer{
+        gap:4px;
+      }
+
+      .main-text{
+        font-size:clamp(24px, 8vw, 42px);
+        padding:22px;
+      }
+
+      .word{
+        font-size:24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-row">
+        <div class="search-wrap">
+          <input id="searchInput" class="search" type="text" placeholder="표제어 검색" autocomplete="off" />
+          <div id="searchSuggestions" class="search-suggestions"></div>
+        </div>
+
+        <select id="searchScopeSelect" class="scope-select" title="검색 범위">
+          <option value="word" selected>표제어검색</option>
+          <option value="example">용례검색</option>
+          <option value="all">통합검색</option>
+        </select>
+
+        <select id="categorySelect" class="category-select" title="카테고리 선택">
+          <option value="">전체 카테고리</option>
+        </select>
+
+        <div id="countBadge" class="count-badge">0 / 0</div>
+      </div>
+
+      <div class="header-row">
+        <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
+        <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일 불러오기</button>
+        <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
+        <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
+        <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
+        <!-- 검색 모드를 토글하는 버튼: 부분검색/일치검색 -->
+        <button id="exactMatchBtn" class="select-btn" title="일치검색 전환">일치검색</button>
+        <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
+        <!-- 모바일에서 재생 모드 버튼을 상단에 배치 -->
+        <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
+
+        <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="실시간 방 이름" value="main" />
+        <button id="syncRoomApplyBtn" class="icon-btn" title="Firebase 실시간 연결">실시간 연결</button>
+        <button id="pushCloudBtn" class="icon-btn" title="현재 데이터를 Firebase에 업로드">클라우드 업로드</button>
+        <div id="firebaseStatus" class="firebase-status">Firebase 준비중</div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="card viewer">
+        <div id="stage" class="stage">
+          <video id="mainVideo" controls playsinline preload="metadata"></video>
+          <img id="mainImage" class="main-image" alt="학습 이미지" />
+          <div id="mainText" class="main-text"></div>
+          <div id="overlayMsg" class="overlay-msg"></div>
+          <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
+        </div>
+
+        <div class="viewer-bottom desktop-only" style="display:none;">
+          <div class="img-box">
+            <span class="img-label">표제어 수어문자</span>
+            <img id="wordSignImg" alt="표제어 수어문자" />
+          </div>
+          <div class="img-box">
+            <span class="img-label">표제어 수형그림</span>
+            <img id="handShapeImg" alt="표제어 수형그림" />
+          </div>
+        </div>
+      </section>
+
+      <aside class="card info desktop-only">
+        <div id="infoScroll" class="info-scroll"></div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <div class="nav-group">
+        <button id="prevBtn" class="nav-btn" title="이전">◀</button>
+        <button id="nextBtn" class="nav-btn" title="다음">▶</button>
+        <!-- 추가된 홈 버튼: 처음 화면으로 돌아가기 -->
+        <button id="homeBtn" class="nav-btn" title="처음 화면으로 돌아가기">홈</button>
+      </div>
+
+      <div id="statusText" class="status">기본 파일 자동 불러오기 시도 중...</div>
+
+      <div class="mode-group">
+        <!-- 버튼 순서를 Q W E G / A S D R 로 재배열 -->
+        <button class="mode-btn active" data-mode="Q" title="표제어 텍스트">Q</button>
+        <button class="mode-btn" data-mode="W" title="표제어 영상">W</button>
+        <button class="mode-btn" data-mode="E" title="표제어 수어문자">E</button>
+        <button class="mode-btn" data-mode="G" title="표제어 수형그림">G</button>
+        <button class="mode-btn" data-mode="A" title="용례번역문 텍스트">A</button>
+        <button class="mode-btn" data-mode="S" title="용례번역문 영상">S</button>
+        <button class="mode-btn" data-mode="D" title="용례번역문 수어문자">D</button>
+        <!-- 추가된 R 버튼: 전체 순서 섞기 -->
+        <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
+      </div>
+
+      <!-- 데스크톱 환경에서는 재생 모드 버튼을 하단에 유지 -->
+      <div class="extra-group desktop-only">
+        <button id="playbackBtnDesktop" class="playback-btn" title="재생모드 전환">재생: 수동</button>
+      </div>
+    </footer>
+  </div>
+
+  <div id="mobileSheet" class="mobile-sheet">
+    <div class="mobile-sheet-header">
+      <div style="width:100%">
+        <div class="sheet-handle"></div>
+        <strong>학습 정보</strong>
+      </div>
+      <button id="mobileSheetClose" class="icon-btn" style="height:38px;min-width:38px;">닫기</button>
+    </div>
+    <div id="mobileSheetBody" class="mobile-sheet-body"></div>
+  </div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+  import { getDatabase, ref as dbRef, get as dbGet, set as dbSet, onValue } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
+  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
+
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC6K7dRqHirEdSsddnZ85vY4QOUGdLVto0",
+    authDomain: "ksl-nuri.firebaseapp.com",
+    projectId: "ksl-nuri",
+    storageBucket: "ksl-nuri.firebasestorage.app",
+    messagingSenderId: "454023041529",
+    appId: "1:454023041529:web:fd2eab23671b9d0969ed28",
+    measurementId: "G-W1Q9968QLX"
+  };
+
+  const FIREBASE_ROOM_STORAGE_KEY = "ksl-nuri-sync-room";
+  const FIREBASE_DEFAULT_ROOM = "main";
+  const FIREBASE_STORAGE_ROOT = "ksl-nuri-shared";
+  const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
+
+  const BASE_URL = "https://ksldict.korean.go.kr";
+  const DEFAULT_FILENAME = "한국수어누리사전_결과_1773871858458.csv.xlsx";
+
+    const IDB_DB_NAME = "ksl-learning-db";
+    const IDB_STORE = "kv";
+
+    const CACHE_KEYS = {
+      DATA: "data",
+      META: "meta",
+      STATE: "state",
+      PRESETS: "selection-presets"
+    };
+
+    const MODES = {
+      Q: "표제어 텍스트",
+      W: "표제어 영상",
+      E: "표제어 수어문자",
+      A: "용례번역문 텍스트",
+      S: "용례번역문 영상",
+      D: "용례번역문 수어문자",
+      G: "표제어 수형그림"
+    };
+
+    const PLAYBACK_MODES = ["MANUAL", "AUTO", "LOOP", "CONT"];
+    const PLAYBACK_LABELS = {
+      MANUAL: "재생: 수동",
+      AUTO: "재생: 자동",
+      LOOP: "재생: 반복",
+      CONT: "재생: 연속"
+    };
+
+    const els = {
+      searchInput: document.getElementById("searchInput"),
+      searchSuggestions: document.getElementById("searchSuggestions"),
+      searchScopeSelect: document.getElementById("searchScopeSelect"),
+      categorySelect: document.getElementById("categorySelect"),
+      clearBtn: document.getElementById("clearBtn"),
+      countBadge: document.getElementById("countBadge"),
+      mainVideo: document.getElementById("mainVideo"),
+      mainImage: document.getElementById("mainImage"),
+      mainText: document.getElementById("mainText"),
+      wordSignImg: document.getElementById("wordSignImg"),
+      handShapeImg: document.getElementById("handShapeImg"),
+      infoScroll: document.getElementById("infoScroll"),
+      statusText: document.getElementById("statusText"),
+      prevBtn: document.getElementById("prevBtn"),
+      nextBtn: document.getElementById("nextBtn"),
+      overlayMsg: document.getElementById("overlayMsg"),
+      mobileInfoBtn: document.getElementById("mobileInfoBtn"),
+      mobileSheet: document.getElementById("mobileSheet"),
+      mobileSheetBody: document.getElementById("mobileSheetBody"),
+      mobileSheetClose: document.getElementById("mobileSheetClose"),
+      stage: document.getElementById("stage"),
+      modeBtns: [...document.querySelectorAll(".mode-btn[data-mode]")],
+      fileInput: document.getElementById("fileInput"),
+      loadFileBtn: document.getElementById("loadFileBtn"),
+      dropHint: document.getElementById("dropHint"),
+      // 여러 개의 재생 버튼을 지원하도록 배열로 수집
+      playbackBtns: Array.from(document.querySelectorAll(".playback-btn")),
+      selectionModeBtn: document.getElementById("selectionModeBtn"),
+      selectionExitBtn: document.getElementById("selectionExitBtn"),
+      exactMatchBtn: document.getElementById("exactMatchBtn"),
+      syncRoomInput: document.getElementById("syncRoomInput"),
+      syncRoomApplyBtn: document.getElementById("syncRoomApplyBtn"),
+      pushCloudBtn: document.getElementById("pushCloudBtn"),
+      firebaseStatus: document.getElementById("firebaseStatus"),
+      // 새로 추가된 버튼 요소들
+      shuffleBtn: document.getElementById("shuffleBtn"),
+      homeBtn: document.getElementById("homeBtn")
+      ,
+      // 뷰어 하단의 이미지 박스 컨테이너 (좌측 하나만 보여주기 위해 숨김 처리)
+      viewerBottom: document.querySelector(".viewer-bottom")
+    };
+
+    let rows = [];
+    let groups = [];
+    let examplePool = [];
+    let filteredGroups = [];
+    let filteredExamplePool = [];
+
+    let currentMode = "Q";
+    let currentIndex = 0;
+    let currentPoolIndex = 0;
+    let playbackMode = "MANUAL";
+
+    let selectionModeActive = false;
+
+    // 검색 모드: false = 부분검색, true = 일치검색
+    let exactMatch = false;
+    // 선택 학습에 저장된 표제어 그룹의 ID 목록
+    let selectedGroupIds = [];
+    let selectionSearch = "";
+    let selectionFocusedIndex = -1;
+    let selectionPresets = {};
+    let presetNameValue = "";
+    let selectedPresetName = "";
+
+    // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
+    let duplicateWords = new Set();
+
+    let searchFocusedIndex = -1;
+    let searchInputTimer = null;
+    let searchRenderRaf = 0;
+    let groupById = new Map();
+    let groupsByCategory = new Map();
+    let examplesByCategory = new Map();
+    let wordSuggestionIndex = [];
+    let exampleSuggestionIndex = [];
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let dragCounter = 0;
+    let currentSourceName = "";
+
+    let firebaseApp = null;
+    let firebaseAuth = null;
+    let firebaseDb = null;
+    let firebaseStorage = null;
+    let firebaseUid = "";
+    let firebaseReady = false;
+    let firebaseStateUnsub = null;
+    let firebaseMetaUnsub = null;
+    let firebaseConnectionUnsub = null;
+    let syncRoomKey = sanitizeRoomKey(localStorage.getItem(FIREBASE_ROOM_STORAGE_KEY) || FIREBASE_DEFAULT_ROOM);
+    let remoteDatasetAvailable = false;
+    let lastUploadedDatasetHash = "";
+    let lastAppliedRemoteDatasetVersion = "";
+    let lastPushedStateSignature = "";
+    let lastAppliedRemoteStateSignature = "";
+    let pendingFirebaseStateTimer = null;
+    let pendingFirebaseDatasetTimer = null;
+    let isApplyingRemoteState = false;
+    let isApplyingRemoteDataset = false;
+
+    let abLoopStart = null;
+    let abLoopEnd = null;
+    let pendingRestoreTime = null;
+    let currentVideoTime = 0;
+    const FRAME_STEP = 1 / 30;
+
+    function fallbackKey(key){
+      return `${LOCAL_FALLBACK_PREFIX}${key}`;
+    }
+
+    function safeLocalStorageSet(key, value){
+      try {
+        localStorage.setItem(key, value);
+        return true;
+      } catch (err){
+        console.warn("localStorage 저장 실패", err);
+        return false;
+      }
+    }
+
+    function safeLocalStorageGet(key){
+      try {
+        return localStorage.getItem(key);
+      } catch (err){
+        console.warn("localStorage 읽기 실패", err);
+        return null;
+      }
+    }
+
+    function withTimeout(promise, ms, label = "작업"){
+      let timer = null;
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} 시간 초과`)), ms);
+        })
+      ]).finally(() => {
+        clearTimeout(timer);
+      });
+    }
+
+    function openIDB(){
+      return new Promise((resolve, reject) => {
+        if (typeof indexedDB === "undefined"){
+          reject(new Error("IndexedDB 미지원"));
+          return;
+        }
+
+        const req = indexedDB.open(IDB_DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)){
+            db.createObjectStore(IDB_STORE);
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error("IndexedDB 오류"));
+        req.onblocked = () => reject(new Error("IndexedDB blocked"));
+      });
+    }
+
+    async function idbSet(key, value){
+      try{
+        const db = await withTimeout(openIDB(), 2500, "IndexedDB 열기");
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(value, key);
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); reject(tx.error); };
+        });
+      } catch (err){
+        console.warn("IndexedDB 저장 실패 - localStorage 대체 사용", err);
+        safeLocalStorageSet(fallbackKey(key), JSON.stringify(value));
+      }
+    }
+
+    async function idbGet(key){
+      try{
+        const db = await withTimeout(openIDB(), 2500, "IndexedDB 열기");
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const req = tx.objectStore(IDB_STORE).get(key);
+          req.onsuccess = () => { db.close(); resolve(req.result); };
+          req.onerror = () => { db.close(); reject(req.error); };
+        });
+      } catch (err){
+        console.warn("IndexedDB 읽기 실패 - localStorage 대체 사용", err);
+        const raw = safeLocalStorageGet(fallbackKey(key));
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+    }
+
+    function showOverlay(message, ms = 1200){
+      els.overlayMsg.textContent = message;
+      els.overlayMsg.style.display = "block";
+      clearTimeout(showOverlay._timer);
+      showOverlay._timer = setTimeout(() => {
+        els.overlayMsg.style.display = "none";
+      }, ms);
+    }
+
+    function safe(v){
+      return (v ?? "").toString().trim();
+    }
+
+    /**
+     * 한글 호환 자모(compatibility jamo)로 분해된 문자열을 정규화하여
+     * 완성형 한글(NFC)로 조합합니다. 예: 'ㅂㅕㄹ' → '별'.
+     * 자모의 배열이 올바른 초성-중성-(종성) 조합을 이루지 못할 경우에는
+     * 해당 문자를 그대로 반환합니다.
+     * @param {string} str 입력 문자열
+     * @returns {string} 조합된 문자열
+     */
+    function normalizeHangulString(str){
+      if (!str) return "";
+      // 한글 초성, 중성, 종성 표. 초성과 종성은 일부가 겹칩니다.
+      const CHO = [
+        "ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"
+      ];
+      const JUNG = [
+        "ㅏ","ㅐ","ㅑ","ㅒ","ㅓ","ㅔ","ㅕ","ㅖ","ㅗ","ㅘ","ㅙ","ㅚ","ㅛ","ㅜ","ㅝ","ㅞ","ㅟ","ㅠ","ㅡ","ㅢ","ㅣ"
+      ];
+      // 종성 목록에는 빈 문자열(없음) 자리도 포함되어야 합니다.
+      const JONG = [
+        "", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"
+      ];
+      let result = "";
+      let i = 0;
+      const chars = Array.from(str);
+      while (i < chars.length){
+        const ch = chars[i];
+        const choIndex = CHO.indexOf(ch);
+        if (choIndex >= 0 && i + 1 < chars.length){
+          const next = chars[i + 1];
+          const jungIndex = JUNG.indexOf(next);
+          if (jungIndex >= 0){
+            // 기본적으로 종성은 없음(0)
+            let jongIndex = 0;
+            // 세 번째 자모를 종성으로 사용할 수 있는지 확인
+            if (i + 2 < chars.length){
+              const possibleJong = chars[i + 2];
+              const pjIdx = JONG.indexOf(possibleJong);
+              if (pjIdx > 0){
+                jongIndex = pjIdx;
+                i += 3;
+              } else {
+                i += 2;
+              }
+            } else {
+              i += 2;
+            }
+            const code = 0xac00 + (choIndex * 21 * 28) + (jungIndex * 28) + jongIndex;
+            result += String.fromCharCode(code);
+            continue;
+          }
+        }
+        // 자모 조합이 아니면 그대로 추가
+        result += ch;
+        i++;
+      }
+      return result;
+    }
+
+    function normalizeUrl(url){
+      const v = safe(url);
+      if (!v) return "";
+      if (/^https?:\/\//i.test(v)) return v;
+      if (v.startsWith("/")) return BASE_URL + v;
+      return v;
+    }
+
+    function escapeHtml(str){
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function isExampleMode(mode = currentMode){
+      return mode === "A" || mode === "S" || mode === "D";
+    }
+
+    function isVideoMode(mode = currentMode){
+      return mode === "W" || mode === "S";
+    }
+
+    function isTypingContext(){
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      return tag === "input" || tag === "textarea" || tag === "select";
+    }
+
+    function shuffleArray(arr){
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function parseCSV(text){
+      const rows = [];
+      let row = [];
+      let cell = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++){
+        const ch = text[i];
+        const next = text[i + 1];
+
+        if (ch === '"'){
+          if (inQuotes && next === '"'){
+            cell += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === "," && !inQuotes){
+          row.push(cell);
+          cell = "";
+        } else if ((ch === "\n" || ch === "\r") && !inQuotes){
+          if (ch === "\r" && next === "\n") i++;
+          row.push(cell);
+          rows.push(row);
+          row = [];
+          cell = "";
+        } else {
+          cell += ch;
+        }
+      }
+
+      if (cell.length || row.length){
+        row.push(cell);
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    function csvToObjects(text){
+      const matrix = parseCSV(text);
+      if (!matrix.length) return [];
+      const headers = matrix[0].map(h => safe(h).replace(/^\uFEFF/, ""));
+      return matrix.slice(1)
+        .filter(r => r.some(c => safe(c)))
+        .map(r => {
+          const obj = {};
+          headers.forEach((h, i) => obj[h] = safe(r[i]));
+          return obj;
+        });
+    }
+
+    function xlsxArrayBufferToObjects(buffer){
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      return XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    }
+
+    async function parseFileByNameAndBuffer(name, buffer){
+      const lower = name.toLowerCase();
+      if (lower.endsWith(".xlsx")){
+        if (typeof XLSX === "undefined"){
+          throw new Error("XLSX 라이브러리를 불러오지 못했습니다.");
+        }
+        return xlsxArrayBufferToObjects(buffer);
+      }
+      const text = new TextDecoder("utf-8").decode(buffer);
+      return csvToObjects(text);
+    }
+
+    function pickValue(obj, keys){
+      for (const key of keys){
+        if (safe(obj[key])) return safe(obj[key]);
+      }
+      return "";
+    }
+
+    function buildSourceUrl(id, rawUrl){
+      const url = normalizeUrl(rawUrl);
+      if (url) return url;
+      if (id) return `${BASE_URL}/kslserv/sign/signWord.do?signWordId=${id}`;
+      return "";
+    }
+
+    function buildGroups(dataRows){
+      const byId = new Map();
+
+      dataRows.forEach(r => {
+        const id = pickValue(r, ["ID", "id", "Id"]);
+        const word = pickValue(r, ["표제어", "word", "단어", "표현"]);
+        if (!id || !word) return;
+
+        if (!byId.has(id)){
+          const wordNorm = normalizeHangulString(word).toLowerCase();
+          byId.set(id, {
+            id,
+            word,
+            wordNorm,
+            wordSearchBlob: wordNorm,
+            category: pickValue(r, ["의미범주", "카테고리", "category"]),
+            sourceUrl: buildSourceUrl(id, pickValue(r, ["원문", "원문페이지", "sourceUrl", "url"])),
+            wordVideo: normalizeUrl(pickValue(r, ["표제어영상", "표제어 영상", "wordVideo", "영상"])),
+            wordSignImage: normalizeUrl(pickValue(r, ["표제어수어문자", "표제어 수어문자", "wordSignImage"])),
+            handShapeImage: normalizeUrl(pickValue(r, ["표제어수형그림", "표제어 수형그림", "handShapeImage", "수형그림"])),
+            examples: [],
+            exampleNorms: [],
+            exampleSearchBlob: "",
+            searchBlob: wordNorm
+          });
+        }
+
+        const group = byId.get(id);
+        const exText = pickValue(r, ["용례번역문", "용례 번역문", "exampleText", "번역문"]);
+        const exVideo = normalizeUrl(pickValue(r, ["용례영상", "용례 영상", "exampleVideo"]));
+        const exSignImage = normalizeUrl(pickValue(r, ["용례수어문자", "용례 수어문자", "exampleSignImage"]));
+
+        if (exText || exVideo || exSignImage){
+          const textNorm = normalizeHangulString(exText).toLowerCase();
+          const key = [exText, exVideo, exSignImage].join("||");
+          if (!group.examples.some(ex => ex._key === key)){
+            group.examples.push({
+              text: exText,
+              textNorm,
+              video: exVideo,
+              signImage: exSignImage,
+              _key: key
+            });
+            if (textNorm) group.exampleNorms.push(textNorm);
+          }
+        }
+      });
+
+      const out = [...byId.values()].sort((a,b) => a.word.localeCompare(b.word, "ko"));
+      out.forEach(group => {
+        group.exampleSearchBlob = group.exampleNorms.join("\n");
+        group.searchBlob = [group.wordNorm, group.exampleSearchBlob].filter(Boolean).join("\n");
+      });
+      return out;
+    }
+
+    function buildExamplePool(groupsData){
+      const pool = [];
+      groupsData.forEach(group => {
+        group.examples.forEach((ex, exIdx) => {
+          const wordNorm = group.wordNorm || normalizeHangulString(group.word).toLowerCase();
+          const textNorm = ex.textNorm || normalizeHangulString(ex.text || "").toLowerCase();
+          pool.push({
+            groupId: group.id,
+            word: group.word,
+            wordNorm,
+            category: group.category,
+            sourceUrl: group.sourceUrl,
+            groupWordVideo: group.wordVideo,
+            groupWordSignImage: group.wordSignImage,
+            groupHandShapeImage: group.handShapeImage,
+            exampleIndex: exIdx,
+            text: ex.text || "",
+            textNorm,
+            searchBlob: [wordNorm, textNorm].filter(Boolean).join("\n"),
+            video: ex.video || "",
+            signImage: ex.signImage || ""
+          });
+        });
+      });
+      return pool;
+    }
+
+    function rebuildFastIndexes(){
+      groupById = new Map(groups.map(g => [String(g.id), g]));
+
+      groupsByCategory = new Map();
+      examplesByCategory = new Map();
+      groupsByCategory.set("", groups);
+      examplesByCategory.set("", examplePool);
+
+      groups.forEach(g => {
+        const key = safe(g.category);
+        if (!groupsByCategory.has(key)) groupsByCategory.set(key, []);
+        groupsByCategory.get(key).push(g);
+      });
+
+      examplePool.forEach(item => {
+        const key = safe(item.category);
+        if (!examplesByCategory.has(key)) examplesByCategory.set(key, []);
+        examplesByCategory.get(key).push(item);
+      });
+
+      wordSuggestionIndex = groups.map(g => ({
+        type: "word",
+        text: g.word,
+        word: g.word,
+        id: g.id,
+        norm: g.wordNorm,
+        len: g.word.length
+      }));
+
+      exampleSuggestionIndex = examplePool.map(item => ({
+        type: "example",
+        text: item.text,
+        word: item.word,
+        id: item.groupId,
+        norm: item.textNorm || "",
+        len: item.word.length,
+        textLen: (item.text || "").length
+      }));
+    }
+
+    function buildBalancedExamplePool(items){
+      const map = new Map();
+      items.forEach(item => {
+        if (!map.has(item.word)) map.set(item.word, []);
+        map.get(item.word).push(item);
+      });
+
+      const words = [...map.keys()].sort((a,b) => a.localeCompare(b, "ko"));
+      const queues = words.map(word => [...map.get(word)]);
+      const result = [];
+
+      let added = true;
+      while (added){
+        added = false;
+        for (const q of queues){
+          if (q.length){
+            result.push(q.shift());
+            added = true;
+          }
+        }
+      }
+      return result;
+    }
+
+    async function saveDataCache(sourceName){
+      await idbSet(CACHE_KEYS.DATA, rows);
+      await idbSet(CACHE_KEYS.META, {
+        sourceName,
+        savedAt: Date.now()
+      });
+    }
+
+    async function restoreDataCache(){
+      const cachedRows = await idbGet(CACHE_KEYS.DATA);
+      const meta = await idbGet(CACHE_KEYS.META);
+      if (!cachedRows) return null;
+      return { rows: cachedRows, meta };
+    }
+
+    async function saveSelectionPresets(){
+      await idbSet(CACHE_KEYS.PRESETS, selectionPresets);
+    }
+
+    async function loadSelectionPresets(){
+      selectionPresets = (await idbGet(CACHE_KEYS.PRESETS)) || {};
+    }
+
+async function saveState(){
+  const payload = buildStatePayload();
+  await idbSet(CACHE_KEYS.STATE, payload);
+  await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
+  if (!isApplyingRemoteState && !isApplyingRemoteDataset){
+    scheduleFirebaseStatePush(payload);
+  }
+}
+
+    async function restoreState(){
+      return (await idbGet(`${CACHE_KEYS.STATE}:${syncRoomKey}`)) || await idbGet(CACHE_KEYS.STATE);
+    }
+
+    function applyRestoredUIState(state){
+      if (!state) return;
+      if (state.currentMode && MODES[state.currentMode]) currentMode = state.currentMode;
+      if (typeof state.currentIndex === "number") currentIndex = state.currentIndex;
+      if (typeof state.currentPoolIndex === "number") currentPoolIndex = state.currentPoolIndex;
+      if (state.playbackMode && PLAYBACK_MODES.includes(state.playbackMode)) playbackMode = state.playbackMode;
+      if (Array.isArray(state.selectedGroupIds)){
+        selectedGroupIds = state.selectedGroupIds.slice(0, 30);
+      } else if (Array.isArray(state.selectedWords)){
+        // 구 버전 호환: selectedWords 를 id 목록으로 간주
+        selectedGroupIds = state.selectedWords.slice(0, 30);
+      }
+      selectionModeActive = !!state.selectionModeActive;
+      if (typeof state.categoryValue === "string") els.categorySelect.value = state.categoryValue;
+      if (typeof state.searchValue === "string") els.searchInput.value = state.searchValue;
+      if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
+      if (!["word", "example", "all"].includes(els.searchScopeSelect.value)) els.searchScopeSelect.value = "word";
+      updateSearchPlaceholder();
+      if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
+      if (typeof state.selectedPresetName === "string") selectedPresetName = state.selectedPresetName;
+      if (typeof state.currentVideoTime === "number") currentVideoTime = state.currentVideoTime;
+      if (typeof state.abLoopStart === "number" || state.abLoopStart === null) abLoopStart = state.abLoopStart;
+      if (typeof state.abLoopEnd === "number" || state.abLoopEnd === null) abLoopEnd = state.abLoopEnd;
+      if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
+      updateExactMatchButton();
+    }
+
+    function updateCategoryOptions(){
+      const values = [...new Set(groups.map(g => safe(g.category)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
+      const current = els.categorySelect.value;
+      els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
+        values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+      if (values.includes(current)) els.categorySelect.value = current;
+    }
+
+    function getSelectionWordSet(){
+      return new Set(selectedGroupIds);
+    }
+
+    function getSearchScope(){
+      return els.searchScopeSelect.value || "word";
+    }
+
+    function updateSearchPlaceholder(){
+      const scope = getSearchScope();
+      if (scope === "example") {
+        els.searchInput.placeholder = "용례문장 검색";
+      } else if (scope === "all") {
+        els.searchInput.placeholder = "표제어 + 용례 통합검색";
+      } else {
+        els.searchInput.placeholder = "표제어 검색";
+      }
+    }
+
+    function compareSuggestionItems(a, b){
+      return (a.len - b.len)
+        || (a.score - b.score)
+        || (((a.textLen ?? a.len) - (b.textLen ?? b.len)))
+        || (a.type === b.type ? 0 : (a.type === "word" ? -1 : 1))
+        || safe(a.word || a.text).localeCompare(safe(b.word || b.text), "ko")
+        || safe(a.text).localeCompare(safe(b.text), "ko");
+    }
+
+    function sortFilteredGroupsByWordLength(list){
+      list.sort((a, b) => (a.word.length - b.word.length)
+        || a.word.localeCompare(b.word, "ko")
+        || String(a.id).localeCompare(String(b.id), "ko"));
+      return list;
+    }
+
+    function sortFilteredExamplesByWordLength(list){
+      list.sort((a, b) => (a.word.length - b.word.length)
+        || ((a.text || "").length - (b.text || "").length)
+        || a.word.localeCompare(b.word, "ko")
+        || String(a.groupId).localeCompare(String(b.groupId), "ko"));
+      return list;
+    }
+
+    function matchesGroupQuery(group, qNorm, scope){
+      if (!qNorm) return true;
+      if (scope === "word"){
+        return exactMatch ? group.wordNorm === qNorm : group.wordNorm.includes(qNorm);
+      }
+      if (scope === "example"){
+        return exactMatch
+          ? group.exampleNorms.some(norm => norm === qNorm)
+          : group.exampleSearchBlob.includes(qNorm);
+      }
+      return exactMatch ? (group.wordNorm === qNorm || group.exampleNorms.some(norm => norm === qNorm)) : group.searchBlob.includes(qNorm);
+    }
+
+    function matchesExampleQuery(item, qNorm, scope){
+      if (!qNorm) return true;
+      if (scope === "word") return exactMatch ? item.wordNorm === qNorm : item.wordNorm.includes(qNorm);
+      if (scope === "example") return exactMatch ? item.textNorm === qNorm : item.textNorm.includes(qNorm);
+      return exactMatch ? (item.wordNorm === qNorm || item.textNorm === qNorm) : item.searchBlob.includes(qNorm);
+    }
+
+    async function applyFilter(){
+      const q = safe(els.searchInput.value).toLowerCase();
+      const qNorm = q ? normalizeHangulString(q).toLowerCase() : "";
+      const cat = safe(els.categorySelect.value);
+      const scope = getSearchScope();
+      const selectionSet = selectionModeActive ? getSelectionWordSet() : null;
+
+      const groupBase = groupsByCategory.get(cat) || [];
+      const exampleBase = examplesByCategory.get(cat) || [];
+
+      filteredGroups = [];
+      for (const g of groupBase){
+        if (selectionSet && !selectionSet.has(g.id)) continue;
+        if (!matchesGroupQuery(g, qNorm, scope)) continue;
+        filteredGroups.push(g);
+      }
+      if (qNorm) sortFilteredGroupsByWordLength(filteredGroups);
+
+      const exampleCandidates = [];
+      for (const item of exampleBase){
+        if (selectionSet && !selectionSet.has(item.groupId)) continue;
+        if (!matchesExampleQuery(item, qNorm, scope)) continue;
+        exampleCandidates.push(item);
+      }
+      if (qNorm) sortFilteredExamplesByWordLength(exampleCandidates);
+
+      filteredExamplePool = selectionModeActive ? buildBalancedExamplePool(exampleCandidates) : exampleCandidates;
+
+      if (currentIndex >= filteredGroups.length) currentIndex = 0;
+      if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
+
+      updateCount();
+      render();
+      await saveState();
+    }
+
+    function setImage(imgEl, url, alt){
+      if (url){
+        imgEl.src = url;
+        imgEl.alt = alt;
+        imgEl.style.display = "block";
+      } else {
+        imgEl.removeAttribute("src");
+        imgEl.alt = "";
+        imgEl.style.display = "none";
+      }
+    }
+
+    function hideAllMainPanels(){
+      els.mainVideo.style.display = "none";
+      els.mainImage.style.display = "none";
+      els.mainText.style.display = "none";
+    }
+
+    function showMainText(text){
+      els.mainVideo.pause();
+      els.mainVideo.removeAttribute("src");
+      els.mainVideo.load();
+      // 비디오를 비우는 경우 캐싱된 currentSrc 값도 초기화하여
+      // 이후 비디오 모드 전환 시 재설정되도록 합니다.
+      els.mainVideo.dataset.currentSrc = "";
+      hideAllMainPanels();
+      els.mainText.textContent = text || "";
+      els.mainText.style.display = "flex";
+    }
+
+    function applyVideoLoopState(){
+      els.mainVideo.loop = (playbackMode === "LOOP");
+    }
+
+    function showMainVideo(url, autoPlay = false){
+      hideAllMainPanels();
+      els.mainVideo.style.display = "block";
+      applyVideoLoopState();
+
+      if (els.mainVideo.dataset.currentSrc !== (url || "")){
+        els.mainVideo.dataset.currentSrc = url || "";
+        if (url){
+          els.mainVideo.src = url;
+        } else {
+          els.mainVideo.removeAttribute("src");
+        }
+        els.mainVideo.load();
+      }
+
+      if (url && autoPlay){
+        els.mainVideo.play().catch(() => {});
+      }
+    }
+
+    function showMainImage(url, alt = "학습 이미지"){
+      els.mainVideo.pause();
+      els.mainVideo.removeAttribute("src");
+      els.mainVideo.load();
+      // 비디오를 비우는 경우 캐싱된 currentSrc 값도 초기화하여
+      // 이후 비디오 모드 전환 시 재설정되도록 합니다.
+      els.mainVideo.dataset.currentSrc = "";
+      hideAllMainPanels();
+
+      if (url){
+        els.mainImage.src = url;
+        els.mainImage.alt = alt;
+        els.mainImage.style.display = "block";
+      } else {
+        els.mainImage.removeAttribute("src");
+        els.mainImage.alt = "";
+        els.mainImage.style.display = "none";
+      }
+    }
+
+    function getShouldAutoplay(){
+      return playbackMode === "AUTO" || playbackMode === "LOOP" || playbackMode === "CONT";
+    }
+
+    function getCurrentGroup(){
+      return filteredGroups[currentIndex] || null;
+    }
+
+    function getCurrentPoolItem(){
+      return filteredExamplePool[currentPoolIndex] || null;
+    }
+
+    function getCurrentSourceUrl(){
+      if (isExampleMode()){
+        return getCurrentPoolItem()?.sourceUrl || "";
+      }
+      return getCurrentGroup()?.sourceUrl || "";
+    }
+
+    function renderMainStage(autoPlay = false){
+      // 항상 뷰어 하단 영역을 숨겨 하나의 화면만 표시합니다.
+      if (els.viewerBottom) {
+        els.viewerBottom.style.display = "none";
+      }
+
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        if (!item){
+          showMainText("검색 결과가 없습니다.");
+          setImage(els.wordSignImg, "", "");
+          setImage(els.handShapeImg, "", "");
+          return;
+        }
+
+        if (currentMode === "A"){
+          showMainText(item.text || "(용례번역문 없음)");
+        } else if (currentMode === "S"){
+          showMainVideo(item.video || "", true);
+        } else if (currentMode === "D"){
+          showMainImage(item.signImage || "", "용례 수어문자");
+        }
+
+        setImage(els.wordSignImg, item.groupWordSignImage, "표제어 수어문자");
+        setImage(els.handShapeImg, item.groupHandShapeImage, "수형그림");
+        return;
+      }
+
+      const group = getCurrentGroup();
+      if (!group){
+        showMainText("검색 결과가 없습니다.");
+        setImage(els.wordSignImg, "", "");
+        setImage(els.handShapeImg, "", "");
+        return;
+      }
+
+      if (currentMode === "Q"){
+        showMainText(group.word || "(표제어 없음)");
+      } else if (currentMode === "W"){
+        showMainVideo(group.wordVideo || "", true);
+      } else if (currentMode === "E"){
+        showMainImage(group.wordSignImage || "", "표제어 수어문자");
+      } else if (currentMode === "G"){
+        showMainImage(group.handShapeImage || "", "표제어 수형그림");
+      }
+
+      setImage(els.wordSignImg, group.wordSignImage, "표제어 수어문자");
+      setImage(els.handShapeImg, group.handShapeImage, "수형그림");
+    }
+
+    function updateCount(){
+      if (isExampleMode()){
+        const total = filteredExamplePool.length;
+        const now = total ? currentPoolIndex + 1 : 0;
+        els.countBadge.textContent = `${now} / ${total}`;
+      } else {
+        const total = filteredGroups.length;
+        const now = total ? currentIndex + 1 : 0;
+        els.countBadge.textContent = `${now} / ${total}`;
+      }
+    }
+
+    function updatePlaybackButton(){
+      // 여러 버튼이 있을 수 있으므로 각각 업데이트합니다
+      els.playbackBtns.forEach(btn => {
+        btn.textContent = PLAYBACK_LABELS[playbackMode];
+        btn.classList.toggle("active", playbackMode !== "MANUAL");
+      });
+    }
+
+    function scoreSuggestion(norm, qNorm, rawText){
+      if (!qNorm) return 999;
+      if (norm === qNorm) return 0;
+      if (norm.startsWith(qNorm)) return 1;
+      const idx = norm.indexOf(qNorm);
+      if (idx >= 0) return 10 + idx;
+      const raw = safe(rawText).toLowerCase();
+      if (raw.startsWith(qNorm)) return 50;
+      return 100;
+    }
+
+
+function updateExactMatchButton(){
+  if (!els.exactMatchBtn) return;
+  els.exactMatchBtn.classList.toggle("active", exactMatch);
+  els.exactMatchBtn.textContent = exactMatch ? "일치검색" : "부분검색";
+}
+
+function sanitizeRoomKey(value){
+  const cleaned = safe(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return cleaned || FIREBASE_DEFAULT_ROOM;
+}
+
+function roomBasePath(room = syncRoomKey){
+  return `rooms/${room}`;
+}
+
+function makeDataHash(text){
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++){
+    hash ^= text.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function updateFirebaseStatus(text, tone = "normal"){
+  if (!els.firebaseStatus) return;
+  els.firebaseStatus.textContent = text;
+  els.firebaseStatus.classList.remove("ok", "error");
+  if (tone === "ok") els.firebaseStatus.classList.add("ok");
+  if (tone === "error") els.firebaseStatus.classList.add("error");
+}
+
+function buildStatePayload(){
+  return {
+    currentMode,
+    currentIndex,
+    currentPoolIndex,
+    playbackMode,
+    categoryValue: els.categorySelect.value,
+    searchValue: els.searchInput.value,
+    searchScope: els.searchScopeSelect.value,
+    selectionModeActive,
+    selectedGroupIds,
+    sourceName: currentSourceName,
+    presetNameValue,
+    selectedPresetName,
+    currentVideoTime,
+    abLoopStart,
+    abLoopEnd,
+    exactMatch
+  };
+}
+
+function scheduleFirebaseStatePush(payload = null, immediate = false){
+  if (!firebaseReady || !firebaseUid || isApplyingRemoteState || isApplyingRemoteDataset) return;
+  clearTimeout(pendingFirebaseStateTimer);
+  pendingFirebaseStateTimer = setTimeout(() => {
+    pushStateToFirebase(payload).catch(err => {
+      console.error("Firebase 상태 업로드 실패", err);
+      updateFirebaseStatus("상태 동기화 실패", "error");
+    });
+  }, immediate ? 0 : 180);
+}
+
+async function pushStateToFirebase(payload = null){
+  if (!firebaseReady || !firebaseUid || isApplyingRemoteState || isApplyingRemoteDataset) return;
+  const statePayload = payload || buildStatePayload();
+  const signature = JSON.stringify(statePayload);
+  if (signature === lastPushedStateSignature) return;
+
+  await dbSet(dbRef(firebaseDb, `${roomBasePath()}/sharedState`), {
+    updatedAt: Date.now(),
+    updatedBy: firebaseUid,
+    payload: statePayload
+  });
+
+  lastPushedStateSignature = signature;
+  updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+}
+
+function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false){
+  if (!firebaseReady || !firebaseUid || !rows.length || isApplyingRemoteDataset) return;
+  clearTimeout(pendingFirebaseDatasetTimer);
+  pendingFirebaseDatasetTimer = setTimeout(() => {
+    uploadCurrentDatasetToFirebase(reason).catch(err => {
+      console.error("Firebase 데이터 업로드 실패", err);
+      updateFirebaseStatus("클라우드 업로드 실패", "error");
+      showOverlay("Firebase 업로드 실패", 1500);
+    });
+  }, immediate ? 0 : 350);
+}
+
+async function uploadCurrentDatasetToFirebase(reason = "manual"){
+  if (!firebaseReady){
+    updateFirebaseStatus("Firebase 연결 대기중", "error");
+    showOverlay("Firebase가 아직 준비되지 않았습니다", 1400);
+    return;
+  }
+  if (!firebaseUid){
+    updateFirebaseStatus("로그인 대기중", "error");
+    showOverlay("익명 로그인 완료 후 다시 시도해 주세요", 1400);
+    return;
+  }
+  if (!rows.length){
+    updateFirebaseStatus("업로드할 데이터 없음", "error");
+    showOverlay("업로드할 데이터가 없습니다", 1200);
+    return;
+  }
+  if (isApplyingRemoteDataset){
+    updateFirebaseStatus("원격 데이터 적용 중...");
+    return;
+  }
+
+  const json = JSON.stringify(rows);
+  const hash = makeDataHash(json);
+  if (hash === lastUploadedDatasetHash && remoteDatasetAvailable){
+    updateFirebaseStatus(`이미 최신 데이터 업로드됨 · ${syncRoomKey}`, "ok");
+    showOverlay("이미 최신 클라우드 데이터입니다", 1000);
+    return;
+  }
+
+  updateFirebaseStatus("클라우드 업로드 중...", "ok");
+
+  const version = `${Date.now()}-${firebaseUid.slice(0, 8)}-${hash}`;
+  const storagePath = `${FIREBASE_STORAGE_ROOT}/${syncRoomKey}/datasets/${version}.json`;
+  const blob = new Blob([json], { type: "application/json" });
+
+  const uploadedRef = storageRef(firebaseStorage, storagePath);
+  await withTimeout(uploadBytes(uploadedRef, blob, { contentType: "application/json" }), 25000, "Storage 업로드");
+  const downloadURL = await withTimeout(getDownloadURL(uploadedRef), 15000, "업로드 URL 확인");
+
+  const meta = {
+    version,
+    path: storagePath,
+    downloadURL,
+    sourceName: currentSourceName || "firebase-data.json",
+    rowsCount: rows.length,
+    uploadedAt: Date.now(),
+    uploadedBy: firebaseUid,
+    hash,
+    reason
+  };
+
+  await withTimeout(dbSet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`), meta), 12000, "Realtime Database 메타 저장");
+
+  remoteDatasetAvailable = true;
+  lastUploadedDatasetHash = hash;
+  lastAppliedRemoteDatasetVersion = version;
+  updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+  showOverlay("Firebase 업로드 완료", 1000);
+}
+
+async function applyRemoteDatasetMeta(meta, options = {}){
+  const { silent = false } = options;
+  remoteDatasetAvailable = !!(meta && meta.downloadURL);
+
+  if (!meta || !meta.downloadURL || !meta.version) return false;
+  if (meta.version === lastAppliedRemoteDatasetVersion) return false;
+
+  if (meta.uploadedBy === firebaseUid && meta.hash && meta.hash === lastUploadedDatasetHash){
+    lastAppliedRemoteDatasetVersion = meta.version;
+    return false;
+  }
+
+  try{
+    updateFirebaseStatus("클라우드 데이터 동기화 중...", "ok");
+    const res = await fetch(meta.downloadURL, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const dataRows = await res.json();
+
+    isApplyingRemoteDataset = true;
+    try{
+      await finalizeLoadedData(Array.isArray(dataRows) ? dataRows : [], meta.sourceName || "Firebase 데이터", true, true);
+    } finally {
+      isApplyingRemoteDataset = false;
+    }
+
+    lastAppliedRemoteDatasetVersion = meta.version;
+    if (meta.hash) lastUploadedDatasetHash = meta.hash;
+    updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+    if (!silent) showOverlay(`Firebase 최신 데이터 적용\n${meta.sourceName || "firebase-data.json"}`, 1400);
+    return true;
+  } catch (err){
+    console.error("Firebase 원격 데이터 적용 실패", err);
+    updateFirebaseStatus("원격 데이터 불러오기 실패", "error");
+    if (!silent) showOverlay("Firebase 데이터 적용 실패", 1500);
+    return false;
+  }
+}
+
+async function applyRemoteStateEnvelope(envelope, options = {}){
+  const { silent = false } = options;
+  const payload = envelope?.payload || envelope;
+  if (!payload) return false;
+
+  const signature = JSON.stringify(payload);
+  if (envelope?.updatedBy === firebaseUid && signature === lastPushedStateSignature) return false;
+  if (signature === lastAppliedRemoteStateSignature) return false;
+
+  lastAppliedRemoteStateSignature = signature;
+
+  isApplyingRemoteState = true;
+  try{
+    await idbSet(CACHE_KEYS.STATE, payload);
+    await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
+    applyRestoredUIState(payload);
+    updateExactMatchButton();
+    await applyFilter();
+    render(false);
+  } finally {
+    isApplyingRemoteState = false;
+  }
+
+  if (!silent) showOverlay("실시간 상태 동기화 적용", 900);
+  return true;
+}
+
+function cleanupFirebaseWatchers(){
+  if (firebaseStateUnsub){ try { firebaseStateUnsub(); } catch {} firebaseStateUnsub = null; }
+  if (firebaseMetaUnsub){ try { firebaseMetaUnsub(); } catch {} firebaseMetaUnsub = null; }
+  if (firebaseConnectionUnsub){ try { firebaseConnectionUnsub(); } catch {} firebaseConnectionUnsub = null; }
+}
+
+function startFirebaseLiveWatchers(){
+  if (!firebaseReady) return;
+  cleanupFirebaseWatchers();
+
+  const stateRef = dbRef(firebaseDb, `${roomBasePath()}/sharedState`);
+  const metaRef = dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`);
+  const connectedRef = dbRef(firebaseDb, ".info/connected");
+
+  firebaseConnectionUnsub = onValue(connectedRef, (snapshot) => {
+    const connected = !!snapshot.val();
+    if (connected){
+      updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+    } else {
+      updateFirebaseStatus(`오프라인 대기중 · ${syncRoomKey}`);
+    }
+  });
+
+  firebaseStateUnsub = onValue(stateRef, (snapshot) => {
+    const envelope = snapshot.val();
+    applyRemoteStateEnvelope(envelope).catch(err => {
+      console.error("실시간 상태 수신 실패", err);
+    });
+  });
+
+  firebaseMetaUnsub = onValue(metaRef, (snapshot) => {
+    const meta = snapshot.val();
+    applyRemoteDatasetMeta(meta).catch(err => {
+      console.error("실시간 데이터 수신 실패", err);
+    });
+  });
+}
+
+async function loadInitialFirebaseSnapshot(){
+  if (!firebaseReady) return false;
+
+  try{
+    const [metaSnap, stateSnap] = await Promise.all([
+      dbGet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`)),
+      dbGet(dbRef(firebaseDb, `${roomBasePath()}/sharedState`))
+    ]);
+
+    let loaded = false;
+
+    if (metaSnap.exists()){
+      loaded = await applyRemoteDatasetMeta(metaSnap.val(), { silent: true });
+    }
+
+    if (stateSnap.exists()){
+      await applyRemoteStateEnvelope(stateSnap.val(), { silent: true });
+    }
+
+    startFirebaseLiveWatchers();
+    return loaded;
+  } catch (err){
+    console.warn("Firebase 초기 스냅샷 복원 실패", err);
+    updateFirebaseStatus("Firebase 초기 데이터 확인 실패", "error");
+    startFirebaseLiveWatchers();
+    return false;
+  }
+}
+
+async function reconnectFirebaseRoom(){
+  if (!firebaseReady){
+    showOverlay("Firebase 연결이 준비되지 않았습니다", 1500);
+    return;
+  }
+
+  syncRoomKey = sanitizeRoomKey(els.syncRoomInput.value);
+  els.syncRoomInput.value = syncRoomKey;
+  localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
+
+  remoteDatasetAvailable = false;
+  lastAppliedRemoteDatasetVersion = "";
+  lastPushedStateSignature = "";
+  lastAppliedRemoteStateSignature = "";
+
+  updateFirebaseStatus(`방 전환 중... · ${syncRoomKey}`);
+  const loadedRemote = await loadInitialFirebaseSnapshot();
+
+  if (!loadedRemote && rows.length){
+    scheduleFirebaseDatasetUpload("room-switch", true);
+  }
+  if (rows.length){
+    scheduleFirebaseStatePush(buildStatePayload(), true);
+  }
+
+  showOverlay(`실시간 방 연결\n${syncRoomKey}`, 1000);
+}
+
+async function initFirebaseSync(){
+  try{
+    firebaseApp = initializeApp(FIREBASE_CONFIG);
+    firebaseAuth = getAuth(firebaseApp);
+    firebaseDb = getDatabase(firebaseApp);
+    firebaseStorage = getStorage(firebaseApp);
+
+    await signInAnonymously(firebaseAuth);
+    firebaseUid = firebaseAuth.currentUser?.uid || "";
+    firebaseReady = true;
+
+    if (els.syncRoomInput){
+      els.syncRoomInput.value = syncRoomKey;
+    }
+
+    updateFirebaseStatus(`Firebase 연결 완료 · ${syncRoomKey}`, "ok");
+    return true;
+  } catch (err){
+    console.error("Firebase 초기화 실패", err);
+    const msg = String(err?.message || err || "");
+    if (/auth\/admin-restricted-operation|auth\/operation-not-allowed|CONFIGURATION_NOT_FOUND/i.test(msg)){
+      updateFirebaseStatus("익명 로그인 설정 필요", "error");
+    } else {
+      updateFirebaseStatus("Firebase 연결 실패", "error");
+    }
+    return false;
+  }
+}
+
+    function getSearchSuggestions(){
+      const qRaw = safe(els.searchInput.value).toLowerCase();
+      const scope = getSearchScope();
+      if (!qRaw) return [];
+      const qNorm = normalizeHangulString(qRaw).toLowerCase();
+      const cap = 80;
+
+      const getWordMatches = () => {
+        const list = [];
+        for (const item of wordSuggestionIndex){
+          const norm = item.norm || "";
+          if (!norm || !norm.includes(qNorm)) continue;
+          list.push({ ...item, score: scoreSuggestion(norm, qNorm, item.text) });
+          if (list.length >= cap * 4) break;
+        }
+        list.sort(compareSuggestionItems);
+        return list;
+      };
+
+      const getExampleMatches = () => {
+        const list = [];
+        const seen = new Set();
+        for (const item of exampleSuggestionIndex){
+          const norm = item.norm || "";
+          if (!norm || !norm.includes(qNorm) || seen.has(`${item.id}::${item.text}`)) continue;
+          seen.add(`${item.id}::${item.text}`);
+          list.push({ ...item, score: scoreSuggestion(norm, qNorm, item.text) });
+          if (list.length >= cap * 4) break;
+        }
+        list.sort(compareSuggestionItems);
+        return list;
+      };
+
+      if (scope === "word"){
+        return getWordMatches().slice(0, cap);
+      }
+      if (scope === "example"){
+        return getExampleMatches().slice(0, cap);
+      }
+
+      return [...getWordMatches(), ...getExampleMatches()]
+        .sort(compareSuggestionItems)
+        .slice(0, cap);
+    }
+
+    function applySuggestionPick(item){
+      if (!item) return;
+      const suggestionValue = item.type === "word" ? item.word : item.text;
+      els.searchInput.value = suggestionValue;
+      els.searchInput.blur();
+      els.searchSuggestions.classList.remove("open");
+      els.searchSuggestions.innerHTML = "";
+
+      Promise.resolve(applyFilter()).then(() => {
+        if (item.type === "word" && item.id){
+          const idx = filteredGroups.findIndex(g => String(g.id) === String(item.id));
+          if (idx >= 0){
+            currentIndex = idx;
+            if (isExampleMode()){
+              currentMode = "Q";
+              els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+            }
+            render(false);
+            saveState();
+          }
+        } else if (item.type === "example"){
+          if (!isExampleMode()){
+            currentMode = "E";
+            els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+          }
+          const idx2 = filteredExamplePool.findIndex(row => String(row.groupId) === String(item.id) && row.text === item.text);
+          if (idx2 >= 0){
+            currentPoolIndex = idx2;
+            render(false);
+            saveState();
+          }
+        }
+      });
+    }
+
+    function renderSearchSuggestions(){
+      const items = getSearchSuggestions();
+      if (!items.length || document.activeElement !== els.searchInput){
+        els.searchSuggestions.classList.remove("open");
+        els.searchSuggestions.innerHTML = "";
+        searchFocusedIndex = -1;
+        return;
+      }
+
+      if (searchFocusedIndex >= items.length) searchFocusedIndex = items.length - 1;
+      const html = items.map((item, idx) => {
+        let displayText = item.text;
+        if (item.type === "word"){
+          displayText = duplicateWords.has(item.word) ? `${item.word} (ID:${item.id})` : item.word;
+        }
+        const wordDisplay = duplicateWords.has(item.word) ? `${item.word} (ID:${item.id})` : item.word;
+        return `
+          <div class="suggestion-item ${idx === searchFocusedIndex ? "active" : ""}" data-idx="${idx}">
+            ${escapeHtml(displayText)}
+            ${item.type === "example" ? `<span class="suggestion-sub">표제어: ${escapeHtml(wordDisplay)}</span>` : ``}
+          </div>
+        `;
+      }).join("");
+
+      els.searchSuggestions.innerHTML = html;
+      els.searchSuggestions.classList.add("open");
+      [...els.searchSuggestions.querySelectorAll('.suggestion-item')].forEach(el => {
+        const idx = Number(el.dataset.idx);
+        const item = items[idx];
+        let touchMoved = false;
+        const pick = () => applySuggestionPick(item);
+        el.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
+        el.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
+        el.addEventListener('touchend', (e) => {
+          if (touchMoved) return;
+          e.preventDefault();
+          e.stopPropagation();
+          pick();
+        }, { passive: false });
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          pick();
+        });
+      });
+    }
+
+    function requestRenderSearchSuggestions(){
+      if (searchRenderRaf) cancelAnimationFrame(searchRenderRaf);
+      searchRenderRaf = requestAnimationFrame(() => {
+        searchRenderRaf = 0;
+        renderSearchSuggestions();
+      });
+    }
+
+    function getSelectionSuggestions(){
+      const qRaw = safe(selectionSearch).toLowerCase();
+      if (!qRaw) return [];
+      // 검색어를 한글 조합형으로 정규화
+      const qNorm = normalizeHangulString(qRaw).toLowerCase();
+      const selectedSet = getSelectionWordSet();
+      const list = [];
+      for (const g of groups){
+        if (selectedSet.has(g.id)) continue;
+        const normWord = normalizeHangulString(g.word).toLowerCase();
+        if (normWord.includes(qNorm)){
+          list.push({ id: g.id, word: g.word });
+        }
+        if (list.length >= 200) break;
+      }
+      return list;
+    }
+
+    function addSelectedGroup(id){
+      id = safe(id);
+      if (!id) return;
+      if (selectedGroupIds.includes(id)) return;
+      if (selectedGroupIds.length >= 30){
+        showOverlay("선택학습 표제어는 최대 30개까지 추가할 수 있습니다", 1600);
+        return;
+      }
+      selectedGroupIds.push(id);
+      selectionSearch = "";
+      selectionFocusedIndex = -1;
+      renderInfo();
+      saveState();
+    }
+
+    function removeSelectedGroup(id){
+      selectedGroupIds = selectedGroupIds.filter(w => w !== id);
+      if (!selectedGroupIds.length && selectionModeActive){
+        selectionModeActive = false;
+      }
+      applyFilter();
+      renderInfo();
+      saveState();
+    }
+
+    async function saveCurrentSelectionPreset(){
+      const name = safe(presetNameValue);
+      if (!name){
+        showOverlay("저장할 목록 이름을 입력해 주세요", 1200);
+        return;
+      }
+      if (!selectedGroupIds.length){
+        showOverlay("저장할 표제어 목록이 없습니다", 1200);
+        return;
+      }
+      selectionPresets[name] = [...selectedGroupIds];
+      selectedPresetName = name;
+      await saveSelectionPresets();
+      renderInfo();
+      showOverlay(`선택학습 목록 저장 완료\n${name}`, 1200);
+    }
+
+    async function loadSelectedPreset(){
+      const name = safe(selectedPresetName);
+      if (!name || !selectionPresets[name]){
+        showOverlay("불러올 목록을 선택해 주세요", 1200);
+        return;
+      }
+      selectedGroupIds = [...selectionPresets[name]];
+      renderInfo();
+      await saveState();
+      showOverlay(`선택학습 목록 불러오기 완료\n${name}`, 1200);
+    }
+
+    async function deleteSelectedPreset(){
+      const name = safe(selectedPresetName);
+      if (!name || !selectionPresets[name]){
+        showOverlay("삭제할 목록을 선택해 주세요", 1200);
+        return;
+      }
+      delete selectionPresets[name];
+      if (selectedPresetName === name) selectedPresetName = "";
+      await saveSelectionPresets();
+      renderInfo();
+      showOverlay(`선택학습 목록 삭제 완료\n${name}`, 1200);
+    }
+
+    function startSelectionMode(){
+      if (!selectedGroupIds.length){
+        showOverlay("먼저 표제어를 하나 이상 선택해 주세요", 1500);
+        return;
+      }
+      selectionModeActive = true;
+      currentIndex = 0;
+      currentPoolIndex = 0;
+
+      // 이전 검색/카테고리 조건 때문에 선택한 표제어 일부만 보이는 문제를 막습니다.
+      els.searchInput.value = "";
+      els.categorySelect.value = "";
+      els.searchScopeSelect.value = "word";
+      updateSearchPlaceholder();
+      searchFocusedIndex = -1;
+      els.searchSuggestions.classList.remove("open");
+      els.searchSuggestions.innerHTML = "";
+
+      els.selectionModeBtn.classList.add("active");
+      els.selectionExitBtn.style.display = "inline-flex";
+      Promise.resolve(applyFilter()).then(() => {
+        if (isExampleMode(currentMode) && !filteredExamplePool.length && filteredGroups.length){
+          currentMode = "Q";
+          els.modeBtns.forEach(btn => {
+            btn.classList.toggle("active", btn.dataset.mode === currentMode);
+          });
+          render(false);
+        }
+        showOverlay(`선택학습 시작
+${selectedGroupIds.length}개 표제어`, 1200);
+        saveState();
+      });
+    }
+
+    function stopSelectionMode(){
+      selectionModeActive = false;
+      els.selectionModeBtn.classList.remove("active");
+      els.selectionExitBtn.style.display = "none";
+      applyFilter();
+      showOverlay("선택학습 종료", 1000);
+      saveState();
+    }
+
+    async function cyclePlaybackMode(){
+      const idx = PLAYBACK_MODES.indexOf(playbackMode);
+      playbackMode = PLAYBACK_MODES[(idx + 1) % PLAYBACK_MODES.length];
+      applyVideoLoopState();
+      updatePlaybackButton();
+      await saveState();
+      showOverlay(PLAYBACK_LABELS[playbackMode], 900);
+    }
+
+    async function setMode(mode){
+      const prevWasExample = isExampleMode(currentMode);
+      const nextIsExample = isExampleMode(mode);
+
+      currentMode = mode;
+      els.modeBtns.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === mode);
+      });
+
+      if (!prevWasExample && nextIsExample){
+        const group = getCurrentGroup();
+        if (group){
+          const idx = filteredExamplePool.findIndex(item => item.groupId === group.id);
+          if (idx >= 0) currentPoolIndex = idx;
+        }
+      } else if (prevWasExample && !nextIsExample){
+        const item = getCurrentPoolItem();
+        if (item){
+          const idx = filteredGroups.findIndex(g => g.id === item.groupId);
+          if (idx >= 0) currentIndex = idx;
+        }
+      }
+
+      currentVideoTime = 0;
+      render(true);
+      await saveState();
+    }
+
+    async function goNext(autoPlay = false){
+      currentVideoTime = 0;
+      if (isExampleMode()){
+        if (!filteredExamplePool.length) return;
+        if (currentPoolIndex < filteredExamplePool.length - 1){
+          currentPoolIndex++;
+          render(autoPlay);
+          await saveState();
+        } else {
+          showOverlay("마지막 용례입니다");
+        }
+        return;
+      }
+
+      if (!filteredGroups.length) return;
+      if (currentIndex < filteredGroups.length - 1){
+        currentIndex++;
+        render(autoPlay);
+        await saveState();
+      } else {
+        showOverlay("마지막 표제어입니다");
+      }
+    }
+
+    async function goPrev(autoPlay = false){
+      currentVideoTime = 0;
+      if (isExampleMode()){
+        if (!filteredExamplePool.length) return;
+        if (currentPoolIndex > 0){
+          currentPoolIndex--;
+          render(autoPlay);
+          await saveState();
+        } else {
+          showOverlay("첫 용례입니다");
+        }
+        return;
+      }
+
+      if (!filteredGroups.length) return;
+      if (currentIndex > 0){
+        currentIndex--;
+        render(autoPlay);
+        await saveState();
+      } else {
+        showOverlay("첫 표제어입니다");
+      }
+    }
+
+    async function shuffleCurrentOrder(){
+      currentVideoTime = 0;
+      const keepMode = currentMode;
+
+      if (isExampleMode()){
+        if (filteredExamplePool.length <= 1) return;
+        filteredExamplePool = shuffleArray(filteredExamplePool);
+        currentPoolIndex = 0;
+      } else {
+        if (filteredGroups.length <= 1) return;
+        filteredGroups = shuffleArray(filteredGroups);
+        currentIndex = 0;
+      }
+
+      render(getShouldAutoplay());
+      await saveState();
+      showOverlay(`${MODES[keepMode] || "현재 모드"} 순서 섞기 완료`);
+    }
+
+    async function goHome(){
+      els.searchInput.value = "";
+      els.categorySelect.value = "";
+      els.searchScopeSelect.value = "word";
+      updateSearchPlaceholder();
+
+      searchFocusedIndex = -1;
+      selectionFocusedIndex = -1;
+      selectionSearch = "";
+
+      selectionModeActive = false;
+      els.selectionModeBtn.classList.remove("active");
+      els.selectionExitBtn.style.display = "none";
+
+      currentMode = "Q";
+      currentIndex = 0;
+      currentPoolIndex = 0;
+      currentVideoTime = 0;
+      abLoopStart = null;
+      abLoopEnd = null;
+
+      els.modeBtns.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === "Q");
+      });
+
+      await applyFilter();
+      render(false);
+      await saveState();
+      showOverlay("처음 화면으로 이동");
+    }
+
+    function toggleFullscreen(){
+      const el = els.stage;
+      if (!document.fullscreenElement){
+        el.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    }
+
+    function togglePlayPause(){
+      if (!isVideoMode()) return;
+      if (!els.mainVideo.src) return;
+
+      if (els.mainVideo.paused){
+        els.mainVideo.play().catch(() => {});
+      } else {
+        els.mainVideo.pause();
+      }
+    }
+
+    function seekToPercent(n){
+      if (!isVideoMode()) return;
+      const v = els.mainVideo;
+      if (!v.duration || !isFinite(v.duration)) return;
+      const pct = Math.max(0, Math.min(9, n)) / 10;
+      v.currentTime = v.duration * pct;
+      currentVideoTime = v.currentTime;
+      saveState();
+      showOverlay(`${Math.round(pct * 100)}% 이동`, 700);
+    }
+
+    function stepFrame(dir){
+      if (!isVideoMode()) return;
+      const v = els.mainVideo;
+      if (!isFinite(v.currentTime)) return;
+      v.pause();
+      v.currentTime = Math.max(0, v.currentTime + FRAME_STEP * dir);
+      currentVideoTime = v.currentTime;
+      saveState();
+    }
+
+    function changePlaybackRate(dir){
+      if (!isVideoMode()) return;
+      const v = els.mainVideo;
+      const next = Math.max(0.25, Math.min(3, Math.round((v.playbackRate + dir * 0.25) * 100) / 100));
+      v.playbackRate = next;
+      showOverlay(`재생속도 ${next}x`, 700);
+    }
+
+    function setABStart(){
+      if (!isVideoMode()) return;
+      abLoopStart = els.mainVideo.currentTime;
+      if (abLoopEnd !== null && abLoopEnd <= abLoopStart){
+        abLoopEnd = null;
+      }
+      saveState();
+      showOverlay(`구간 시작 ${abLoopStart.toFixed(2)}초`, 900);
+    }
+
+    function setABEnd(){
+      if (!isVideoMode()) return;
+      if (abLoopStart === null){
+        showOverlay("먼저 [ 로 구간 시작을 지정해 주세요", 1200);
+        return;
+      }
+      abLoopEnd = els.mainVideo.currentTime;
+      if (abLoopEnd <= abLoopStart){
+        showOverlay("구간 종료는 시작보다 뒤여야 합니다", 1200);
+        abLoopEnd = null;
+        return;
+      }
+      saveState();
+      showOverlay(`구간 종료 ${abLoopEnd.toFixed(2)}초`, 900);
+    }
+
+    async function captureCurrentStage(){
+      try{
+        const canvas = document.createElement("canvas");
+        const rect = els.stage.getBoundingClientRect();
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, width, height);
+
+        if (els.mainText.style.display === "flex"){
+          const gradient = ctx.createLinearGradient(0, 0, width, height);
+          gradient.addColorStop(0, "#0b0f17");
+          gradient.addColorStop(1, "#101725");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, width, height);
+
+          const text = els.mainText.textContent || "";
+          ctx.fillStyle = "#f7f9ff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `700 ${Math.max(24, Math.floor(width / 12))}px sans-serif`;
+
+          const lines = text.split("\n");
+          const lineHeight = Math.max(42, Math.floor(width / 10));
+          const totalHeight = lines.length * lineHeight;
+          let y = height / 2 - totalHeight / 2 + lineHeight / 2;
+
+          lines.forEach(line => {
+            ctx.fillText(line, width / 2, y, width * 0.88);
+            y += lineHeight;
+          });
+        } else if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
+          ctx.drawImage(els.mainImage, 0, 0, width, height);
+        } else if (els.mainVideo.style.display === "block"){
+          try {
+            ctx.drawImage(els.mainVideo, 0, 0, width, height);
+          } catch (err) {
+            showOverlay("이 영상은 브라우저 보안 때문에 캡처가 제한될 수 있습니다", 1500);
+            return;
+          }
+        } else {
+          showOverlay("캡처할 화면이 없습니다", 1200);
+          return;
+        }
+
+        const a = document.createElement("a");
+        const now = new Date();
+        const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
+        a.href = canvas.toDataURL("image/png");
+        a.download = `ksl_capture_${ts}.png`;
+        a.click();
+        showOverlay("현재 화면 캡처 완료", 900);
+      } catch (err){
+        console.error(err);
+        showOverlay("화면 캡처에 실패했습니다", 1400);
+      }
+    }
+
+    function buildSelectionPanelHtml(){
+      // Build selection panel for managing custom study list
+      const presetNames = Object.keys(selectionPresets).sort((a,b) => a.localeCompare(b, "ko"));
+
+      // Map selected group IDs to display objects containing word and id
+      const selectedObjects = selectedGroupIds.map(id => {
+        const g = groups.find(gr => gr.id === id);
+        return { id, word: g ? g.word : id };
+      });
+
+      // Build HTML
+      return `
+        <section class="section">
+          <h3>표제어 선택학습</h3>
+          <div class="selection-panel">
+            <div class="selection-top">
+              <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
+              <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">선택학습 시작</button>
+            </div>
+
+            <div class="preset-row">
+              <input class="preset-input" data-role="preset-name" type="text" placeholder="목록 이름" value="${escapeHtml(presetNameValue)}" />
+              <button data-role="preset-save" class="icon-btn" style="height:38px;">목록저장</button>
+            </div>
+
+            <div class="preset-row">
+              <select class="preset-select" data-role="preset-select">
+                <option value="">저장된 목록 선택</option>
+                ${presetNames.map(name => {
+                  return `<option value="${escapeHtml(name)}" ${name === selectedPresetName ? "selected" : ""}>${escapeHtml(name)}</option>`;
+                }).join("")}
+              </select>
+              <button data-role="preset-load" class="icon-btn" style="height:38px;">불러오기</button>
+              <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
+            </div>
+
+            <div class="content">선택한 표제어에 포함된 전체 용례만 따로 모아 집중 학습합니다. 순차는 골고루 섞이고, 랜덤은 전체 순서를 섞습니다.</div>
+            <div class="selected-chips">
+              ${selectedObjects.length ? selectedObjects.map(obj => {
+                const display = duplicateWords.has(obj.word) ? `${obj.word} (ID:${obj.id})` : obj.word;
+                return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(display)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
+              }).join("") : `<span class="pill">선택된 표제어 없음</span>`}
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    function buildOriginalLinkHtml(sourceUrl){
+      if (!sourceUrl) return `<div class="content">원문 페이지 정보 없음</div>`;
+      return `
+        <div class="content">
+          <a class="link-btn" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" style="height:38px;">원문 페이지 이동하기</a>
+        </div>
+      `;
+    }
+
+    function buildInfoHtml(){
+      const selectionInfo = buildSelectionPanelHtml();
+      const sourceUrl = getCurrentSourceUrl();
+
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        if (!item){
+          return `
+            ${selectionInfo}
+            <div class="section"><div class="content">검색 결과가 없습니다.</div></div>
+          `;
+        }
+
+        return `
+          ${selectionInfo}
+          <div class="title-row">
+            <div>
+              <h1 class="word">${escapeHtml(item.word)}</h1>
+              <div class="meta">
+                <span class="pill">${escapeHtml(MODES[currentMode])}</span>
+                <span class="pill">${currentPoolIndex + 1} / ${filteredExamplePool.length}</span>
+                <span class="pill">${escapeHtml(item.category || "카테고리 없음")}</span>
+                <span class="pill">ID:${escapeHtml(item.groupId)}</span>
+                ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
+              </div>
+            </div>
+          </div>
+
+          <section class="section">
+            <h3>원문</h3>
+            ${buildOriginalLinkHtml(sourceUrl)}
+          </section>
+
+          <section class="section">
+            <h3>용례번역문</h3>
+            <div class="content">${escapeHtml(item.text || "문장 없음")}</div>
+          </section>
+
+          <section class="section">
+            <h3>현재 자료</h3>
+            <div class="content">
+              ${item.video ? `<div>용례 영상 있음</div>` : `<div>용례 영상 없음</div>`}
+              ${item.signImage ? `<div style="margin-top:8px;">용례 수어문자 있음</div>` : `<div style="margin-top:8px;">용례 수어문자 없음</div>`}
+              ${item.groupWordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : ``}
+              ${item.groupHandShapeImage ? `<div style="margin-top:8px;">표제어 수형그림 있음</div>` : ``}
+            </div>
+          </section>
+        `;
+      }
+
+      const group = getCurrentGroup();
+      if (!group){
+        return `
+          ${selectionInfo}
+          <div class="section"><div class="content">검색 결과가 없습니다.</div></div>
+        `;
+      }
+
+      return `
+        ${selectionInfo}
+        <div class="title-row">
+          <div>
+            <h1 class="word">${escapeHtml(group.word)}</h1>
+            <div class="meta">
+              <span class="pill">${escapeHtml(MODES[currentMode])}</span>
+              <span class="pill">${currentIndex + 1} / ${filteredGroups.length}</span>
+                <span class="pill">${escapeHtml(group.category || "카테고리 없음")}</span>
+                <span class="pill">ID:${escapeHtml(group.id)}</span>
+                ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
+            </div>
+          </div>
+        </div>
+
+        <section class="section">
+          <h3>원문</h3>
+          ${buildOriginalLinkHtml(sourceUrl)}
+        </section>
+
+        <section class="section">
+          <h3>표제어</h3>
+          <div class="content">${escapeHtml(group.word || "없음")}</div>
+        </section>
+
+        <section class="section">
+          <h3>카테고리</h3>
+          <div class="content">${escapeHtml(group.category || "없음")}</div>
+        </section>
+
+        <section class="section">
+          <h3>자료 현황</h3>
+          <div class="content">
+            ${group.wordVideo ? `<div>표제어 영상 있음</div>` : `<div>표제어 영상 없음</div>`}
+            ${group.wordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : `<div style="margin-top:8px;">표제어 수어문자 없음</div>`}
+            ${group.handShapeImage ? `<div style="margin-top:8px;">표제어 수형그림 있음</div>` : `<div style="margin-top:8px;">표제어 수형그림 없음</div>`}
+            <div style="margin-top:8px;">용례 수: ${group.examples.length}</div>
+          </div>
+        </section>
+      `;
+    }
+
+    function bindDynamicInfoEvents(container){
+      const selectionSearchInput = container.querySelector('[data-role="selection-search"]');
+      const selectionSuggestions = container.querySelector('[data-role="selection-suggestions"]');
+      const selectionAddCurrentBtn = container.querySelector('[data-role="selection-add-current"]');
+      const selectionStartBtn = container.querySelector('[data-role="selection-start"]');
+      const presetNameInput = container.querySelector('[data-role="preset-name"]');
+      const presetSelect = container.querySelector('[data-role="preset-select"]');
+      const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
+      const presetLoadBtn = container.querySelector('[data-role="preset-load"]');
+      const presetDeleteBtn = container.querySelector('[data-role="preset-delete"]');
+
+      if (selectionSearchInput){
+        // Update search string and refresh suggestions when user types
+        selectionSearchInput.addEventListener("input", () => {
+          selectionSearch = selectionSearchInput.value;
+          selectionFocusedIndex = -1;
+          renderInfo();
+        });
+
+        // When composition (IME) ends, normalize and update search and suggestions
+        selectionSearchInput.addEventListener("compositionend", () => {
+          // Normalize Hangul string to combine jamo into complete syllables
+          selectionSearchInput.value = normalizeHangulString(selectionSearchInput.value);
+          selectionSearch = selectionSearchInput.value;
+          selectionFocusedIndex = -1;
+          renderInfo();
+        });
+
+        selectionSearchInput.addEventListener("keydown", (e) => {
+          const items = getSelectionSuggestions();
+          if (e.key === "ArrowDown"){
+            e.preventDefault();
+            selectionFocusedIndex = Math.min(selectionFocusedIndex + 1, items.length - 1);
+            renderInfo();
+          } else if (e.key === "ArrowUp"){
+            e.preventDefault();
+            selectionFocusedIndex = Math.max(selectionFocusedIndex - 1, 0);
+            renderInfo();
+          } else if (e.key === "Enter"){
+            e.preventDefault();
+            if (items.length){
+              const idx = Math.max(selectionFocusedIndex, 0);
+              const item = items[idx];
+              if (item) addSelectedGroup(item.id);
+            } else if (selectionSearch.trim()){
+              // Attempt to find a group matching the input exactly (normalized)
+              const inputNorm = normalizeHangulString(selectionSearch.trim().toLowerCase());
+              const found = groups.find(g => normalizeHangulString(g.word.toLowerCase()) === inputNorm);
+              if (found){
+                addSelectedGroup(found.id);
+              } else {
+                showOverlay("해당 표제어를 찾을 수 없습니다", 1500);
+              }
+            }
+          }
+        });
+      }
+
+      if (selectionSuggestions){
+        // Bind suggestion item selection for selection mode
+        [...selectionSuggestions.querySelectorAll("[data-select-id]")].forEach(el => {
+          const pick = () => {
+            const id = el.dataset.selectId || "";
+            if (id) addSelectedGroup(id);
+          };
+          // Distinguish between scroll and tap
+          let touchMoved = false;
+          el.addEventListener("touchstart", () => {
+            touchMoved = false;
+          }, {passive:true});
+          el.addEventListener("touchmove", () => {
+            touchMoved = true;
+          }, {passive:true});
+          el.addEventListener("touchend", (e) => {
+            if (touchMoved) return;
+            e.preventDefault();
+            e.stopPropagation();
+            pick();
+          }, { passive:false });
+
+          el.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            pick();
+          });
+        });
+      }
+
+      if (selectionAddCurrentBtn){
+        selectionAddCurrentBtn.addEventListener("click", () => {
+          if (isExampleMode()){
+            const item = getCurrentPoolItem();
+            if (item) addSelectedGroup(item.groupId);
+          } else {
+            const group = getCurrentGroup();
+            if (group) addSelectedGroup(group.id);
+          }
+        });
+      }
+
+      if (selectionStartBtn){
+        selectionStartBtn.addEventListener("click", startSelectionMode);
+      }
+
+      if (presetNameInput){
+        presetNameInput.addEventListener("input", () => {
+          presetNameValue = presetNameInput.value;
+          saveState();
+        });
+      }
+
+      if (presetSelect){
+        presetSelect.addEventListener("change", () => {
+          selectedPresetName = presetSelect.value;
+          saveState();
+        });
+      }
+
+      if (presetSaveBtn){
+        presetSaveBtn.addEventListener("click", saveCurrentSelectionPreset);
+      }
+
+      if (presetLoadBtn){
+        presetLoadBtn.addEventListener("click", loadSelectedPreset);
+      }
+
+      if (presetDeleteBtn){
+        presetDeleteBtn.addEventListener("click", deleteSelectedPreset);
+      }
+
+      const removeChip = (id) => {
+        if (!id) return;
+        removeSelectedGroup(id);
+      };
+
+      [...container.querySelectorAll("[data-chip-remove]")].forEach(el => {
+        let touched = false;
+        const id = el.dataset.chipRemove || el.dataset.removeId || "";
+        el.addEventListener("touchend", (e) => {
+          touched = true;
+          e.preventDefault();
+          e.stopPropagation();
+          removeChip(id);
+        }, { passive:false });
+        el.addEventListener("click", (e) => {
+          if (touched){
+            touched = false;
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          removeChip(id);
+        });
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " "){
+            e.preventDefault();
+            removeChip(id);
+          }
+        });
+      });
+    }
+
+    function renderInfo(){
+      const activeEl = document.activeElement;
+      const role = activeEl && activeEl.getAttribute ? activeEl.getAttribute("data-role") : "";
+      const keepPresetInput = role === "preset-name";
+
+      const prevValue = keepPresetInput ? activeEl.value : "";
+      const prevStart = keepPresetInput ? activeEl.selectionStart : null;
+      const prevEnd = keepPresetInput ? activeEl.selectionEnd : null;
+
+      const html = buildInfoHtml();
+      els.infoScroll.innerHTML = html;
+      els.mobileSheetBody.innerHTML = html;
+
+      bindDynamicInfoEvents(els.infoScroll);
+      bindDynamicInfoEvents(els.mobileSheetBody);
+
+      els.selectionModeBtn.classList.toggle("active", selectionModeActive);
+      els.selectionExitBtn.style.display = selectionModeActive ? "inline-flex" : "none";
+
+      let selector = "";
+      if (keepPresetInput) selector = '[data-role="preset-name"]';
+
+      if (selector){
+        const newInput =
+          els.infoScroll.querySelector(selector) ||
+          els.mobileSheetBody.querySelector(selector);
+
+        if (newInput){
+          newInput.focus();
+          newInput.value = prevValue;
+          if (prevStart !== null && prevEnd !== null){
+            try {
+              newInput.setSelectionRange(prevStart, prevEnd);
+            } catch {}
+          }
+        }
+      }
+    }
+
+    function renderStatus(){
+      const selectionTag = selectionModeActive ? " | 선택학습" : "";
+      const abTag = (abLoopStart !== null && abLoopEnd !== null)
+        ? ` | AB ${abLoopStart.toFixed(1)}~${abLoopEnd.toFixed(1)}`
+        : "";
+
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        if (!item){
+          els.statusText.textContent = `검색 결과가 없습니다${selectionTag}`;
+          return;
+        }
+        els.statusText.textContent = `${item.word} | ${MODES[currentMode]} | ${currentPoolIndex + 1}/${filteredExamplePool.length} | ${item.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
+        return;
+      }
+
+      const group = getCurrentGroup();
+      if (!group){
+        els.statusText.textContent = `파일을 불러와 주세요${selectionTag}`;
+        return;
+      }
+
+      els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${filteredGroups.length} | ${group.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
+    }
+
+    function render(autoPlay = false){
+      updateCount();
+      renderMainStage(autoPlay);
+      renderInfo();
+      renderStatus();
+      updatePlaybackButton();
+    }
+
+    async function finalizeLoadedData(dataRows, sourceName, autoLoaded = false, saveCacheToo = false){
+      rows = dataRows;
+      groups = buildGroups(rows);
+      // 중복되는 단어를 파악하여 duplicateWords 세트를 구성합니다.
+      duplicateWords = new Set();
+      const wordCounts = {};
+      groups.forEach(g => {
+        const w = g.word;
+        wordCounts[w] = (wordCounts[w] || 0) + 1;
+      });
+      Object.entries(wordCounts).forEach(([w, count]) => {
+        if (count > 1) duplicateWords.add(w);
+      });
+      examplePool = buildExamplePool(groups);
+      rebuildFastIndexes();
+      currentSourceName = sourceName;
+
+      updateCategoryOptions();
+
+      const state = await restoreState();
+      applyRestoredUIState(state);
+
+      if (saveCacheToo){
+        await saveDataCache(sourceName);
+      }
+
+      await applyFilter();
+
+      currentIndex = Math.min(currentIndex, Math.max(filteredGroups.length - 1, 0));
+      currentPoolIndex = Math.min(currentPoolIndex, Math.max(filteredExamplePool.length - 1, 0));
+
+      els.modeBtns.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === currentMode);
+      });
+
+      if (!groups.length){
+        els.statusText.textContent = "데이터 없음";
+        showMainText("데이터를 찾지 못했습니다.");
+        renderInfo();
+        return;
+      }
+
+      pendingRestoreTime = currentVideoTime > 0 ? currentVideoTime : null;
+      render(getShouldAutoplay());
+
+      const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
+      showOverlay(`${autoText}\n${sourceName}\n표제어 ${groups.length}개\n용례 ${examplePool.length}개`, 1700);
+      await saveState();
+    }
+
+    async function loadFromFileObject(file){
+      if (!file) return;
+
+      const lower = file.name.toLowerCase();
+      if (!lower.endsWith(".csv") && !lower.endsWith(".xlsx")){
+        showOverlay("CSV 또는 XLSX 파일만 불러올 수 있습니다", 1800);
+        return;
+      }
+
+      els.statusText.textContent = "파일 읽는 중...";
+      const buffer = await file.arrayBuffer();
+      const dataRows = await parseFileByNameAndBuffer(file.name, buffer);
+      await finalizeLoadedData(dataRows, file.name, false, true);
+      scheduleFirebaseDatasetUpload("manual-file", true);
+    }
+
+    async function tryAutoLoadDefaultFile(){
+      try{
+        els.statusText.textContent = `기본 파일 자동 불러오기 시도 중: ${DEFAULT_FILENAME}`;
+        const res = await fetch(DEFAULT_FILENAME);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        const dataRows = await parseFileByNameAndBuffer(DEFAULT_FILENAME, buffer);
+        await finalizeLoadedData(dataRows, DEFAULT_FILENAME, true, true);
+        if (firebaseReady && !remoteDatasetAvailable){
+          scheduleFirebaseDatasetUpload("default-seed", true);
+        }
+        return true;
+      } catch (err){
+        console.warn("기본 파일 자동 불러오기 실패:", err);
+        return false;
+      }
+    }
+
+    async function tryRestoreIndexedCache(){
+      try{
+        const cached = await restoreDataCache();
+        if (cached?.rows?.length){
+          showOverlay("저장된 캐시 데이터를 복원합니다", 1200);
+          await finalizeLoadedData(cached.rows, cached.meta?.sourceName || "캐시 데이터", true, false);
+          if (firebaseReady && !remoteDatasetAvailable){
+            scheduleFirebaseDatasetUpload("cache-seed", true);
+          }
+          return true;
+        }
+      } catch (err){
+        console.warn("캐시 복원 실패", err);
+      }
+      return false;
+    }
+
+    function openMobileSheet(){
+      els.mobileSheet.style.display = "block";
+      requestAnimationFrame(() => {
+        els.mobileSheet.classList.add("open");
+      });
+    }
+
+    function closeMobileSheet(){
+      els.mobileSheet.classList.remove("open");
+      setTimeout(() => {
+        if (!els.mobileSheet.classList.contains("open")){
+          els.mobileSheet.style.display = "none";
+        }
+      }, 220);
+    }
+
+    function setupDragAndDrop(){
+      const showDrop = () => els.dropHint.classList.add("show");
+      const hideDrop = () => els.dropHint.classList.remove("show");
+
+      ["dragenter", "dragover"].forEach(type => {
+        window.addEventListener(type, (e) => {
+          e.preventDefault();
+          dragCounter++;
+          showDrop();
+        });
+      });
+
+      ["dragleave", "dragend"].forEach(type => {
+        window.addEventListener(type, (e) => {
+          e.preventDefault();
+          dragCounter = Math.max(0, dragCounter - 1);
+          if (dragCounter === 0) hideDrop();
+        });
+      });
+
+      window.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        hideDrop();
+
+        const files = [...(e.dataTransfer?.files || [])];
+        const file = files.find(f => /\.(csv|xlsx)$/i.test(f.name));
+        if (!file){
+          showOverlay("드롭한 파일 중 CSV/XLSX를 찾지 못했습니다", 1800);
+          return;
+        }
+        try{
+          await loadFromFileObject(file);
+        } catch (err){
+          console.error(err);
+          showOverlay("파일 처리 중 오류가 발생했습니다", 1800);
+        }
+      });
+    }
+
+
+    function scheduleSearchApply(delay = 45){
+      clearTimeout(searchInputTimer);
+      searchInputTimer = setTimeout(() => {
+        applyFilter();
+        requestRenderSearchSuggestions();
+      }, delay);
+    }
+
+    function handleSearchKeydown(e){
+      const items = getSearchSuggestions();
+      if (!items.length) return;
+
+      if (e.key === "ArrowDown"){
+        e.preventDefault();
+        searchFocusedIndex = Math.min(searchFocusedIndex + 1, items.length - 1);
+        requestRenderSearchSuggestions();
+      } else if (e.key === "ArrowUp"){
+        e.preventDefault();
+        searchFocusedIndex = Math.max(searchFocusedIndex - 1, 0);
+        requestRenderSearchSuggestions();
+      } else if (e.key === "Enter"){
+        e.preventDefault();
+        const item = items[Math.max(searchFocusedIndex, 0)];
+        if (item){
+          els.searchInput.value = item.type === "word" ? item.word : item.text;
+          searchFocusedIndex = -1;
+          els.searchSuggestions.classList.remove("open");
+          els.searchSuggestions.innerHTML = "";
+          applyFilter().then(() => {
+            if (item.type === "word"){
+              const idx = filteredGroups.findIndex(g => String(g.id) === String(item.id));
+              if (idx >= 0){
+                currentIndex = idx;
+                if (isExampleMode()) currentMode = "Q";
+                els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+                render(false);
+                saveState();
+              }
+            } else if (item.type === "example"){
+              const idx = filteredExamplePool.findIndex(ex => String(ex.groupId) === String(item.id) && ex.text === item.text);
+              if (idx >= 0){
+                currentMode = "D";
+                currentPoolIndex = idx;
+                els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+                render(false);
+                saveState();
+              }
+            }
+          });
+        }
+      } else if (e.key === "Escape"){
+        els.searchSuggestions.classList.remove("open");
+      }
+    }
+
+    function handleGlobalKeydown(e){
+      if (isTypingContext()) return;
+
+      const key = e.key.toLowerCase();
+
+      if (e.code === "Space"){
+        e.preventDefault();
+        togglePlayPause();
+        return;
+      }
+
+      if (e.key === "ArrowRight"){
+        e.preventDefault();
+        goNext(getShouldAutoplay());
+        return;
+      }
+
+      if (e.key === "ArrowLeft"){
+        e.preventDefault();
+        goPrev(getShouldAutoplay());
+        return;
+      }
+
+      if (key === "q"){ e.preventDefault(); setMode("Q"); return; }
+      if (key === "w"){ e.preventDefault(); setMode("W"); return; }
+      if (key === "e"){ e.preventDefault(); setMode("E"); return; }
+      if (key === "a"){ e.preventDefault(); setMode("A"); return; }
+      if (key === "s"){ e.preventDefault(); setMode("S"); return; }
+      if (key === "d"){ e.preventDefault(); setMode("D"); return; }
+      if (key === "g"){ e.preventDefault(); setMode("G"); return; }
+      if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
+      if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
+      if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
+      if (key === "h"){ e.preventDefault(); goHome(); return; }
+      if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
+
+      if (/^[0-9]$/.test(key)){
+        e.preventDefault();
+        seekToPercent(Number(key));
+        return;
+      }
+
+      if (e.code === "Comma"){
+        e.preventDefault();
+        if (e.shiftKey) changePlaybackRate(-1);
+        else stepFrame(-1);
+        return;
+      }
+
+      if (e.code === "Period"){
+        e.preventDefault();
+        if (e.shiftKey) changePlaybackRate(1);
+        else stepFrame(1);
+        return;
+      }
+
+      if (e.code === "BracketLeft"){
+        e.preventDefault();
+        setABStart();
+        return;
+      }
+
+      if (e.code === "BracketRight"){
+        e.preventDefault();
+        setABEnd();
+        return;
+      }
+
+      if (e.key === "Escape"){
+        closeMobileSheet();
+      }
+    }
+
+    function bindEvents(){
+      els.searchInput.addEventListener("input", () => {
+        searchFocusedIndex = -1;
+        requestRenderSearchSuggestions();
+        scheduleSearchApply(60);
+      });
+
+      // 한글 입력 시 조합(composition) 완료 후에도 제안 및 필터가 갱신되도록 처리합니다.
+      // 입력을 정규화하여 분해된 자모를 완성형으로 변환합니다.
+      els.searchInput.addEventListener("compositionend", () => {
+        els.searchInput.value = normalizeHangulString(els.searchInput.value);
+        searchFocusedIndex = -1;
+        requestRenderSearchSuggestions();
+        scheduleSearchApply(0);
+      });
+
+      updateSearchPlaceholder();
+
+      els.searchInput.addEventListener("focus", renderSearchSuggestions);
+      els.searchInput.addEventListener("keydown", handleSearchKeydown);
+
+      els.searchInput.addEventListener("blur", () => {
+        setTimeout(() => {
+          const active = document.activeElement;
+          const keepOpen = els.searchSuggestions.matches(":hover") || els.searchSuggestions.contains(active);
+          if (!keepOpen) {
+            els.searchSuggestions.classList.remove("open");
+          }
+        }, 320);
+      });
+
+      els.searchScopeSelect.addEventListener("change", () => {
+        searchFocusedIndex = -1;
+        updateSearchPlaceholder();
+        requestRenderSearchSuggestions();
+        applyFilter();
+      });
+
+      els.categorySelect.addEventListener("change", applyFilter);
+
+      els.clearBtn.addEventListener("click", () => {
+        clearTimeout(searchInputTimer);
+        els.searchInput.value = "";
+        els.categorySelect.value = "";
+        els.searchScopeSelect.value = "word";
+        updateSearchPlaceholder();
+        searchFocusedIndex = -1;
+        els.searchSuggestions.classList.remove("open");
+        els.searchSuggestions.innerHTML = "";
+        applyFilter();
+      });
+
+      els.prevBtn.addEventListener("click", () => goPrev(getShouldAutoplay()));
+      els.nextBtn.addEventListener("click", () => goNext(getShouldAutoplay()));
+
+      els.modeBtns.forEach(btn => {
+        btn.addEventListener("click", () => setMode(btn.dataset.mode));
+      });
+
+      // 여러 재생 버튼 모두에 클릭 이벤트 바인딩
+      els.playbackBtns.forEach(btn => {
+        btn.addEventListener("click", cyclePlaybackMode);
+      });
+
+      // 버튼 클릭 시 전체 순서 섞기 및 홈으로 이동 기능 바인딩
+      if (els.shuffleBtn){
+        let lastShuffleTouchAt = 0;
+        els.shuffleBtn.addEventListener("touchend", (e) => {
+          e.preventDefault();
+          lastShuffleTouchAt = Date.now();
+          shuffleCurrentOrder();
+        }, { passive:false });
+        els.shuffleBtn.addEventListener("click", (e) => {
+          if (Date.now() - lastShuffleTouchAt < 500) return;
+          e.preventDefault();
+          shuffleCurrentOrder();
+        });
+      }
+      if (els.homeBtn) els.homeBtn.addEventListener("click", goHome);
+
+      document.addEventListener("keydown", handleGlobalKeydown);
+
+      els.mobileInfoBtn.addEventListener("click", openMobileSheet);
+      els.mobileSheetClose.addEventListener("click", closeMobileSheet);
+
+      els.loadFileBtn.addEventListener("click", () => {
+        els.fileInput.click();
+      });
+
+      els.fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try{
+          await loadFromFileObject(file);
+        } catch (err){
+          console.error(err);
+          showOverlay("파일 처리 중 오류가 발생했습니다", 1800);
+        }
+        e.target.value = "";
+      });
+
+      els.selectionModeBtn.addEventListener("click", startSelectionMode);
+      els.selectionExitBtn.addEventListener("click", stopSelectionMode);
+
+      // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
+      updateExactMatchButton();
+      if (els.exactMatchBtn){
+        els.exactMatchBtn.addEventListener("click", () => {
+          exactMatch = !exactMatch;
+          updateExactMatchButton();
+          applyFilter();
+        });
+      }
+
+      if (els.syncRoomApplyBtn){
+        els.syncRoomApplyBtn.addEventListener("click", reconnectFirebaseRoom);
+      }
+
+      if (els.syncRoomInput){
+        els.syncRoomInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter"){
+            e.preventDefault();
+            reconnectFirebaseRoom();
+          }
+        });
+      }
+
+      if (els.pushCloudBtn){
+        els.pushCloudBtn.addEventListener("click", () => {
+          if (!firebaseReady){
+            updateFirebaseStatus("Firebase 연결 대기중", "error");
+            showOverlay("Firebase 연결이 아직 준비되지 않았습니다", 1500);
+            return;
+          }
+          if (!rows.length){
+            updateFirebaseStatus("업로드할 데이터 없음", "error");
+            showOverlay("업로드할 데이터가 없습니다", 1300);
+            return;
+          }
+          scheduleFirebaseDatasetUpload("manual-button", true);
+          scheduleFirebaseStatePush(buildStatePayload(), true);
+        });
+      }
+
+      els.stage.addEventListener("touchstart", (e) => {
+        if (!e.touches || !e.touches.length) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, {passive:true});
+
+      els.stage.addEventListener("touchend", (e) => {
+        if (!e.changedTouches || !e.changedTouches.length) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+
+        if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy)){
+          if (dx < 0) goNext(getShouldAutoplay());
+          else goPrev(getShouldAutoplay());
+        }
+      }, {passive:true});
+
+      els.mainVideo.addEventListener("error", () => {
+        showOverlay("영상 자료를 불러오지 못했습니다", 1600);
+      });
+
+      els.mainImage.addEventListener("error", () => {
+        showOverlay("이미지 자료를 불러오지 못했습니다", 1600);
+      });
+
+      els.mainVideo.addEventListener("loadedmetadata", () => {
+        if (pendingRestoreTime !== null && isFinite(els.mainVideo.duration)){
+          els.mainVideo.currentTime = Math.min(pendingRestoreTime, Math.max(0, els.mainVideo.duration - 0.1));
+          pendingRestoreTime = null;
+        }
+      });
+
+      els.mainVideo.addEventListener("timeupdate", () => {
+        currentVideoTime = els.mainVideo.currentTime;
+
+        if (abLoopStart !== null && abLoopEnd !== null && els.mainVideo.currentTime >= abLoopEnd){
+          els.mainVideo.currentTime = abLoopStart;
+          if (els.mainVideo.paused) els.mainVideo.play().catch(() => {});
+        }
+      });
+
+      els.mainVideo.addEventListener("ended", () => {
+        if (playbackMode === "CONT"){
+          goNext(true);
+        }
+      });
+
+      setupDragAndDrop();
+      updatePlaybackButton();
+    }
+
+    function initEmptyState(){
+      filteredGroups = [];
+      // 화면 초기화 시 하단 이미지 뷰어를 숨깁니다.
+      if (els.viewerBottom) {
+        els.viewerBottom.style.display = "none";
+      }
+      filteredExamplePool = [];
+      updateCount();
+      renderInfo();
+      renderStatus();
+      showMainText(
+`파일을 불러와 주세요.
+
+기본 파일명:
+${DEFAULT_FILENAME}
+
+동작 순서
+1) 기본 파일 자동 불러오기 시도
+2) 실패하면 IndexedDB 캐시 복원 시도
+3) 그래도 없으면 수동 파일 추가
+
+단축키
+Q/W/E/A/S/D/G 모드 전환
+H 처음 화면
+R 전체 순서 섞기
+Space 재생/일시정지
+0~9 위치 이동
+, . 프레임 이동
+< > 재생속도
+[ ] 구간 반복
+O 현재 화면 캡처`);
+    }
+
+    async function boot(){
+      bindEvents();
+      initEmptyState();
+
+      try{
+        await loadSelectionPresets();
+      } catch (err){
+        console.warn("선택학습 목록 복원 실패", err);
+      }
+
+      const firebaseStarted = await initFirebaseSync();
+
+      let loaded = false;
+
+      if (firebaseStarted){
+        loaded = await loadInitialFirebaseSnapshot();
+      }
+
+      if (!loaded){
+        loaded = await tryAutoLoadDefaultFile();
+      }
+
+      if (!loaded){
+        loaded = await tryRestoreIndexedCache();
+      }
+
+      if (!loaded){
+        els.statusText.textContent = "기본 파일 자동 로드 실패 - 파일을 직접 불러와 주세요";
+      }
+
+      if (firebaseStarted && rows.length){
+        scheduleFirebaseStatePush(buildStatePayload(), true);
+      }
+    }
+
+    boot().catch(err => {
+      console.error("초기화 실패", err);
+      updateFirebaseStatus("초기화 오류", "error");
+      els.statusText.textContent = "초기화 중 오류가 발생했습니다";
+    });
+  </script>
+</body>
+</html>
