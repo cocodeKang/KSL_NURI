@@ -45,9 +45,10 @@
 
     .app{
       display:grid;
-      grid-template-rows: var(--header-h) 1fr var(--footer-h);
+      grid-template-rows:auto minmax(0, 1fr) auto;
       height:100%;
       width:100%;
+      min-height:0;
     }
 
     .header{
@@ -155,12 +156,89 @@
       white-space:nowrap;
       color:var(--sub);
       font-size:13px;
-      padding:0 4px;
-      /* 고정 폭을 부여하여 자릿수 증가로 인해 인터페이스가 변경되지 않도록 함 */
+      padding:0 6px;
       min-width:72px;
       display:inline-flex;
       justify-content:center;
       align-items:center;
+      border-radius:12px;
+      border:1px solid transparent;
+      height:42px;
+    }
+
+    .quick-btn{
+      display:none;
+    }
+
+    .header-row-search{
+      flex-wrap:nowrap;
+    }
+
+    .header-row-search .search-wrap{
+      min-width:0;
+    }
+
+    .header-row-actions,
+    .header-row-sync{
+      min-width:0;
+    }
+
+    .stage-tap-zone{
+      position:absolute;
+      top:0;
+      bottom:0;
+      width:18%;
+      z-index:8;
+      display:none;
+      background:transparent;
+    }
+
+    .stage-tap-zone.left{ left:0; }
+    .stage-tap-zone.right{ right:0; }
+
+    .stage-tap-zone::after{
+      content:"";
+      position:absolute;
+      top:50%;
+      transform:translateY(-50%);
+      width:34px;
+      height:34px;
+      border-radius:999px;
+      background:rgba(5,10,18,.18);
+      opacity:0;
+      transition:.15s ease;
+    }
+
+    .stage-tap-zone.left::after{ left:6px; }
+    .stage-tap-zone.right::after{ right:6px; }
+
+    .stage-tap-zone:active::after{
+      opacity:1;
+    }
+
+    .stage-tap-zone .tap-arrow{
+      position:absolute;
+      top:50%;
+      transform:translateY(-50%);
+      color:rgba(255,255,255,.75);
+      font-size:22px;
+      font-weight:700;
+      opacity:.6;
+      pointer-events:none;
+    }
+
+    .stage-tap-zone.left .tap-arrow{ left:14px; }
+    .stage-tap-zone.right .tap-arrow{ right:14px; }
+
+    .top-home-btn{
+      display:none;
+    }
+
+    .firebase-status{
+      min-width:0;
+      max-width:100%;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
 
 
@@ -720,83 +798,177 @@
       }
       .desktop-only{display:none;}
       .mobile-only{display:inline-flex;}
+      .quick-btn,
+      .top-home-btn,
+      .stage-tap-zone{
+        display:none;
+      }
     }
 
     @media (max-width: 760px){
       :root{
-        --header-h:210px;
-        --footer-h:214px;
+        --header-h:auto;
+        --footer-h:auto;
       }
 
       .header{
-        padding:10px 10px 8px;
+        padding:8px 8px 6px;
+        gap:6px;
       }
 
       .header-row{
         gap:6px;
       }
 
+      .header-row-search{
+        flex-wrap:nowrap;
+        align-items:center;
+      }
+
+      .header-row-search .search-wrap{
+        flex:1 1 auto;
+        min-width:0;
+      }
+
+      .search{
+        height:40px;
+        padding:0 11px;
+        font-size:14px;
+      }
+
       .search-wrap{
-        min-width:100%;
+        min-width:0;
       }
 
       .scope-select,
       .category-select{
-        flex:1;
-        min-width:120px;
+        display:none;
+      }
+
+      .quick-btn,
+      .top-home-btn{
+        display:inline-flex;
+      }
+
+      .quick-btn{
+        min-width:0;
+        padding:0 10px;
+        font-size:12px;
+        flex:0 0 auto;
+      }
+
+      .count-badge{
+        min-width:58px;
+        height:40px;
+        font-size:12px;
+        padding:0 4px;
+      }
+
+      .header-row-actions{
+        flex-wrap:wrap;
+      }
+
+      .header-row-actions .icon-btn,
+      .header-row-actions .select-btn,
+      .header-row-actions .playback-btn{
+        height:38px;
+        min-width:38px;
+        padding:0 9px;
+        font-size:12px;
+      }
+
+      .header-row-sync{
+        flex-wrap:nowrap;
+        align-items:center;
+      }
+
+      .sync-room-input{
+        min-width:0;
+        flex:1 1 auto;
+        height:38px;
+        font-size:12px;
+        padding:0 10px;
+      }
+
+      .header-row-sync .icon-btn{
+        height:38px;
+        min-width:38px;
+        padding:0 8px;
+        font-size:12px;
+      }
+
+      .firebase-status{
+        flex:0 0 auto;
+        max-width:90px;
+        min-height:38px;
+        height:38px;
+        padding:0 8px;
+        font-size:11px;
       }
 
       .main{
-        padding:8px;
-        gap:8px;
+        padding:6px;
+        gap:6px;
+      }
+
+      .viewer{
+        min-height:0;
+      }
+
+      .stage{
+        border-radius:14px;
+      }
+
+      .stage-tap-zone{
+        display:block;
       }
 
       .footer{
-        padding:8px 10px calc(8px + env(safe-area-inset-bottom));
-        align-items:flex-start;
+        padding:4px 8px calc(6px + env(safe-area-inset-bottom));
+        align-items:stretch;
         flex-direction:column;
+        gap:3px;
       }
 
-      .nav-group,.mode-group,.extra-group{
+      .nav-group{
+        display:none;
+      }
+
+      .mode-group,.extra-group{
         width:100%;
       }
 
       .mode-group{
         display:grid;
         grid-template-columns:repeat(4, minmax(0,1fr));
-        gap:8px;
+        gap:6px;
       }
 
       .mode-btn{
         min-width:0;
         width:100%;
-        height:42px;
+        height:40px;
       }
 
       .nav-btn{
         flex:1;
         min-width:0;
-        height:44px;
+        height:40px;
       }
 
       .icon-btn,.playback-btn,.select-btn,.link-btn{
-        height:40px;
-        min-width:40px;
-        padding:0 10px;
+        height:38px;
+        min-width:38px;
+        padding:0 9px;
       }
 
-      /* 모바일에서 상태 텍스트를 표시하지 않음 */
       .status{
         display:none;
-      }
-      /* 모바일에서 풋터 간격을 줄여 홈과 모드 버튼 사이 여백을 최소화 */
-      .footer{
-        gap:4px;
       }
 
       .main-text{
         font-size:clamp(24px, 8vw, 42px);
-        padding:22px;
+        padding:20px;
       }
 
       .word{
@@ -808,11 +980,14 @@
 <body>
   <div class="app">
     <header class="header">
-      <div class="header-row">
+      <div class="header-row header-row-search">
         <div class="search-wrap">
           <input id="searchInput" class="search" type="text" placeholder="표제어 검색" autocomplete="off" />
           <div id="searchSuggestions" class="search-suggestions"></div>
         </div>
+
+        <button id="searchScopeQuickBtn" class="icon-btn mobile-only quick-btn" title="검색 범위 변경">표제어</button>
+        <button id="categoryQuickBtn" class="icon-btn mobile-only quick-btn" title="카테고리 변경">전체</button>
 
         <select id="searchScopeSelect" class="scope-select" title="검색 범위">
           <option value="word" selected>표제어검색</option>
@@ -827,22 +1002,22 @@
         <div id="countBadge" class="count-badge">0 / 0</div>
       </div>
 
-      <div class="header-row">
+      <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
         <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일 불러오기</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
         <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
-        <!-- 검색 모드를 토글하는 버튼: 부분검색/일치검색 -->
-        <button id="exactMatchBtn" class="select-btn" title="일치검색 전환">일치검색</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
-        <!-- 모바일에서 재생 모드 버튼을 상단에 배치 -->
+        <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
         <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
+      </div>
 
+      <div class="header-row header-row-sync">
         <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="실시간 방 이름" value="main" />
-        <button id="syncRoomApplyBtn" class="icon-btn" title="Firebase 실시간 연결">실시간 연결</button>
-        <button id="pushCloudBtn" class="icon-btn" title="현재 데이터를 Firebase에 업로드">클라우드 업로드</button>
-        <div id="firebaseStatus" class="firebase-status">Firebase 준비중</div>
+        <button id="syncRoomApplyBtn" class="icon-btn" title="Firebase 실시간 연결">연결</button>
+        <button id="pushCloudBtn" class="icon-btn" title="현재 데이터를 Firebase에 업로드">업로드</button>
+        <div id="firebaseStatus" class="firebase-status">대기중</div>
       </div>
     </header>
 
@@ -852,6 +1027,8 @@
           <video id="mainVideo" controls playsinline preload="metadata"></video>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainText" class="main-text"></div>
+          <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
+          <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="overlayMsg" class="overlay-msg"></div>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
         </div>
@@ -918,7 +1095,6 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
   import { getDatabase, ref as dbRef, get as dbGet, set as dbSet, onValue } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
-  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
 
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyC6K7dRqHirEdSsddnZ85vY4QOUGdLVto0",
@@ -932,7 +1108,6 @@
 
   const FIREBASE_ROOM_STORAGE_KEY = "ksl-nuri-sync-room";
   const FIREBASE_DEFAULT_ROOM = "main";
-  const FIREBASE_STORAGE_ROOT = "ksl-nuri-shared";
   const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
 
   const BASE_URL = "https://ksldict.korean.go.kr";
@@ -988,6 +1163,10 @@
       mobileSheetBody: document.getElementById("mobileSheetBody"),
       mobileSheetClose: document.getElementById("mobileSheetClose"),
       stage: document.getElementById("stage"),
+      tapPrevZone: document.getElementById("tapPrevZone"),
+      tapNextZone: document.getElementById("tapNextZone"),
+      searchScopeQuickBtn: document.getElementById("searchScopeQuickBtn"),
+      categoryQuickBtn: document.getElementById("categoryQuickBtn"),
       modeBtns: [...document.querySelectorAll(".mode-btn[data-mode]")],
       fileInput: document.getElementById("fileInput"),
       loadFileBtn: document.getElementById("loadFileBtn"),
@@ -1003,8 +1182,8 @@
       firebaseStatus: document.getElementById("firebaseStatus"),
       // 새로 추가된 버튼 요소들
       shuffleBtn: document.getElementById("shuffleBtn"),
-      homeBtn: document.getElementById("homeBtn")
-      ,
+      homeBtn: document.getElementById("homeBtn"),
+      homeBtnTop: document.getElementById("homeBtnTop"),
       // 뷰어 하단의 이미지 박스 컨테이너 (좌측 하나만 보여주기 위해 숨김 처리)
       viewerBottom: document.querySelector(".viewer-bottom")
     };
@@ -1047,12 +1226,12 @@
     let touchStartX = 0;
     let touchStartY = 0;
     let dragCounter = 0;
+    let isSearchPreviewing = false;
     let currentSourceName = "";
 
     let firebaseApp = null;
     let firebaseAuth = null;
     let firebaseDb = null;
-    let firebaseStorage = null;
     let firebaseUid = "";
     let firebaseReady = false;
     let firebaseStateUnsub = null;
@@ -1478,7 +1657,7 @@
         word: item.word,
         id: item.groupId,
         norm: item.textNorm || "",
-        len: item.word.length,
+        len: (item.text || "").length || item.word.length,
         textLen: (item.text || "").length
       }));
     }
@@ -1576,6 +1755,7 @@ async function saveState(){
       els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
       if (values.includes(current)) els.categorySelect.value = current;
+      updateQuickButtons();
     }
 
     function getSelectionWordSet(){
@@ -1595,15 +1775,52 @@ async function saveState(){
       } else {
         els.searchInput.placeholder = "표제어 검색";
       }
+      updateQuickButtons();
     }
 
     function compareSuggestionItems(a, b){
-      return (a.len - b.len)
+      const aDisplayLen = (a.type === "word" ? safe(a.word).length : safe(a.text).length) || a.len || 0;
+      const bDisplayLen = (b.type === "word" ? safe(b.word).length : safe(b.text).length) || b.len || 0;
+      return (aDisplayLen - bDisplayLen)
         || (a.score - b.score)
         || (((a.textLen ?? a.len) - (b.textLen ?? b.len)))
-        || (a.type === b.type ? 0 : (a.type === "word" ? -1 : 1))
         || safe(a.word || a.text).localeCompare(safe(b.word || b.text), "ko")
-        || safe(a.text).localeCompare(safe(b.text), "ko");
+        || safe(a.text).localeCompare(safe(b.text), "ko")
+        || (a.type === b.type ? 0 : (a.type === "word" ? -1 : 1));
+    }
+
+    function isMobileViewport(){
+      return window.matchMedia("(max-width: 760px)").matches;
+    }
+
+    function updateQuickButtons(){
+      if (els.searchScopeQuickBtn){
+        const labelMap = { word: "표제어", example: "용례", all: "통합" };
+        els.searchScopeQuickBtn.textContent = labelMap[getSearchScope()] || "표제어";
+      }
+      if (els.categoryQuickBtn){
+        const categoryLabel = safe(els.categorySelect.value) || "전체";
+        els.categoryQuickBtn.textContent = categoryLabel.length > 6 ? `${categoryLabel.slice(0, 6)}…` : categoryLabel;
+        els.categoryQuickBtn.title = categoryLabel || "전체 카테고리";
+      }
+    }
+
+    function previewSuggestionItem(item){
+      if (!item) return;
+      isSearchPreviewing = true;
+      if (item.type === "word"){
+        showMainText(item.word || "");
+        els.statusText.textContent = `미리보기 | ${item.word || ""}`;
+      } else {
+        showMainText(item.text || "");
+        els.statusText.textContent = `미리보기 | ${item.word || ""}`;
+      }
+    }
+
+    function restoreSearchPreview(){
+      if (!isSearchPreviewing) return;
+      isSearchPreviewing = false;
+      render(false);
     }
 
     function sortFilteredGroupsByWordLength(list){
@@ -1830,6 +2047,7 @@ async function saveState(){
         const now = total ? currentIndex + 1 : 0;
         els.countBadge.textContent = `${now} / ${total}`;
       }
+      updateQuickButtons();
     }
 
     function updatePlaybackButton(){
@@ -1882,7 +2100,21 @@ function makeDataHash(text){
 
 function updateFirebaseStatus(text, tone = "normal"){
   if (!els.firebaseStatus) return;
-  els.firebaseStatus.textContent = text;
+  const fullText = safe(text) || "대기중";
+  const mobileShort = (() => {
+    if (/연결됨|연결 완료/i.test(fullText)) return "연결됨";
+    if (/오프라인/i.test(fullText)) return "오프라인";
+    if (/업로드 중|동기화 중/i.test(fullText)) return "동기화중";
+    if (/업로드 완료/i.test(fullText)) return "업로드됨";
+    if (/최신/i.test(fullText)) return "최신";
+    if (/로그인/i.test(fullText)) return "로그인";
+    if (/실패|오류|제한|필요/i.test(fullText)) return "오류";
+    if (/방 전환/i.test(fullText)) return "전환중";
+    if (/대기/i.test(fullText)) return "대기중";
+    return fullText.length > 7 ? `${fullText.slice(0, 7)}…` : fullText;
+  })();
+  els.firebaseStatus.textContent = isMobileViewport() ? mobileShort : fullText;
+  els.firebaseStatus.title = fullText;
   els.firebaseStatus.classList.remove("ok", "error");
   if (tone === "ok") els.firebaseStatus.classList.add("ok");
   if (tone === "error") els.firebaseStatus.classList.add("error");
@@ -1980,39 +2212,31 @@ async function uploadCurrentDatasetToFirebase(reason = "manual"){
   updateFirebaseStatus("클라우드 업로드 중...", "ok");
 
   const version = `${Date.now()}-${firebaseUid.slice(0, 8)}-${hash}`;
-  const storagePath = `${FIREBASE_STORAGE_ROOT}/${syncRoomKey}/datasets/${version}.json`;
-  const blob = new Blob([json], { type: "application/json" });
-
-  const uploadedRef = storageRef(firebaseStorage, storagePath);
-  await withTimeout(uploadBytes(uploadedRef, blob, { contentType: "application/json" }), 25000, "Storage 업로드");
-  const downloadURL = await withTimeout(getDownloadURL(uploadedRef), 15000, "업로드 URL 확인");
-
-  const meta = {
+  const payload = {
     version,
-    path: storagePath,
-    downloadURL,
     sourceName: currentSourceName || "firebase-data.json",
     rowsCount: rows.length,
     uploadedAt: Date.now(),
     uploadedBy: firebaseUid,
     hash,
-    reason
+    reason,
+    rows
   };
 
-  await withTimeout(dbSet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`), meta), 12000, "Realtime Database 메타 저장");
+  await withTimeout(dbSet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`), payload), 20000, "Realtime Database 데이터 저장");
 
   remoteDatasetAvailable = true;
   lastUploadedDatasetHash = hash;
   lastAppliedRemoteDatasetVersion = version;
-  updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
-  showOverlay("Firebase 업로드 완료", 1000);
+  updateFirebaseStatus(`업로드 완료 · ${syncRoomKey}`, "ok");
+  showOverlay("Realtime Database 업로드 완료", 1000);
 }
 
 async function applyRemoteDatasetMeta(meta, options = {}){
   const { silent = false } = options;
-  remoteDatasetAvailable = !!(meta && meta.downloadURL);
+  remoteDatasetAvailable = !!(meta && Array.isArray(meta.rows));
 
-  if (!meta || !meta.downloadURL || !meta.version) return false;
+  if (!meta || !Array.isArray(meta.rows) || !meta.version) return false;
   if (meta.version === lastAppliedRemoteDatasetVersion) return false;
 
   if (meta.uploadedBy === firebaseUid && meta.hash && meta.hash === lastUploadedDatasetHash){
@@ -2022,13 +2246,11 @@ async function applyRemoteDatasetMeta(meta, options = {}){
 
   try{
     updateFirebaseStatus("클라우드 데이터 동기화 중...", "ok");
-    const res = await fetch(meta.downloadURL, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const dataRows = await res.json();
+    const dataRows = Array.isArray(meta.rows) ? meta.rows : [];
 
     isApplyingRemoteDataset = true;
     try{
-      await finalizeLoadedData(Array.isArray(dataRows) ? dataRows : [], meta.sourceName || "Firebase 데이터", true, true);
+      await finalizeLoadedData(dataRows, meta.sourceName || "Realtime Database 데이터", true, true);
     } finally {
       isApplyingRemoteDataset = false;
     }
@@ -2036,7 +2258,7 @@ async function applyRemoteDatasetMeta(meta, options = {}){
     lastAppliedRemoteDatasetVersion = meta.version;
     if (meta.hash) lastUploadedDatasetHash = meta.hash;
     updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
-    if (!silent) showOverlay(`Firebase 최신 데이터 적용\n${meta.sourceName || "firebase-data.json"}`, 1400);
+    if (!silent) showOverlay(`최신 데이터 적용\n${meta.sourceName || "firebase-data.json"}`, 1400);
     return true;
   } catch (err){
     console.error("Firebase 원격 데이터 적용 실패", err);
@@ -2169,11 +2391,13 @@ async function reconnectFirebaseRoom(){
 }
 
 async function initFirebaseSync(){
+  if (location.protocol === "file:"){
+    updateFirebaseStatus("file:// 제한", "error");
+  }
   try{
     firebaseApp = initializeApp(FIREBASE_CONFIG);
     firebaseAuth = getAuth(firebaseApp);
     firebaseDb = getDatabase(firebaseApp);
-    firebaseStorage = getStorage(firebaseApp);
 
     await signInAnonymously(firebaseAuth);
     firebaseUid = firebaseAuth.currentUser?.uid || "";
@@ -2250,6 +2474,7 @@ async function initFirebaseSync(){
       els.searchSuggestions.classList.remove("open");
       els.searchSuggestions.innerHTML = "";
 
+      restoreSearchPreview();
       Promise.resolve(applyFilter()).then(() => {
         if (item.type === "word" && item.id){
           const idx = filteredGroups.findIndex(g => String(g.id) === String(item.id));
@@ -2308,6 +2533,11 @@ async function initFirebaseSync(){
         const item = items[idx];
         let touchMoved = false;
         const pick = () => applySuggestionPick(item);
+        el.addEventListener('mouseenter', () => {
+          searchFocusedIndex = idx;
+          previewSuggestionItem(item);
+          requestRenderSearchSuggestions();
+        });
         el.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
         el.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
         el.addEventListener('touchend', (e) => {
@@ -2322,6 +2552,11 @@ async function initFirebaseSync(){
           pick();
         });
       });
+
+      const activeEl = els.searchSuggestions.querySelector('.suggestion-item.active');
+      if (activeEl){
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
     }
 
     function requestRenderSearchSuggestions(){
@@ -3144,6 +3379,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       const state = await restoreState();
       applyRestoredUIState(state);
+      updateQuickButtons();
 
       if (saveCacheToo){
         await saveDataCache(sourceName);
@@ -3297,10 +3533,12 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         e.preventDefault();
         searchFocusedIndex = Math.min(searchFocusedIndex + 1, items.length - 1);
         requestRenderSearchSuggestions();
+        previewSuggestionItem(items[searchFocusedIndex]);
       } else if (e.key === "ArrowUp"){
         e.preventDefault();
         searchFocusedIndex = Math.max(searchFocusedIndex - 1, 0);
         requestRenderSearchSuggestions();
+        previewSuggestionItem(items[searchFocusedIndex]);
       } else if (e.key === "Enter"){
         e.preventDefault();
         const item = items[Math.max(searchFocusedIndex, 0)];
@@ -3309,6 +3547,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           searchFocusedIndex = -1;
           els.searchSuggestions.classList.remove("open");
           els.searchSuggestions.innerHTML = "";
+          restoreSearchPreview();
           applyFilter().then(() => {
             if (item.type === "word"){
               const idx = filteredGroups.findIndex(g => String(g.id) === String(item.id));
@@ -3333,6 +3572,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         }
       } else if (e.key === "Escape"){
         els.searchSuggestions.classList.remove("open");
+        restoreSearchPreview();
       }
     }
 
@@ -3412,6 +3652,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     function bindEvents(){
       els.searchInput.addEventListener("input", () => {
         searchFocusedIndex = -1;
+        restoreSearchPreview();
         requestRenderSearchSuggestions();
         scheduleSearchApply(60);
       });
@@ -3421,13 +3662,16 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       els.searchInput.addEventListener("compositionend", () => {
         els.searchInput.value = normalizeHangulString(els.searchInput.value);
         searchFocusedIndex = -1;
+        restoreSearchPreview();
         requestRenderSearchSuggestions();
         scheduleSearchApply(0);
       });
 
       updateSearchPlaceholder();
 
-      els.searchInput.addEventListener("focus", renderSearchSuggestions);
+      els.searchInput.addEventListener("focus", () => {
+        renderSearchSuggestions();
+      });
       els.searchInput.addEventListener("keydown", handleSearchKeydown);
 
       els.searchInput.addEventListener("blur", () => {
@@ -3436,6 +3680,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           const keepOpen = els.searchSuggestions.matches(":hover") || els.searchSuggestions.contains(active);
           if (!keepOpen) {
             els.searchSuggestions.classList.remove("open");
+            restoreSearchPreview();
           }
         }, 320);
       });
@@ -3447,7 +3692,37 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         applyFilter();
       });
 
-      els.categorySelect.addEventListener("change", applyFilter);
+      els.categorySelect.addEventListener("change", () => {
+        updateQuickButtons();
+        applyFilter();
+      });
+
+      if (els.searchScopeQuickBtn){
+        els.searchScopeQuickBtn.addEventListener("click", () => {
+          const scopes = ["word", "example", "all"];
+          const idx = scopes.indexOf(getSearchScope());
+          els.searchScopeSelect.value = scopes[(idx + 1) % scopes.length];
+          searchFocusedIndex = -1;
+          updateSearchPlaceholder();
+          updateQuickButtons();
+          requestRenderSearchSuggestions();
+          applyFilter();
+        });
+      }
+
+      if (els.categoryQuickBtn){
+        els.categoryQuickBtn.addEventListener("click", () => {
+          const options = [...els.categorySelect.options].map(opt => opt.value);
+          if (typeof els.categorySelect.showPicker === "function"){
+            els.categorySelect.showPicker();
+            return;
+          }
+          const idx = options.indexOf(els.categorySelect.value);
+          els.categorySelect.value = options[(idx + 1) % options.length];
+          updateQuickButtons();
+          applyFilter();
+        });
+      }
 
       els.clearBtn.addEventListener("click", () => {
         clearTimeout(searchInputTimer);
@@ -3458,6 +3733,8 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         searchFocusedIndex = -1;
         els.searchSuggestions.classList.remove("open");
         els.searchSuggestions.innerHTML = "";
+        restoreSearchPreview();
+        updateQuickButtons();
         applyFilter();
       });
 
@@ -3488,6 +3765,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         });
       }
       if (els.homeBtn) els.homeBtn.addEventListener("click", goHome);
+      if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", goHome);
 
       document.addEventListener("keydown", handleGlobalKeydown);
 
@@ -3570,6 +3848,25 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         }
       }, {passive:true});
 
+      const bindTapZone = (el, fn) => {
+        if (!el) return;
+        let moved = false;
+        el.addEventListener("touchstart", () => { moved = false; }, { passive:true });
+        el.addEventListener("touchmove", () => { moved = true; }, { passive:true });
+        el.addEventListener("touchend", (e) => {
+          if (moved) return;
+          e.preventDefault();
+          fn();
+        }, { passive:false });
+        el.addEventListener("click", (e) => {
+          e.preventDefault();
+          fn();
+        });
+      };
+
+      bindTapZone(els.tapPrevZone, () => goPrev(getShouldAutoplay()));
+      bindTapZone(els.tapNextZone, () => goNext(getShouldAutoplay()));
+
       els.mainVideo.addEventListener("error", () => {
         showOverlay("영상 자료를 불러오지 못했습니다", 1600);
       });
@@ -3600,8 +3897,15 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         }
       });
 
+      window.addEventListener("resize", () => {
+        updateQuickButtons();
+        updateFirebaseStatus(els.firebaseStatus?.title || els.firebaseStatus?.textContent || "대기중",
+          els.firebaseStatus?.classList.contains("error") ? "error" : (els.firebaseStatus?.classList.contains("ok") ? "ok" : "normal"));
+      });
+
       setupDragAndDrop();
       updatePlaybackButton();
+      updateQuickButtons();
     }
 
     function initEmptyState(){
