@@ -1740,6 +1740,12 @@ async function saveState(){
       if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
       if (!["word", "example", "all"].includes(els.searchScopeSelect.value)) els.searchScopeSelect.value = "word";
       updateSearchPlaceholder();
+      if (state.selectionPresets && typeof state.selectionPresets === "object" && !Array.isArray(state.selectionPresets)){
+        selectionPresets = Object.fromEntries(Object.entries(state.selectionPresets).map(([name, ids]) => [
+          safe(name).slice(0, 80),
+          Array.isArray(ids) ? ids.slice(0, 30).map(v => safe(v)).filter(Boolean) : []
+        ]));
+      }
       if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
       if (typeof state.selectedPresetName === "string") selectedPresetName = state.selectedPresetName;
       if (typeof state.currentVideoTime === "number") currentVideoTime = state.currentVideoTime;
@@ -2120,6 +2126,13 @@ function updateFirebaseStatus(text, tone = "normal"){
   if (tone === "error") els.firebaseStatus.classList.add("error");
 }
 
+function cloneSelectionPresetsForSync(){
+  const entries = Object.entries(selectionPresets || {})
+    .slice(0, 120)
+    .map(([name, ids]) => [safe(name).slice(0, 80), Array.isArray(ids) ? ids.slice(0, 30) : []]);
+  return Object.fromEntries(entries);
+}
+
 function buildStatePayload(){
   return {
     currentMode,
@@ -2131,6 +2144,7 @@ function buildStatePayload(){
     searchScope: els.searchScopeSelect.value,
     selectionModeActive,
     selectedGroupIds,
+    selectionPresets: cloneSelectionPresetsForSync(),
     sourceName: currentSourceName,
     presetNameValue,
     selectedPresetName,
@@ -2291,7 +2305,6 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     isApplyingRemoteState = false;
   }
 
-  if (!silent) showOverlay("실시간 상태 동기화 적용", 900);
   return true;
 }
 
@@ -2345,7 +2358,9 @@ async function loadInitialFirebaseSnapshot(){
     let loaded = false;
 
     if (metaSnap.exists()){
-      loaded = await applyRemoteDatasetMeta(metaSnap.val(), { silent: true });
+      const metaVal = metaSnap.val();
+      remoteDatasetAvailable = !!(metaVal && Array.isArray(metaVal.rows));
+      loaded = await applyRemoteDatasetMeta(metaVal, { silent: true });
     }
 
     if (stateSnap.exists()){
@@ -2380,9 +2395,6 @@ async function reconnectFirebaseRoom(){
   updateFirebaseStatus(`방 전환 중... · ${syncRoomKey}`);
   const loadedRemote = await loadInitialFirebaseSnapshot();
 
-  if (!loadedRemote && rows.length){
-    scheduleFirebaseDatasetUpload("room-switch", true);
-  }
   if (rows.length){
     scheduleFirebaseStatePush(buildStatePayload(), true);
   }
@@ -3433,9 +3445,6 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         const buffer = await res.arrayBuffer();
         const dataRows = await parseFileByNameAndBuffer(DEFAULT_FILENAME, buffer);
         await finalizeLoadedData(dataRows, DEFAULT_FILENAME, true, true);
-        if (firebaseReady && !remoteDatasetAvailable){
-          scheduleFirebaseDatasetUpload("default-seed", true);
-        }
         return true;
       } catch (err){
         console.warn("기본 파일 자동 불러오기 실패:", err);
@@ -3449,9 +3458,6 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         if (cached?.rows?.length){
           showOverlay("저장된 캐시 데이터를 복원합니다", 1200);
           await finalizeLoadedData(cached.rows, cached.meta?.sourceName || "캐시 데이터", true, false);
-          if (firebaseReady && !remoteDatasetAvailable){
-            scheduleFirebaseDatasetUpload("cache-seed", true);
-          }
           return true;
         }
       } catch (err){
