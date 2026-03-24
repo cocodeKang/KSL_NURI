@@ -1860,73 +1860,115 @@
       "pageUrl": "sourceUrl",
       "sourceUrl": "sourceUrl",
       "url": "sourceUrl",
+
       "ID": "sourceId",
       "id": "sourceId",
       "Id": "sourceId",
       "sourceId": "sourceId",
+
       "표제어": "expression",
+      "표제어Q": "expression",
       "word": "expression",
       "expression": "expression",
       "단어": "expression",
       "표현": "expression",
+
       "의미범주": "category",
       "카테고리": "category",
       "category": "category",
       "semantics": "category",
+
       "표제어영상": "headwordVideo",
+      "표제어영상W": "headwordVideo",
       "표제어 영상": "headwordVideo",
       "wordVideo": "headwordVideo",
       "영상": "headwordVideo",
       "headwordVideo": "headwordVideo",
+
       "표제어수어문자": "signTextImage",
+      "표제어수어문자E": "signTextImage",
       "표제어 수어문자": "signTextImage",
       "wordSignImage": "signTextImage",
       "signTextImage": "signTextImage",
+
       "표제어수형그림": "handShapeImage1",
+      "표제어수형그림G": "handShapeImage1",
       "표제어 수형그림": "handShapeImage1",
       "표제어수형그림1": "handShapeImage1",
+      "표제어수형그림1G": "handShapeImage1",
       "handShapeImage": "handShapeImage1",
       "수형그림": "handShapeImage1",
       "handShapeImage1": "handShapeImage1",
+
       "표제어수형그림2": "handShapeImage2",
+      "표제어수형그림2G": "handShapeImage2",
       "handShapeImage2": "handShapeImage2",
+
       "표제어수형그림3": "handShapeImage3",
+      "표제어수형그림3G": "handShapeImage3",
       "handShapeImage3": "handShapeImage3",
+
       "용례번역문": "translation",
+      "용례번역문A": "translation",
       "용례 번역문": "translation",
       "exampleText": "translation",
       "번역문": "translation",
       "translation": "translation",
+
       "용례영상": "exampleVideo",
+      "용례영상S": "exampleVideo",
       "용례 영상": "exampleVideo",
       "exampleVideo": "exampleVideo",
+
       "용례수어문자": "exampleSignTextImage",
+      "용례수어문자D": "exampleSignTextImage",
       "용례 수어문자": "exampleSignTextImage",
       "exampleSignImage": "exampleSignTextImage",
       "exampleSignTextImage": "exampleSignTextImage",
+
       "변이범주": "variantLabel",
       "variantLabel": "variantLabel",
+
       "뜻풀이": "definition",
+      "뜻풀이Z": "definition",
       "definition": "definition",
+
       "expressionIndex": "expressionIndex",
       "exampleOrder": "exampleOrder",
       "exmpId": "exmpId",
       "corGrpId": "corGrpId"
     };
 
+    function stripHeaderShortcutToken(text){
+      return safe(text)
+        .replace(/^\uFEFF/, "")
+        .replace(/[\r\n]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\s+[A-Z]$/i, "")
+        .replace(/([가-힣0-9])([A-Z])$/i, "$1")
+        .trim();
+    }
+
     function sanitizeHeaderRaw(value){
       const raw = safe(value).replace(/^\uFEFF/, "");
       if (!raw) return "";
       const compact = raw.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
-      const withoutShortcut = compact.replace(/\s+[A-Z]$/i, "").trim();
+      const withoutShortcut = stripHeaderShortcutToken(compact);
       return withoutShortcut || compact;
     }
 
     function mapHeaderKey(key, index){
       const raw = safe(key).replace(/^\uFEFF/, "");
+      const compact = raw.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
       const cleaned = sanitizeHeaderRaw(raw);
+      const compactNoSpace = compact.replace(/\s+/g, "");
+      const cleanedNoSpace = cleaned.replace(/\s+/g, "");
       if (HEADER_ALIASES[raw]) return HEADER_ALIASES[raw];
+      if (HEADER_ALIASES[compact]) return HEADER_ALIASES[compact];
       if (HEADER_ALIASES[cleaned]) return HEADER_ALIASES[cleaned];
+      if (HEADER_ALIASES[compactNoSpace]) return HEADER_ALIASES[compactNoSpace];
+      if (HEADER_ALIASES[cleanedNoSpace]) return HEADER_ALIASES[cleanedNoSpace];
       if (!cleaned) return `__col_${index}`;
       return cleaned;
     }
@@ -1964,12 +2006,35 @@
       return rowsMatrixToObjects(matrix);
     }
 
+    function scoreSheetMatrix(matrix){
+      if (!Array.isArray(matrix) || !matrix.length) return -1;
+      const first = matrix[0] || [];
+      const second = matrix[1] || [];
+      const headerScore = [...first, ...second].reduce((acc, value) => {
+        const compact = safe(value).replace(/[\r\n]+/g, " ").replace(/\s+/g, "").trim();
+        const cleaned = sanitizeHeaderRaw(value).replace(/\s+/g, "");
+        return acc + (HEADER_ALIASES[safe(value)] || HEADER_ALIASES[compact] || HEADER_ALIASES[cleaned] ? 1 : 0);
+      }, 0);
+      const dataScore = matrix.slice(1, 8).reduce((acc, row) => acc + (row.some(cell => safe(cell)) ? 1 : 0), 0);
+      return headerScore * 10 + dataScore;
+    }
+
     function xlsxArrayBufferToObjects(buffer){
       const workbook = XLSX.read(buffer, { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[firstSheetName];
-      const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-      return rowsMatrixToObjects(matrix);
+      const preferredNames = ["DB", "db", "Data", "DATA", workbook.SheetNames[0]].filter(Boolean);
+      let best = { score: -1, rows: [], name: "" };
+
+      for (const sheetName of workbook.SheetNames){
+        const sheet = workbook.Sheets[sheetName];
+        if (!sheet) continue;
+        const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        const score = scoreSheetMatrix(matrix) + (preferredNames.includes(sheetName) ? 2 : 0);
+        if (score > best.score){
+          best = { score, rows: rowsMatrixToObjects(matrix), name: sheetName };
+        }
+      }
+
+      return best.rows || [];
     }
 
     async function parseFileByNameAndBuffer(name, buffer){
