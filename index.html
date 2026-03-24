@@ -1275,7 +1275,10 @@
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
-        <div class="firebase-status offline-badge">오프라인</div>
+        <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="이어쓰기 코드" title="같은 코드를 PC와 휴대폰에 입력하세요" />
+        <button id="syncRoomApplyBtn" class="icon-btn" title="이어쓰기 코드 연결">연결</button>
+        <button id="pushCloudBtn" class="icon-btn" title="진행상태 저장">저장</button>
+        <div id="firebaseStatus" class="firebase-status offline-badge">로컬</div>
         <button id="noteBtn" class="icon-btn" title="수정">수정</button>
         <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
       </div>
@@ -1376,10 +1379,24 @@
   </div>
 
 <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, serverTimestamp, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyC6K7dRqHirEdSsddnZ85vY4QOUGdLVto0",
+    authDomain: "ksl-nuri.firebaseapp.com",
+    projectId: "ksl-nuri",
+    storageBucket: "ksl-nuri.firebasestorage.app",
+    messagingSenderId: "454023041529",
+    appId: "1:454023041529:web:fd2eab23671b9d0969ed28",
+    measurementId: "G-W1Q9968QLX"
+  };
+
   const FIREBASE_ROOM_STORAGE_KEY = "ksl-nuri-sync-room";
   const FIREBASE_DEFAULT_ROOM = "local";
   const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
-  const OFFLINE_MODE = true;
+  const OFFLINE_MODE = false;
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
@@ -1575,6 +1592,9 @@
     let lastFirebaseStatusTone = "normal";
     let lastFirebaseStatusAt = 0;
     let firebaseOfflineStatusTimer = null;
+    let currentDatasetFingerprint = "";
+    let pendingRemoteStateEnvelope = null;
+    let lastRemoteAppliedUpdatedAt = 0;
 
     let abLoopStart = null;
     let abLoopEnd = null;
@@ -2586,7 +2606,7 @@ async function saveState(){
   const payload = buildStatePayload();
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
-  if (!isApplyingRemoteState && !isApplyingRemoteDataset){
+  if (!isApplyingRemoteState){
     scheduleFirebaseStatePush(payload);
   }
 }
@@ -2738,6 +2758,14 @@ async function saveState(){
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
       if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
       if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
+      if (state.activeWordAssetState && typeof state.activeWordAssetState === "object") {
+        activeWordAssetState = {
+          groupId: safe(state.activeWordAssetState.groupId || ""),
+          index: Number.isFinite(state.activeWordAssetState.index) ? Math.max(0, Number(state.activeWordAssetState.index)) : 0
+        };
+      } else {
+        resetWordAssetState();
+      }
       updateExactMatchButton();
     }
 
@@ -3397,8 +3425,8 @@ function sanitizeRoomKey(value){
   return cleaned || FIREBASE_DEFAULT_ROOM;
 }
 
-function roomBasePath(room = syncRoomKey){
-  return `rooms/${room}`;
+function roomDocRef(room = syncRoomKey){
+  return doc(firebaseDb, "learningSync", room);
 }
 
 function makeDataHash(text){
@@ -3410,6 +3438,19 @@ function makeDataHash(text){
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+function buildDatasetFingerprint(dataRows = rows){
+  if (!Array.isArray(dataRows) || !dataRows.length) return "";
+  const sample = dataRows.slice(0, 4000).map(row => [
+    safe(row.id || row.ID || row.sourceId),
+    safe(row.word || row.표제어),
+    safe(row.variantLabel || row.변이범주),
+    safe(row.exampleText || row.용례번역문),
+    safe(row.video || row.표제어영상),
+    safe(row.exampleVideo || row.용례영상)
+  ].join("|")).join("§");
+  return `fp-${dataRows.length}-${makeDataHash(sample)}`;
+}
+
 function updateFirebaseStatus(text, tone = "normal"){
   if (!els.firebaseStatus) return;
   const fullText = safe(text) || "대기중";
@@ -3418,13 +3459,12 @@ function updateFirebaseStatus(text, tone = "normal"){
 
   const mobileShort = (() => {
     if (/연결됨|연결 완료/i.test(fullText)) return "연결됨";
-    if (/오프라인/i.test(fullText)) return "오프라인";
-    if (/업로드 중|동기화 중/i.test(fullText)) return "동기화중";
-    if (/업로드 완료/i.test(fullText)) return "업로드됨";
-    if (/최신/i.test(fullText)) return "최신";
+    if (/로컬/i.test(fullText)) return "로컬";
+    if (/저장 중|동기화 중/i.test(fullText)) return "저장중";
+    if (/저장됨|동기화 완료/i.test(fullText)) return "저장됨";
+    if (/불러옴|이어받기/i.test(fullText)) return "이어받음";
     if (/로그인/i.test(fullText)) return "로그인";
-    if (/실패|오류|제한|필요/i.test(fullText)) return "오류";
-    if (/방 전환/i.test(fullText)) return "전환중";
+    if (/실패|오류|제한|필요|다른 파일/i.test(fullText)) return "오류";
     if (/대기/i.test(fullText)) return "대기중";
     return fullText.length > 7 ? `${fullText.slice(0, 7)}…` : fullText;
   })();
@@ -3447,6 +3487,7 @@ function cloneSelectionPresetsForSync(){
 
 function buildStatePayload(){
   return {
+    datasetFingerprint: currentDatasetFingerprint,
     currentMode,
     currentIndex,
     currentPoolIndex,
@@ -3467,170 +3508,71 @@ function buildStatePayload(){
     abLoopEnd,
     exactMatch,
     groupShuffleSeed,
-    exampleShuffleSeed
+    exampleShuffleSeed,
+    activeWordAssetState: {
+      groupId: safe(activeWordAssetState?.groupId || ""),
+      index: Number.isFinite(activeWordAssetState?.index) ? Math.max(0, Number(activeWordAssetState.index)) : 0
+    }
+  };
+}
+
+function buildSyncEnvelope(payload = null){
+  const statePayload = payload || buildStatePayload();
+  return {
+    updatedAtClient: Date.now(),
+    updatedAt: serverTimestamp(),
+    updatedBy: firebaseUid || "",
+    room: syncRoomKey,
+    sourceName: currentSourceName || "",
+    datasetFingerprint: statePayload.datasetFingerprint || currentDatasetFingerprint || "",
+    payload: statePayload
   };
 }
 
 function scheduleFirebaseStatePush(payload = null, immediate = false){
-  if (!firebaseReady || !firebaseUid || isApplyingRemoteState || isApplyingRemoteDataset) return;
+  if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return;
   clearTimeout(pendingFirebaseStateTimer);
   pendingFirebaseStateTimer = setTimeout(() => {
     pushStateToFirebase(payload).catch(err => {
-      console.error("Firebase 상태 업로드 실패", err);
-      updateFirebaseStatus("상태 동기화 실패", "error");
+      console.error("Firestore 상태 저장 실패", err);
+      updateFirebaseStatus("상태 저장 실패", "error");
     });
-  }, immediate ? 0 : 180);
+  }, immediate ? 0 : 1000);
 }
 
 async function pushStateToFirebase(payload = null){
-  if (!firebaseReady || !firebaseUid || isApplyingRemoteState || isApplyingRemoteDataset) return;
-  const statePayload = payload || buildStatePayload();
-  const signature = JSON.stringify(statePayload);
-  if (signature === lastPushedStateSignature) return;
-
-  await dbSet(dbRef(firebaseDb, `${roomBasePath()}/sharedState`), {
-    updatedAt: Date.now(),
-    updatedBy: firebaseUid,
-    payload: statePayload
-  });
-
+  if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return false;
+  const envelope = buildSyncEnvelope(payload);
+  const signature = JSON.stringify({ room: syncRoomKey, fp: envelope.datasetFingerprint, payload: envelope.payload });
+  if (signature === lastPushedStateSignature) return false;
+  updateFirebaseStatus(`진행상태 저장 중 · ${syncRoomKey}`);
+  await setDoc(roomDocRef(), envelope, { merge: true });
   lastPushedStateSignature = signature;
-  if (!/연결됨/.test(els.firebaseStatus?.title || "")) updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
+  lastRemoteAppliedUpdatedAt = Math.max(lastRemoteAppliedUpdatedAt, envelope.updatedAtClient || 0);
+  updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  return true;
 }
 
-function splitDatasetJsonForFirebase(json){
-  if (!json) return [""];
-  const chunks = [];
-  for (let i = 0; i < json.length; i += FIREBASE_DATASET_CHUNK_SIZE){
-    chunks.push(json.slice(i, i + FIREBASE_DATASET_CHUNK_SIZE));
+function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false){
+  if (!rows.length){
+    updateFirebaseStatus("불러온 XLSX 없음", "error");
+    showOverlay("먼저 같은 XLSX 파일을 불러와 주세요", 1400);
+    return;
   }
-  return chunks;
-}
-
-async function writeDatasetChunks(version, chunks){
-  const basePath = `${roomBasePath()}/datasetChunks/${version}`;
-  for (let i = 0; i < chunks.length; i++){
-    await withTimeout(dbSet(dbRef(firebaseDb, `${basePath}/${i}`), chunks[i]), 20000, `Realtime Database 데이터 조각 ${i + 1}/${chunks.length} 저장`);
-  }
-}
-
-async function loadDatasetRowsFromMeta(meta){
-  if (!meta) return [];
-  if (Array.isArray(meta.rows)) return meta.rows;
-  if (!meta.version || !meta.chunkCount) return [];
-  const chunkSnap = await withTimeout(dbGet(dbRef(firebaseDb, `${roomBasePath()}/datasetChunks/${meta.version}`)), 20000, "Realtime Database 데이터 조각 불러오기");
-  if (!chunkSnap.exists()) return [];
-  const chunkObj = chunkSnap.val() || {};
-  const chunkKeys = Object.keys(chunkObj).sort((a, b) => Number(a) - Number(b));
-  const json = chunkKeys.map(key => safe(chunkObj[key])).join("");
-  if (!json) return [];
-  return JSON.parse(json);
-}
-
-function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false, force = false){
-  if (!firebaseReady || !firebaseUid || !rows.length || isApplyingRemoteDataset) return;
   clearTimeout(pendingFirebaseDatasetTimer);
   pendingFirebaseDatasetTimer = setTimeout(() => {
-    uploadCurrentDatasetToFirebase(reason, force).catch(err => {
-      console.error("Firebase 데이터 업로드 실패", err);
-      updateFirebaseStatus("클라우드 업로드 실패", "error");
-      showOverlay("Firebase 업로드 실패", 1500);
+    pushStateToFirebase(buildStatePayload()).then((saved) => {
+      showOverlay(saved ? "진행상태 저장" : "이미 최신 진행상태", 1000);
+    }).catch(err => {
+      console.error("진행상태 저장 실패", err);
+      updateFirebaseStatus("상태 저장 실패", "error");
+      showOverlay("진행상태 저장 실패", 1400);
     });
-  }, immediate ? 0 : 350);
+  }, immediate ? 0 : 60);
 }
 
 async function uploadCurrentDatasetToFirebase(reason = "manual", force = false){
-  if (!firebaseReady){
-    updateFirebaseStatus("Firebase 연결 대기중", "error");
-    showOverlay("Firebase가 아직 준비되지 않았습니다", 1400);
-    return;
-  }
-  if (!firebaseUid){
-    updateFirebaseStatus("로그인 대기중", "error");
-    showOverlay("익명 로그인 완료 후 다시 시도해 주세요", 1400);
-    return;
-  }
-  if (!rows.length){
-    updateFirebaseStatus("업로드할 데이터 없음", "error");
-    showOverlay("업로드할 데이터가 없습니다", 1200);
-    return;
-  }
-  if (isApplyingRemoteDataset){
-    updateFirebaseStatus("원격 데이터 적용 중...");
-    return;
-  }
-
-  const json = JSON.stringify(rows);
-  const hash = makeDataHash(json);
-  if (!force && hash === lastUploadedDatasetHash && remoteDatasetAvailable){
-    updateFirebaseStatus(`이미 최신 데이터 업로드됨 · ${syncRoomKey}`, "ok");
-    showOverlay("이미 최신 클라우드 데이터입니다", 1000);
-    return;
-  }
-
-  updateFirebaseStatus("클라우드 업로드 중...", "ok");
-
-  const version = `${Date.now()}-${firebaseUid.slice(0, 8)}-${hash}`;
-  const chunks = splitDatasetJsonForFirebase(json);
-  const payload = {
-    version,
-    sourceName: currentSourceName || "firebase-data.json",
-    rowsCount: rows.length,
-    uploadedAt: Date.now(),
-    uploadedBy: firebaseUid,
-    hash,
-    reason,
-    chunkCount: chunks.length
-  };
-
-  await writeDatasetChunks(version, chunks);
-  await withTimeout(dbSet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`), payload), 20000, "Realtime Database 데이터 저장");
-
-  remoteDatasetAvailable = true;
-  lastUploadedDatasetHash = hash;
-  lastAppliedRemoteDatasetVersion = version;
-  updateFirebaseStatus(`업로드 완료 · ${syncRoomKey}`, "ok");
-  showOverlay("Realtime Database 업로드 완료", 1000);
-}
-
-async function applyRemoteDatasetMeta(meta, options = {}){
-  const { silent = false } = options;
-  remoteDatasetAvailable = !!(meta && (Array.isArray(meta.rows) || meta.chunkCount));
-
-  if (!meta || !meta.version) return false;
-  if (meta.version === lastAppliedRemoteDatasetVersion) return false;
-
-  if (meta.uploadedBy === firebaseUid && meta.hash && meta.hash === lastUploadedDatasetHash){
-    lastAppliedRemoteDatasetVersion = meta.version;
-    return false;
-  }
-
-  try{
-    updateFirebaseStatus("클라우드 데이터 동기화 중...", "ok");
-    const dataRows = await loadDatasetRowsFromMeta(meta);
-    if (!Array.isArray(dataRows) || !dataRows.length){
-      updateFirebaseStatus("원격 데이터 불러오기 실패", "error");
-      return false;
-    }
-
-    isApplyingRemoteDataset = true;
-    try{
-      await finalizeLoadedData(dataRows, meta.sourceName || "Realtime Database 데이터", true, true);
-    } finally {
-      isApplyingRemoteDataset = false;
-    }
-
-    lastAppliedRemoteDatasetVersion = meta.version;
-    if (meta.hash) lastUploadedDatasetHash = meta.hash;
-    updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
-    if (!silent) showOverlay(`최신 데이터 적용\n${meta.sourceName || "firebase-data.json"}`, 1400);
-    return true;
-  } catch (err){
-    console.error("Firebase 원격 데이터 적용 실패", err);
-    updateFirebaseStatus("원격 데이터 불러오기 실패", "error");
-    if (!silent) showOverlay("Firebase 데이터 적용 실패", 1500);
-    return false;
-  }
+  return pushStateToFirebase(buildStatePayload());
 }
 
 async function applyRemoteStateEnvelope(envelope, options = {}){
@@ -3641,11 +3583,31 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     return false;
   }
 
-  const signature = JSON.stringify(payload);
+  const fingerprint = safe(envelope?.datasetFingerprint || payload?.datasetFingerprint || "");
+  if (!rows.length){
+    pendingRemoteStateEnvelope = envelope;
+    updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+    if (!silent) showOverlay("같은 XLSX를 불러오면 이어서 진행됩니다", 1600);
+    return true;
+  }
+
+  if (fingerprint && currentDatasetFingerprint && fingerprint !== currentDatasetFingerprint){
+    pendingRemoteStateEnvelope = envelope;
+    updateFirebaseStatus("다른 XLSX 기준 상태", "error");
+    if (!silent) showOverlay("동기화된 상태가 현재 XLSX와 다릅니다", 1600);
+    return false;
+  }
+
+  const updatedAtClient = Number(envelope?.updatedAtClient || 0);
+  if (updatedAtClient && updatedAtClient <= lastRemoteAppliedUpdatedAt) return false;
+
+  const signature = JSON.stringify({ fp: fingerprint || currentDatasetFingerprint, payload });
   if (envelope?.updatedBy === firebaseUid && signature === lastPushedStateSignature) return false;
   if (signature === lastAppliedRemoteStateSignature) return false;
 
   lastAppliedRemoteStateSignature = signature;
+  if (updatedAtClient) lastRemoteAppliedUpdatedAt = updatedAtClient;
+  pendingRemoteStateEnvelope = null;
 
   isApplyingRemoteState = true;
   try{
@@ -3653,13 +3615,20 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
     applyRestoredUIState(payload);
     updateExactMatchButton();
-    await applyFilter();
+    await applyFilter({ save: false });
     render(false);
   } finally {
     isApplyingRemoteState = false;
   }
 
+  updateFirebaseStatus(`이어받기 완료 · ${syncRoomKey}`, "ok");
+  if (!silent) showOverlay("다른 기기 진행상태를 불러왔습니다", 1200);
   return true;
+}
+
+async function applyPendingRemoteStateIfReady(options = {}){
+  if (!pendingRemoteStateEnvelope || !rows.length) return false;
+  return applyRemoteStateEnvelope(pendingRemoteStateEnvelope, options);
 }
 
 function cleanupFirebaseWatchers(){
@@ -3669,55 +3638,77 @@ function cleanupFirebaseWatchers(){
 }
 
 function startFirebaseLiveWatchers(){
-  if (!firebaseReady) return;
-  cleanupFirebaseWatchers();
-
-  const stateRef = dbRef(firebaseDb, `${roomBasePath()}/sharedState`);
-  const metaRef = dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`);
-  const connectedRef = dbRef(firebaseDb, ".info/connected");
-
-  firebaseConnectionUnsub = onValue(connectedRef, (snapshot) => {
-    const connected = !!snapshot.val();
-    clearTimeout(firebaseOfflineStatusTimer);
-    if (connected){
-      updateFirebaseStatus(`실시간 연결됨 · ${syncRoomKey}`, "ok");
-    } else {
-      firebaseOfflineStatusTimer = setTimeout(() => {
-        updateFirebaseStatus(`오프라인 대기중 · ${syncRoomKey}`);
-      }, 1200);
-    }
-  });
-
-  firebaseStateUnsub = onValue(stateRef, (snapshot) => {
-    const envelope = snapshot.val();
-    applyRemoteStateEnvelope(envelope).catch(err => {
-      console.error("실시간 상태 수신 실패", err);
-    });
-  });
-
-  firebaseMetaUnsub = onValue(metaRef, (snapshot) => {
-    const meta = snapshot.val();
-    applyRemoteDatasetMeta(meta).catch(err => {
-      console.error("실시간 데이터 수신 실패", err);
-    });
-  });
+  // 비용 절감을 위해 상시 실시간 리스너는 사용하지 않습니다.
 }
 
 async function loadInitialFirebaseSnapshot(){
-  return false;
+  if (!firebaseReady || !firebaseDb) return false;
+  try{
+    updateFirebaseStatus(`이어받기 확인 중 · ${syncRoomKey}`);
+    const snap = await getDoc(roomDocRef());
+    if (!snap.exists()){
+      updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+      return false;
+    }
+    const envelope = snap.data();
+    pendingRemoteStateEnvelope = envelope;
+    if (rows.length){
+      return applyRemoteStateEnvelope(envelope, { silent: true });
+    }
+    updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+    return true;
+  } catch (err){
+    console.error("Firestore 상태 불러오기 실패", err);
+    updateFirebaseStatus("이어받기 확인 실패", "error");
+    return false;
+  }
 }
 
 async function reconnectFirebaseRoom(){
-  showOverlay("오프라인 모드에서는 실시간 연결을 사용하지 않습니다", 1400);
+  const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
+  syncRoomKey = nextRoom;
+  localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
+  if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
+  pendingRemoteStateEnvelope = null;
+  lastAppliedRemoteStateSignature = "";
+  lastPushedStateSignature = "";
+  lastRemoteAppliedUpdatedAt = 0;
+  updateFirebaseStatus(`이어받기 확인 중 · ${syncRoomKey}`);
+  const remoteLoaded = await loadInitialFirebaseSnapshot();
+  if (!remoteLoaded){
+    const localState = await restoreState();
+    if (localState && rows.length){
+      applyRestoredUIState(localState);
+      await applyFilter({ save: false });
+      render(false);
+    }
+    showOverlay(`연결 코드 적용
+${syncRoomKey}`, 1000);
+  }
 }
 
 async function initFirebaseSync(){
-  firebaseReady = false;
-  firebaseUid = "";
-  updateFirebaseStatus("오프라인 모드");
-  return false;
+  try{
+    if (firebaseApp && firebaseReady) return true;
+    firebaseApp = initializeApp(firebaseConfig);
+    firebaseAuth = getAuth(firebaseApp);
+    firebaseDb = getFirestore(firebaseApp);
+    try { await enableIndexedDbPersistence(firebaseDb); } catch (_) {}
+    updateFirebaseStatus("로그인 중...");
+    const cred = await signInAnonymously(firebaseAuth);
+    firebaseUid = cred?.user?.uid || firebaseAuth.currentUser?.uid || "";
+    firebaseReady = !!firebaseUid;
+    if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
+    updateFirebaseStatus(firebaseReady ? `연결됨 · ${syncRoomKey}` : "로그인 실패", firebaseReady ? "ok" : "error");
+    return firebaseReady;
+  } catch (err){
+    console.error("Firestore 초기화 실패", err);
+    firebaseReady = false;
+    firebaseUid = "";
+    updateFirebaseStatus("연결 실패", "error");
+    return false;
+  }
 }
-
 
     function getSearchSuggestions(){
       const qRaw = safe(els.searchInput.value).trim();
@@ -3954,6 +3945,12 @@ async function initFirebaseSync(){
       saveState();
     }
 
+    function formatSelectionWordLabel(group){
+      if (!group) return "표제어";
+      const sourceId = safe(group.sourceId || group.id);
+      return duplicateWords.has(group.word) ? `${group.word} (ID:${sourceId})` : group.word;
+    }
+
     function addCurrentGroupToSelection(){
       const id = isExampleMode() ? safe(getCurrentPoolItem()?.groupId) : safe(getCurrentGroup()?.id);
       if (!id) {
@@ -3965,9 +3962,10 @@ async function initFirebaseSync(){
         return;
       }
       addSelectedGroup(id);
-      const word = groupById.get(String(id))?.word || "표제어";
+      const group = groupById.get(String(id)) || null;
+      const label = formatSelectionWordLabel(group);
       showOverlay(`선택학습 추가
-${word}`, 1100);
+${label}`, 1100);
     }
 
     async function saveCurrentSelectionPreset(){
@@ -4360,7 +4358,11 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       // Map selected group IDs to display objects containing word and id
       const selectedObjects = selectedGroupIds.map(id => {
         const g = groups.find(gr => gr.id === id);
-        return { id, word: g ? g.word : id };
+        return {
+          id,
+          word: g ? g.word : id,
+          sourceId: g ? safe(g.sourceId || g.id) : safe(id)
+        };
       });
 
       // Build HTML
@@ -4392,7 +4394,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
             <div class="content">선택한 표제어에 포함된 전체 용례만 따로 모아 집중 학습합니다. 순차는 골고루 섞이고, 랜덤은 전체 순서를 섞습니다.</div>
             <div class="selected-chips">
               ${selectedObjects.length ? selectedObjects.map(obj => {
-                const display = duplicateWords.has(obj.word) ? `${obj.word} (ID:${obj.id})` : obj.word;
+                const display = duplicateWords.has(obj.word) ? `${obj.word} (ID:${obj.sourceId})` : obj.word;
                 return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(display)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
               }).join("") : `<span class="pill">선택된 표제어 없음</span>`}
             </div>
@@ -4784,6 +4786,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       examplePool = buildExamplePool(groups);
       rebuildFastIndexes();
       currentSourceName = sourceName;
+      currentDatasetFingerprint = buildDatasetFingerprint(rows);
 
       updateCategoryOptions();
 
@@ -4822,6 +4825,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       }
 
       pendingRestoreTime = currentVideoTime > 0 ? currentVideoTime : null;
+      await applyPendingRemoteStateIfReady({ silent: true });
       render(getShouldAutoplay());
 
       const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
@@ -5328,13 +5332,13 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       if (els.pushCloudBtn){
         els.pushCloudBtn.addEventListener("click", () => {
           if (!firebaseReady){
-            updateFirebaseStatus("Firebase 연결 대기중", "error");
-            showOverlay("Firebase 연결이 아직 준비되지 않았습니다", 1500);
+            updateFirebaseStatus("연결 준비중", "error");
+            showOverlay("동기화 연결이 아직 준비되지 않았습니다", 1500);
             return;
           }
           if (!rows.length){
-            updateFirebaseStatus("업로드할 데이터 없음", "error");
-            showOverlay("업로드할 데이터가 없습니다", 1300);
+            updateFirebaseStatus("불러온 XLSX 없음", "error");
+            showOverlay("먼저 같은 XLSX 파일을 불러와 주세요", 1300);
             return;
           }
           scheduleFirebaseDatasetUpload("manual-button", true);
@@ -5567,7 +5571,7 @@ O 현재 화면 캡처`);
         loadNotesCache()
       ]).catch(err => console.warn("보조 데이터 복원 실패", err));
 
-      const firebaseInitPromise = Promise.resolve(false);
+      const firebaseInitPromise = initFirebaseSync();
 
       let loaded = false;
 
@@ -5594,6 +5598,18 @@ O 현재 화면 캡처`);
         scheduleFirebaseStatePush(buildStatePayload(), true);
       }
     }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden" && rows.length){
+        pushStateToFirebase(buildStatePayload()).catch(() => {});
+      }
+    });
+
+    window.addEventListener("pagehide", () => {
+      if (rows.length){
+        pushStateToFirebase(buildStatePayload()).catch(() => {});
+      }
+    });
 
     boot().catch(err => {
       console.error("초기화 실패", err);
