@@ -80,6 +80,9 @@
     .search{
       width:100%;
       height:42px;
+      touch-action:manipulation;
+      -webkit-user-select:text;
+      user-select:text;
       border:none;
       outline:none;
       border-radius:12px;
@@ -183,6 +186,24 @@
       min-width:0;
     }
 
+    .header-row-actions .sync-room-input{
+      min-width:140px;
+      flex:1 1 160px;
+    }
+
+    .header-row-actions .firebase-status{
+      min-width:88px;
+      height:38px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      font-size:12px;
+    }
+
     .stage-tap-zone{
       position:absolute;
       top:0;
@@ -206,6 +227,7 @@
 
     .stage-tap-zone::after{
       content:"";
+      display:none;
       position:absolute;
       top:50%;
       transform:translateY(-50%);
@@ -226,6 +248,7 @@
 
     .stage-tap-zone .tap-arrow{
       position:absolute;
+      display:none !important;
       top:50%;
       transform:translateY(-50%);
       color:rgba(255,255,255,.75);
@@ -238,6 +261,35 @@
 
     .stage-tap-zone.left .tap-arrow{ left:14px; }
     .stage-tap-zone.right .tap-arrow{ right:14px; }
+
+
+    video::-webkit-media-controls-overlay-play-button,
+    video::-webkit-media-controls-start-playback-button{
+      display:none !important;
+      -webkit-appearance:none;
+      opacity:0 !important;
+    }
+
+    .rotate-hotspot{
+      position:absolute;
+      left:0;
+      top:0;
+      width:min(10vmin, 56px);
+      height:min(10vmin, 56px);
+      z-index:40;
+      border:none;
+      background:transparent;
+      color:transparent;
+      opacity:.03;
+      display:none;
+      pointer-events:auto;
+      -webkit-tap-highlight-color:transparent;
+      touch-action:manipulation;
+    }
+
+    .rotate-hotspot:active{
+      opacity:.08;
+    }
 
     .top-home-btn{
       display:none;
@@ -380,6 +432,48 @@
       -webkit-user-drag:none;
       transform-origin:center center;
       will-change:transform;
+    }
+
+    .main-gallery{
+      width:100%;
+      height:100%;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      gap:12px;
+      padding:14px;
+      background:#000;
+    }
+
+    .main-gallery.is-single{
+      padding:0;
+      gap:0;
+    }
+
+    .main-gallery-item{
+      flex:1 1 0;
+      min-width:0;
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      overflow:hidden;
+      background:#05070b;
+    }
+
+    .main-gallery.is-single .main-gallery-item{
+      border:none;
+      border-radius:0;
+      background:#000;
+    }
+
+    .main-gallery-item img{
+      max-width:100%;
+      max-height:100%;
+      object-fit:contain;
+      display:block;
     }
 
     .main-image.zoomable{
@@ -819,6 +913,56 @@
       margin:0 auto 8px;
     }
 
+
+    .note-modal{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+      z-index:12000;
+    }
+
+    .note-modal.open{
+      display:flex;
+    }
+
+    .note-dialog{
+      width:min(720px, 100%);
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+      padding:16px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .note-head,
+    .note-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    .note-textarea{
+      width:100%;
+      min-height:220px;
+      resize:vertical;
+      border:none;
+      outline:none;
+      border-radius:14px;
+      padding:14px;
+      font-size:15px;
+      line-height:1.55;
+      background:#fff;
+      color:#111;
+    }
+
     .desktop-only{display:inline-flex;}
     .mobile-only{display:none;}
 
@@ -869,7 +1013,7 @@
       .search{
         height:40px;
         padding:0 11px;
-        font-size:14px;
+        font-size:16px;
       }
 
       .search-wrap{
@@ -902,6 +1046,24 @@
 
       .header-row-actions{
         flex-wrap:wrap;
+        align-items:center;
+      }
+
+      .header-row-actions .sync-room-input{
+        order:10;
+        flex:1 1 110px;
+        min-width:0;
+        height:38px;
+        font-size:12px;
+        padding:0 10px;
+      }
+
+      .header-row-actions .firebase-status{
+        order:13;
+        min-width:70px;
+        max-width:84px;
+        font-size:11px;
+        padding:0 6px;
       }
 
       .header-row-actions .icon-btn,
@@ -913,34 +1075,7 @@
         font-size:12px;
       }
 
-      .header-row-sync{
-        flex-wrap:nowrap;
-        align-items:center;
-      }
-
-      .sync-room-input{
-        min-width:0;
-        flex:1 1 auto;
-        height:38px;
-        font-size:12px;
-        padding:0 10px;
-      }
-
-      .header-row-sync .icon-btn{
-        height:38px;
-        min-width:38px;
-        padding:0 8px;
-        font-size:12px;
-      }
-
-      .firebase-status{
-        flex:0 0 auto;
-        max-width:90px;
-        min-height:38px;
-        height:38px;
-        padding:0 8px;
-        font-size:11px;
-      }
+      
 
       .main{
         padding:6px;
@@ -957,6 +1092,8 @@
 
       .stage-tap-zone{
         display:block;
+        top:20%;
+        bottom:30%;
       }
 
       .footer{
@@ -967,7 +1104,18 @@
       }
 
       .nav-group{
+        display:grid;
+        grid-template-columns:minmax(0,1fr);
+      }
+
+      #prevBtn,
+      #nextBtn,
+      #homeBtn{
         display:none;
+      }
+
+      #undoBtn{
+        display:inline-flex;
       }
 
       .mode-group,.extra-group{
@@ -1007,9 +1155,56 @@
         padding:20px;
       }
 
+      .note-dialog{
+        width:100%;
+        max-height:min(82dvh, 720px);
+      }
+
+      .note-textarea{
+        min-height:44dvh;
+      }
+
       .word{
         font-size:24px;
       }
+
+
+    body.mobile-landscape-focus .header,
+    body.mobile-landscape-focus .footer,
+    body.mobile-landscape-focus .info{
+      display:none !important;
+    }
+
+    body.mobile-landscape-focus .app{
+      grid-template-rows:minmax(0,1fr);
+    }
+
+    body.mobile-landscape-focus .main{
+      padding:0 !important;
+      gap:0 !important;
+      grid-template-columns:1fr !important;
+      height:100%;
+    }
+
+    body.mobile-landscape-focus .viewer,
+    body.mobile-landscape-focus .card,
+    body.mobile-landscape-focus .stage{
+      border:none !important;
+      border-radius:0 !important;
+      box-shadow:none !important;
+      background:#000 !important;
+      height:100%;
+    }
+
+    body.mobile-landscape-focus .main-text{
+      font-size:clamp(34px, 5.8vw, 88px);
+      padding:18px;
+    }
+
+    body.mobile-landscape-focus .rotate-hotspot{
+      display:block;
+    }
+
     }
   </style>
 </head>
@@ -1018,7 +1213,7 @@
     <header class="header">
       <div class="header-row header-row-search">
         <div class="search-wrap">
-          <input id="searchInput" class="search" type="text" placeholder="표제어 검색" autocomplete="off" />
+          <input id="searchInput" class="search" type="text" placeholder="표제어 검색" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="search" enterkeyhint="search" />
           <div id="searchSuggestions" class="search-suggestions"></div>
         </div>
 
@@ -1046,14 +1241,12 @@
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
-        <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
-      </div>
-
-      <div class="header-row header-row-sync">
         <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="실시간 방 이름" value="main" />
         <button id="syncRoomApplyBtn" class="icon-btn" title="Firebase 실시간 연결">연결</button>
         <button id="pushCloudBtn" class="icon-btn" title="현재 데이터를 Firebase에 업로드">업로드</button>
         <div id="firebaseStatus" class="firebase-status">대기중</div>
+        <button id="noteBtn" class="icon-btn" title="수정노트">수정노트</button>
+        <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
       </div>
     </header>
 
@@ -1062,10 +1255,12 @@
         <div id="stage" class="stage">
           <video id="mainVideo" controls playsinline preload="metadata"></video>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
+          <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
           <div id="mainText" class="main-text"></div>
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="overlayMsg" class="overlay-msg"></div>
+          <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
         </div>
 
@@ -1092,6 +1287,7 @@
         <button id="nextBtn" class="nav-btn" title="다음">▶</button>
         <!-- 추가된 홈 버튼: 처음 화면으로 돌아가기 -->
         <button id="homeBtn" class="nav-btn" title="처음 화면으로 돌아가기">홈</button>
+        <button id="undoBtn" class="nav-btn" title="되돌리기">←</button>
       </div>
 
       <div id="statusText" class="status">기본 파일 자동 불러오기 시도 중...</div>
@@ -1107,11 +1303,17 @@
         <button class="mode-btn" data-mode="D" title="용례번역문 수어문자">D</button>
         <!-- 추가된 R 버튼: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
+        <button id="zoomFitBtn" class="mode-btn" title="위아래 최대 확대">처음확대</button>
+        <button id="zoomResetBtn" class="mode-btn" title="원래 크기로 복귀">↺</button>
+        <button id="abStartBtn" class="mode-btn mobile-only" title="구간 시작">⟪</button>
+        <button id="abEndBtn" class="mode-btn mobile-only" title="구간 종료">⟫</button>
+        <button id="abResetBtn" class="mode-btn mobile-only" title="구간 반복 초기화">⟲</button>
       </div>
 
       <!-- 데스크톱 환경에서는 재생 모드 버튼을 하단에 유지 -->
       <div class="extra-group desktop-only">
         <button id="playbackBtnDesktop" class="playback-btn" title="재생모드 전환">재생: 수동</button>
+        <button id="noteBtnDesktop" class="icon-btn desktop-only" title="수정노트">수정노트</button>
       </div>
     </footer>
   </div>
@@ -1125,6 +1327,21 @@
       <button id="mobileSheetClose" class="icon-btn" style="height:38px;min-width:38px;">닫기</button>
     </div>
     <div id="mobileSheetBody" class="mobile-sheet-body"></div>
+  </div>
+
+
+  <div id="noteModal" class="note-modal" aria-hidden="true">
+    <div class="note-dialog">
+      <div class="note-head">
+        <strong id="noteModalTitle">수정노트</strong>
+        <button id="noteCloseBtn" class="icon-btn" type="button">닫기</button>
+      </div>
+      <textarea id="noteTextarea" class="note-textarea" placeholder="변경/수정이 필요한 내용을 기록해 두세요."></textarea>
+      <div class="note-actions">
+        <button id="noteDeleteBtn" class="icon-btn" type="button">삭제</button>
+        <button id="noteSaveBtn" class="select-btn" type="button">저장</button>
+      </div>
+    </div>
   </div>
 
 <script type="module">
@@ -1147,7 +1364,7 @@
   const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
 
   const BASE_URL = "https://ksldict.korean.go.kr";
-  const DEFAULT_FILENAME = "한국수어누리사전_결과_1773871858458.csv.xlsx";
+  const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
 
     const IDB_DB_NAME = "ksl-learning-db";
     const IDB_STORE = "kv";
@@ -1156,7 +1373,8 @@
       DATA: "data",
       META: "meta",
       STATE: "state",
-      PRESETS: "selection-presets"
+      PRESETS: "selection-presets",
+      NOTES: "notes"
     };
 
     const MODES = {
@@ -1186,6 +1404,7 @@
       countBadge: document.getElementById("countBadge"),
       mainVideo: document.getElementById("mainVideo"),
       mainImage: document.getElementById("mainImage"),
+      mainGallery: document.getElementById("mainGallery"),
       mainText: document.getElementById("mainText"),
       wordSignImg: document.getElementById("wordSignImg"),
       handShapeImg: document.getElementById("handShapeImg"),
@@ -1222,7 +1441,21 @@
       homeBtn: document.getElementById("homeBtn"),
       homeBtnTop: document.getElementById("homeBtnTop"),
       // 뷰어 하단의 이미지 박스 컨테이너 (좌측 하나만 보여주기 위해 숨김 처리)
-      viewerBottom: document.querySelector(".viewer-bottom")
+      viewerBottom: document.querySelector(".viewer-bottom"),
+      undoBtn: document.getElementById("undoBtn"),
+      noteBtns: [document.getElementById("noteBtn"), document.getElementById("noteBtnDesktop")].filter(Boolean),
+      noteModal: document.getElementById("noteModal"),
+      noteModalTitle: document.getElementById("noteModalTitle"),
+      noteTextarea: document.getElementById("noteTextarea"),
+      noteSaveBtn: document.getElementById("noteSaveBtn"),
+      noteDeleteBtn: document.getElementById("noteDeleteBtn"),
+      noteCloseBtn: document.getElementById("noteCloseBtn"),
+      zoomFitBtn: document.getElementById("zoomFitBtn"),
+      zoomResetBtn: document.getElementById("zoomResetBtn"),
+      abStartBtn: document.getElementById("abStartBtn"),
+      abEndBtn: document.getElementById("abEndBtn"),
+      abResetBtn: document.getElementById("abResetBtn"),
+      rotateHotspot: document.getElementById("rotateHotspot")
     };
 
     let rows = [];
@@ -1264,6 +1497,7 @@
 
     let touchStartX = 0;
     let touchStartY = 0;
+    let stageTouchNavEligible = true;
     let mobileSheetMode = "info";
     const imageZoom = {
       scale: 1,
@@ -1285,6 +1519,15 @@
     let dragCounter = 0;
     let isSearchPreviewing = false;
     let currentSourceName = "";
+    let notesByKey = {};
+    let undoSnapshot = null;
+    let searchComposing = false;
+    let suggestionCacheKey = "";
+    let suggestionCacheItems = [];
+    let renderedSuggestionItems = [];
+    let suggestionTouchMoved = false;
+    let landscapeFocusActive = false;
+    let activeWordAssetState = { groupId: "", W: 0, E: 0 };
 
     let firebaseApp = null;
     let firebaseAuth = null;
@@ -1587,24 +1830,112 @@
       return rows;
     }
 
-    function csvToObjects(text){
-      const matrix = parseCSV(text);
+    const HEADER_ALIASES = {
+      "원문": "sourceUrl",
+      "원문페이지": "sourceUrl",
+      "pageUrl": "sourceUrl",
+      "sourceUrl": "sourceUrl",
+      "url": "sourceUrl",
+      "ID": "sourceId",
+      "id": "sourceId",
+      "Id": "sourceId",
+      "sourceId": "sourceId",
+      "표제어": "expression",
+      "word": "expression",
+      "expression": "expression",
+      "단어": "expression",
+      "표현": "expression",
+      "의미범주": "category",
+      "카테고리": "category",
+      "category": "category",
+      "semantics": "category",
+      "표제어영상": "headwordVideo",
+      "표제어 영상": "headwordVideo",
+      "wordVideo": "headwordVideo",
+      "영상": "headwordVideo",
+      "headwordVideo": "headwordVideo",
+      "표제어수어문자": "signTextImage",
+      "표제어 수어문자": "signTextImage",
+      "wordSignImage": "signTextImage",
+      "signTextImage": "signTextImage",
+      "표제어수형그림": "handShapeImage1",
+      "표제어 수형그림": "handShapeImage1",
+      "표제어수형그림1": "handShapeImage1",
+      "handShapeImage": "handShapeImage1",
+      "수형그림": "handShapeImage1",
+      "handShapeImage1": "handShapeImage1",
+      "표제어수형그림2": "handShapeImage2",
+      "handShapeImage2": "handShapeImage2",
+      "표제어수형그림3": "handShapeImage3",
+      "handShapeImage3": "handShapeImage3",
+      "용례번역문": "translation",
+      "용례 번역문": "translation",
+      "exampleText": "translation",
+      "번역문": "translation",
+      "translation": "translation",
+      "용례영상": "exampleVideo",
+      "용례 영상": "exampleVideo",
+      "exampleVideo": "exampleVideo",
+      "용례수어문자": "exampleSignTextImage",
+      "용례 수어문자": "exampleSignTextImage",
+      "exampleSignImage": "exampleSignTextImage",
+      "exampleSignTextImage": "exampleSignTextImage",
+      "변이범주": "variantLabel",
+      "variantLabel": "variantLabel",
+      "뜻풀이": "definition",
+      "definition": "definition",
+      "expressionIndex": "expressionIndex",
+      "exampleOrder": "exampleOrder",
+      "exmpId": "exmpId",
+      "corGrpId": "corGrpId"
+    };
+
+    function mapHeaderKey(key, index){
+      const raw = safe(key).replace(/^\uFEFF/, "");
+      if (HEADER_ALIASES[raw]) return HEADER_ALIASES[raw];
+      if (!raw) return `__col_${index}`;
+      return raw;
+    }
+
+    function rowsMatrixToObjects(matrix){
       if (!matrix.length) return [];
-      const headers = matrix[0].map(h => safe(h).replace(/^\uFEFF/, ""));
-      return matrix.slice(1)
-        .filter(r => r.some(c => safe(c)))
-        .map(r => {
+      const first = matrix[0] || [];
+      const second = matrix[1] || [];
+      const aliasHits = second.reduce((acc, value) => acc + (HEADER_ALIASES[safe(value)] ? 1 : 0), 0);
+      const hasAliasRow = aliasHits >= 4;
+      const width = Math.max(first.length, second.length, ...matrix.map(row => row.length));
+      const headers = Array.from({ length: width }, (_, idx) => {
+        const primary = mapHeaderKey(first[idx], idx);
+        if (!primary.startsWith("__col_")) return primary;
+        if (hasAliasRow){
+          return mapHeaderKey(second[idx], idx);
+        }
+        return primary;
+      });
+
+      const startRow = hasAliasRow ? 2 : 1;
+      return matrix.slice(startRow)
+        .filter(row => row.some(cell => safe(cell)))
+        .map(row => {
           const obj = {};
-          headers.forEach((h, i) => obj[h] = safe(r[i]));
+          headers.forEach((header, idx) => {
+            obj[header] = safe(row[idx]);
+          });
           return obj;
         });
+    }
+
+    function csvToObjects(text){
+      const matrix = parseCSV(text);
+      return rowsMatrixToObjects(matrix);
     }
 
     function xlsxArrayBufferToObjects(buffer){
       const workbook = XLSX.read(buffer, { type: "array" });
       const firstSheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[firstSheetName];
-      return XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      return rowsMatrixToObjects(matrix);
     }
 
     async function parseFileByNameAndBuffer(name, buffer){
@@ -1626,6 +1957,62 @@
       return "";
     }
 
+    function extractWordParts(rawExpression, explicitDefinition = ""){
+      const raw = safe(rawExpression);
+      let definition = safe(explicitDefinition);
+      if (!raw) return { word: "", definition };
+      const match = raw.match(/^(.*?)\s*뜻풀이\s*(.*)$/);
+      if (match){
+        const word = safe(match[1]);
+        if (!definition) definition = safe(match[2]);
+        return { word: word || raw, definition };
+      }
+      return { word: raw, definition };
+    }
+
+    function normalizeDataRow(row){
+      if (!row || typeof row !== "object") return null;
+
+      const sourceId = pickValue(row, ["sourceId", "ID", "id", "Id"]);
+      const expressionRaw = pickValue(row, ["expression", "표제어", "word", "단어", "표현"]);
+      const category = pickValue(row, ["category", "의미범주", "카테고리", "semantics"]);
+      const variantLabel = pickValue(row, ["variantLabel", "변이범주"]) || "표제어";
+      const { word, definition } = extractWordParts(
+        expressionRaw,
+        pickValue(row, ["definition", "뜻풀이"])
+      );
+
+      if (!sourceId || !word) return null;
+      if (/^(sourceid|id)$/i.test(sourceId) || /^(expression|표제어)$/i.test(word)) return null;
+
+      const handShapeImages = [
+        pickValue(row, ["handShapeImage1", "표제어수형그림1", "표제어수형그림", "표제어 수형그림", "handShapeImage", "수형그림"]),
+        pickValue(row, ["handShapeImage2", "표제어수형그림2"]),
+        pickValue(row, ["handShapeImage3", "표제어수형그림3"])
+      ]
+        .map(normalizeUrl)
+        .filter(Boolean)
+        .filter((value, index, arr) => arr.indexOf(value) === index);
+
+      return {
+        sourceId,
+        word,
+        wordNorm: normalizeHangulString(word).toLowerCase(),
+        definition,
+        definitionNorm: normalizeHangulString(definition).toLowerCase(),
+        category,
+        sourceUrl: buildSourceUrl(sourceId, pickValue(row, ["sourceUrl", "원문", "원문페이지", "pageUrl", "url"])),
+        wordVideo: normalizeUrl(pickValue(row, ["headwordVideo", "표제어영상", "표제어 영상", "wordVideo", "영상"])),
+        wordSignImage: normalizeUrl(pickValue(row, ["signTextImage", "표제어수어문자", "표제어 수어문자", "wordSignImage"])),
+        handShapeImages,
+        exampleText: pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]),
+        exampleVideo: normalizeUrl(pickValue(row, ["exampleVideo", "용례영상", "용례 영상"])),
+        exampleSignImage: normalizeUrl(pickValue(row, ["exampleSignTextImage", "용례수어문자", "용례 수어문자", "exampleSignImage"])),
+        variantLabel,
+        isVariant: variantLabel && variantLabel !== "표제어"
+      };
+    }
+
     function buildSourceUrl(id, rawUrl){
       const url = normalizeUrl(rawUrl);
       if (url) return url;
@@ -1634,57 +2021,118 @@
     }
 
     function buildGroups(dataRows){
-      const byId = new Map();
+      const normalizedRows = dataRows
+        .map(normalizeDataRow)
+        .filter(Boolean);
 
-      dataRows.forEach(r => {
-        const id = pickValue(r, ["ID", "id", "Id"]);
-        const word = pickValue(r, ["표제어", "word", "단어", "표현"]);
-        if (!id || !word) return;
+      const groupsByKey = new Map();
+      const looseLookup = new Map();
 
-        if (!byId.has(id)){
-          const wordNorm = normalizeHangulString(word).toLowerCase();
-          byId.set(id, {
-            id,
-            word,
-            wordNorm,
-            wordSearchBlob: wordNorm,
-            category: pickValue(r, ["의미범주", "카테고리", "category"]),
-            sourceUrl: buildSourceUrl(id, pickValue(r, ["원문", "원문페이지", "sourceUrl", "url"])),
-            wordVideo: normalizeUrl(pickValue(r, ["표제어영상", "표제어 영상", "wordVideo", "영상"])),
-            wordSignImage: normalizeUrl(pickValue(r, ["표제어수어문자", "표제어 수어문자", "wordSignImage"])),
-            handShapeImage: normalizeUrl(pickValue(r, ["표제어수형그림", "표제어 수형그림", "handShapeImage", "수형그림"])),
-            examples: [],
-            exampleNorms: [],
-            exampleSearchBlob: "",
-            searchBlob: wordNorm
-          });
+      function createGroup(row, key){
+        return {
+          id: key,
+          sourceId: row.sourceId,
+          word: row.word,
+          wordNorm: row.wordNorm,
+          wordSearchBlob: row.wordNorm,
+          category: row.category,
+          sourceUrl: row.sourceUrl,
+          definition: row.definition,
+          definitionNorm: row.definitionNorm,
+          wordVideo: row.wordVideo,
+          wordSignImage: row.wordSignImage,
+          handShapeImages: [...row.handShapeImages],
+          handShapeImage: row.handShapeImages[0] || "",
+          examples: [],
+          exampleNorms: [],
+          exampleSearchBlob: "",
+          searchBlob: row.wordNorm,
+          variants: [],
+          variantWords: [],
+          variantNorms: []
+        };
+      }
+
+      function mergeGroupMedia(group, row){
+        if (!group.wordVideo && row.wordVideo) group.wordVideo = row.wordVideo;
+        if (!group.wordSignImage && row.wordSignImage) group.wordSignImage = row.wordSignImage;
+        if (!group.sourceUrl && row.sourceUrl) group.sourceUrl = row.sourceUrl;
+        if (!group.definition && row.definition){
+          group.definition = row.definition;
+          group.definitionNorm = row.definitionNorm;
         }
+        if (!group.category && row.category) group.category = row.category;
+        group.handShapeImages = [...new Set([...(group.handShapeImages || []), ...(row.handShapeImages || [])])];
+        group.handShapeImage = group.handShapeImages[0] || "";
+      }
 
-        const group = byId.get(id);
-        const exText = pickValue(r, ["용례번역문", "용례 번역문", "exampleText", "번역문"]);
-        const exVideo = normalizeUrl(pickValue(r, ["용례영상", "용례 영상", "exampleVideo"]));
-        const exSignImage = normalizeUrl(pickValue(r, ["용례수어문자", "용례 수어문자", "exampleSignImage"]));
+      function addExample(group, row){
+        if (!(row.exampleText || row.exampleVideo || row.exampleSignImage)) return;
+        const textNorm = normalizeHangulString(row.exampleText || "").toLowerCase();
+        const key = [row.exampleText, row.exampleVideo, row.exampleSignImage].join("||");
+        if (group.examples.some(ex => ex._key === key)) return;
+        group.examples.push({
+          text: row.exampleText,
+          textNorm,
+          video: row.exampleVideo,
+          signImage: row.exampleSignImage,
+          _key: key
+        });
+        if (textNorm) group.exampleNorms.push(textNorm);
+      }
 
-        if (exText || exVideo || exSignImage){
-          const textNorm = normalizeHangulString(exText).toLowerCase();
-          const key = [exText, exVideo, exSignImage].join("||");
-          if (!group.examples.some(ex => ex._key === key)){
-            group.examples.push({
-              text: exText,
-              textNorm,
-              video: exVideo,
-              signImage: exSignImage,
-              _key: key
-            });
-            if (textNorm) group.exampleNorms.push(textNorm);
-          }
+      function addVariant(group, row){
+        const entry = {
+          label: row.variantLabel || `변이형${group.variants.length + 1}`,
+          word: row.word,
+          wordNorm: row.wordNorm,
+          video: row.wordVideo,
+          signImage: row.wordSignImage,
+          handShapeImages: [...(row.handShapeImages || [])]
+        };
+        const variantKey = [entry.label, entry.word, entry.video, entry.signImage].join("||");
+        if (!group.variants.some(item => [item.label, item.word, item.video, item.signImage].join("||") === variantKey)){
+          group.variants.push(entry);
         }
-      });
+        if (entry.wordNorm && entry.wordNorm !== group.wordNorm && !group.variantNorms.includes(entry.wordNorm)){
+          group.variantNorms.push(entry.wordNorm);
+          group.variantWords.push(entry.word);
+        }
+      }
 
-      const out = [...byId.values()].sort((a,b) => a.word.localeCompare(b.word, "ko"));
+      for (const row of normalizedRows.filter(item => !item.isVariant)){
+        const baseKey = [row.sourceId, row.word, row.category, row.definition].join("||");
+        let group = groupsByKey.get(baseKey);
+        if (!group){
+          group = createGroup(row, baseKey);
+          groupsByKey.set(baseKey, group);
+          const looseKey = [row.sourceId, row.word, row.category].join("||");
+          if (!looseLookup.has(looseKey)) looseLookup.set(looseKey, []);
+          looseLookup.get(looseKey).push(group);
+        }
+        mergeGroupMedia(group, row);
+        addExample(group, row);
+      }
+
+      for (const row of normalizedRows.filter(item => item.isVariant)){
+        const looseKey = [row.sourceId, row.word, row.category].join("||");
+        const looseCandidates = looseLookup.get(looseKey) || [];
+        let group = looseCandidates[0] || null;
+        if (!group){
+          const baseKey = [row.sourceId, row.word, row.category, row.definition].join("||");
+          group = createGroup(row, baseKey);
+          groupsByKey.set(baseKey, group);
+          if (!looseLookup.has(looseKey)) looseLookup.set(looseKey, []);
+          looseLookup.get(looseKey).push(group);
+        }
+        addVariant(group, row);
+      }
+
+      const out = [...groupsByKey.values()].sort((a, b) => a.word.localeCompare(b.word, "ko"));
       out.forEach(group => {
         group.exampleSearchBlob = group.exampleNorms.join("\n");
-        group.searchBlob = [group.wordNorm, group.exampleSearchBlob].filter(Boolean).join("\n");
+        group.wordSearchBlob = [group.wordNorm, ...group.variantNorms].filter(Boolean).join("\n");
+        group.searchBlob = [group.wordSearchBlob, group.exampleSearchBlob, group.definitionNorm].filter(Boolean).join("\n");
       });
       return out;
     }
@@ -1697,13 +2145,16 @@
           const textNorm = ex.textNorm || normalizeHangulString(ex.text || "").toLowerCase();
           pool.push({
             groupId: group.id,
+            sourceId: group.sourceId,
             word: group.word,
             wordNorm,
             category: group.category,
             sourceUrl: group.sourceUrl,
             groupWordVideo: group.wordVideo,
             groupWordSignImage: group.wordSignImage,
+            groupHandShapeImages: group.handShapeImages,
             groupHandShapeImage: group.handShapeImage,
+            groupDefinition: group.definition,
             exampleIndex: exIdx,
             text: ex.text || "",
             textNorm,
@@ -1736,20 +2187,48 @@
         examplesByCategory.get(key).push(item);
       });
 
-      wordSuggestionIndex = groups.map(g => ({
-        type: "word",
-        text: g.word,
-        word: g.word,
-        id: g.id,
-        norm: g.wordNorm,
-        len: g.word.length
-      }));
+      wordSuggestionIndex = [];
+      groups.forEach(g => {
+        const added = new Set();
+        const pushWordEntry = (word, options = {}) => {
+          const cleaned = safe(word);
+          const norm = normalizeHangulString(cleaned).toLowerCase();
+          if (!cleaned || !norm) return;
+          const dedupeKey = `${cleaned}::${options.variantLabel || ""}`;
+          if (added.has(dedupeKey)) return;
+          added.add(dedupeKey);
+          wordSuggestionIndex.push({
+            type: "word",
+            text: cleaned,
+            word: cleaned,
+            baseWord: g.word,
+            id: g.id,
+            sourceId: g.sourceId,
+            norm,
+            len: cleaned.length,
+            isVariant: !!options.isVariant,
+            variantLabel: options.variantLabel || ""
+          });
+        };
+
+        pushWordEntry(g.word, { isVariant: false, variantLabel: "표제어" });
+        (g.variants || []).forEach(variant => {
+          if (safe(variant.word) && safe(variant.word) !== safe(g.word)){
+            pushWordEntry(variant.word, { isVariant: true, variantLabel: variant.label || "변이형" });
+          }
+        });
+      });
+
+      suggestionCacheKey = "";
+      suggestionCacheItems = [];
+      renderedSuggestionItems = [];
 
       exampleSuggestionIndex = examplePool.map(item => ({
         type: "example",
         text: item.text,
         word: item.word,
         id: item.groupId,
+        sourceId: item.sourceId,
         norm: item.textNorm || "",
         len: (item.text || "").length || item.word.length,
         textLen: (item.text || "").length
@@ -1803,6 +2282,174 @@
       selectionPresets = (await idbGet(CACHE_KEYS.PRESETS)) || {};
     }
 
+    async function saveNotesCache(){
+      await idbSet(CACHE_KEYS.NOTES, notesByKey);
+      await idbSet(`${CACHE_KEYS.NOTES}:${syncRoomKey}`, notesByKey);
+    }
+
+    async function loadNotesCache(){
+      notesByKey = (await idbGet(`${CACHE_KEYS.NOTES}:${syncRoomKey}`)) || (await idbGet(CACHE_KEYS.NOTES)) || {};
+      updateNoteButtons();
+    }
+
+    function getCurrentEntityKey(){
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        if (!item) return "";
+        return `example:${makeExampleShuffleKey(item)}`;
+      }
+      const group = getCurrentGroup();
+      if (!group) return "";
+      return `group:${group.id}`;
+    }
+
+    function getCurrentEntityLabel(){
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        return item ? `${item.word} · 용례` : "용례";
+      }
+      const group = getCurrentGroup();
+      return group ? `${group.word} · 표제어` : "표제어";
+    }
+
+    function updateUndoButton(){
+      if (!els.undoBtn) return;
+      const enabled = !!undoSnapshot;
+      els.undoBtn.disabled = !enabled;
+      els.undoBtn.style.opacity = enabled ? "1" : ".45";
+    }
+
+    function createUndoSnapshot(){
+      return {
+        currentMode,
+        currentIndex,
+        currentPoolIndex,
+        playbackMode,
+        categoryValue: els.categorySelect.value,
+        searchValue: els.searchInput.value,
+        searchScope: els.searchScopeSelect.value,
+        currentVideoTime,
+        abLoopStart,
+        abLoopEnd,
+        groupShuffleSeed,
+        exampleShuffleSeed
+      };
+    }
+
+    function rememberUndoSnapshot(){
+      undoSnapshot = createUndoSnapshot();
+      updateUndoButton();
+    }
+
+    function clearUndoSnapshot(){
+      undoSnapshot = null;
+      updateUndoButton();
+    }
+
+    async function undoLastAction(){
+      if (!undoSnapshot) return;
+      const snap = undoSnapshot;
+      undoSnapshot = null;
+      updateUndoButton();
+      currentMode = snap.currentMode || "Q";
+      playbackMode = snap.playbackMode || playbackMode;
+      els.searchInput.value = snap.searchValue || "";
+      els.searchScopeSelect.value = snap.searchScope || "word";
+      els.categorySelect.value = snap.categoryValue || "";
+      groupShuffleSeed = snap.groupShuffleSeed ?? null;
+      exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
+      currentVideoTime = snap.currentVideoTime || 0;
+      abLoopStart = snap.abLoopStart ?? null;
+      abLoopEnd = snap.abLoopEnd ?? null;
+      updateSearchPlaceholder();
+      await applyFilter();
+      currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
+      currentPoolIndex = clamp(snap.currentPoolIndex || 0, 0, Math.max(0, filteredExamplePool.length - 1));
+      els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+      applyVideoLoopState();
+      updatePlaybackButton();
+      render(false);
+      await saveState();
+      showOverlay("되돌리기 완료", 900);
+    }
+
+    function updateNoteButtons(){
+      const key = getCurrentEntityKey();
+      const hasNote = !!safe((notesByKey || {})[key]);
+      (els.noteBtns || []).forEach(btn => {
+        if (!btn) return;
+        btn.classList.toggle("active", hasNote);
+        btn.title = hasNote ? "수정노트 있음" : "수정노트";
+      });
+    }
+
+    function openNoteModal(){
+      if (!els.noteModal) return;
+      const key = getCurrentEntityKey();
+      if (!key){
+        showOverlay("기록할 항목이 없습니다", 1000);
+        return;
+      }
+      els.noteModalTitle.textContent = `수정노트 · ${getCurrentEntityLabel()}`;
+      els.noteTextarea.value = notesByKey[key] || "";
+      els.noteModal.classList.add("open");
+      els.noteModal.setAttribute("aria-hidden", "false");
+      setTimeout(() => els.noteTextarea?.focus(), 20);
+    }
+
+    function closeNoteModal(){
+      if (!els.noteModal) return;
+      els.noteModal.classList.remove("open");
+      els.noteModal.setAttribute("aria-hidden", "true");
+    }
+
+    async function saveCurrentNote(){
+      const key = getCurrentEntityKey();
+      if (!key) return;
+      const value = safe(els.noteTextarea?.value || "");
+      if (value) notesByKey[key] = value;
+      else delete notesByKey[key];
+      await saveNotesCache();
+      updateNoteButtons();
+      renderInfo();
+      closeNoteModal();
+      showOverlay(value ? "수정노트 저장" : "수정노트 비움", 1000);
+    }
+
+    async function deleteCurrentNote(){
+      const key = getCurrentEntityKey();
+      if (!key) return;
+      delete notesByKey[key];
+      if (els.noteTextarea) els.noteTextarea.value = "";
+      await saveNotesCache();
+      updateNoteButtons();
+      renderInfo();
+      closeNoteModal();
+      showOverlay("수정노트 삭제", 1000);
+    }
+
+    function getFitVerticalZoomScale(){
+      const { stageRect, drawHeight } = getRenderedImageMetrics();
+      const fit = stageRect.height / Math.max(1, drawHeight);
+      return clamp(fit, 1, 8);
+    }
+
+    function zoomImageFit(anchor = "center"){
+      if (!canUseImageZoom()) return;
+      const scale = getFitVerticalZoomScale();
+      if (scale <= 1.01){
+        resetImageZoom();
+        return;
+      }
+      const { drawWidth } = getRenderedImageMetrics();
+      imageZoom.scale = scale;
+      const maxX = Math.max(0, (drawWidth * scale - drawWidth) / 2);
+      imageZoom.x = anchor === "left" ? maxX : anchor === "right" ? -maxX : 0;
+      imageZoom.y = 0;
+      imageZoom.max = Math.max(4, scale);
+      applyImageZoom();
+    }
+
 async function saveState(){
   const payload = buildStatePayload();
   await idbSet(CACHE_KEYS.STATE, payload);
@@ -1835,6 +2482,7 @@ async function saveState(){
       const scale = Math.min(stageRect.width / naturalW, stageRect.height / naturalH) || 1;
       const drawWidth = naturalW * scale;
       const drawHeight = naturalH * scale;
+      imageZoom.max = Math.max(4, clamp(stageRect.height / Math.max(1, drawHeight), 1, 8));
       return { stageRect, drawWidth, drawHeight };
     }
 
@@ -1890,6 +2538,7 @@ async function saveState(){
         els.mainImage.style.transform = `translate3d(${imageZoom.x}px, ${imageZoom.y}px, 0) scale(${imageZoom.scale})`;
       }
       updateStageGestureState();
+      updateNoteButtons();
     }
 
     function resetImageZoom(){
@@ -1904,7 +2553,7 @@ async function saveState(){
 
     function zoomImageAt(scale, clientX, clientY){
       if (!canUseImageZoom()) return;
-      const nextScale = clamp(scale, imageZoom.min, imageZoom.max);
+      const nextScale = clamp(scale, imageZoom.min, Math.max(imageZoom.max, getFitVerticalZoomScale()));
       if (nextScale <= 1.01){
         resetImageZoom();
         return;
@@ -2001,6 +2650,35 @@ async function saveState(){
       return window.matchMedia("(max-width: 760px)").matches;
     }
 
+    function isLandscapeViewport(){
+      return window.innerWidth > window.innerHeight;
+    }
+
+    function updateLandscapeFocusMode(){
+      const shouldFocus = isMobileViewport() && isLandscapeViewport();
+      landscapeFocusActive = shouldFocus;
+      document.body.classList.toggle("mobile-landscape-focus", shouldFocus);
+    }
+
+    async function handleRotateHotspot(){
+      if (!isLandscapeViewport()){
+        showOverlay("가로 보기에서 좌측 상단을 터치하면 세로 복귀를 시도합니다", 1200);
+        return;
+      }
+      try{
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen){
+          await document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+        }
+        if (screen.orientation?.lock){
+          await screen.orientation.lock("portrait");
+          return;
+        }
+      } catch (err){
+        console.warn("화면 방향 잠금 실패", err);
+      }
+      showOverlay("세로 복귀는 기기를 직접 돌리면 바로 반영됩니다", 1200);
+    }
+
     function updateQuickButtons(){
       if (els.searchScopeQuickBtn){
         const labelMap = { word: "표제어", example: "용례", all: "통합" };
@@ -2011,6 +2689,101 @@ async function saveState(){
         els.categoryQuickBtn.textContent = categoryLabel.length > 6 ? `${categoryLabel.slice(0, 6)}…` : categoryLabel;
         els.categoryQuickBtn.title = categoryLabel || "전체 카테고리";
       }
+    }
+
+    function ensureWordAssetState(group){
+      const groupId = group?.id || "";
+      if (activeWordAssetState.groupId !== groupId){
+        activeWordAssetState.groupId = groupId;
+        activeWordAssetState.W = 0;
+        activeWordAssetState.E = 0;
+      }
+    }
+
+    function resetWordAssetState(groupId = ""){
+      activeWordAssetState.groupId = groupId;
+      activeWordAssetState.W = 0;
+      activeWordAssetState.E = 0;
+    }
+
+    function getWordAssetVariants(group, mode){
+      if (!group) return [];
+      const seen = new Set();
+      const list = [];
+      const pushEntry = (url, label, word, isVariant = false) => {
+        const mediaUrl = safe(url);
+        if (!mediaUrl || seen.has(mediaUrl)) return;
+        seen.add(mediaUrl);
+        list.push({ url: mediaUrl, label: label || (isVariant ? "변이형" : "표제어"), word: word || group.word, isVariant });
+      };
+
+      if (mode === "W"){
+        pushEntry(group.wordVideo, "표제어", group.word, false);
+        (group.variants || []).forEach((variant, idx) => {
+          pushEntry(variant.video, variant.label || `변이형${idx + 1}`, variant.word || group.word, true);
+        });
+      } else if (mode === "E"){
+        pushEntry(group.wordSignImage, "표제어", group.word, false);
+        (group.variants || []).forEach((variant, idx) => {
+          pushEntry(variant.signImage, variant.label || `변이형${idx + 1}`, variant.word || group.word, true);
+        });
+      }
+      return list;
+    }
+
+    function getCurrentWordAssetEntry(group, mode){
+      ensureWordAssetState(group);
+      const list = getWordAssetVariants(group, mode);
+      const maxIndex = Math.max(list.length - 1, 0);
+      activeWordAssetState[mode] = clamp(activeWordAssetState[mode] || 0, 0, maxIndex);
+      return {
+        list,
+        entry: list[activeWordAssetState[mode]] || null
+      };
+    }
+
+    async function cycleCurrentWordAsset(mode){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("검색 결과가 없습니다.", 1200);
+        return;
+      }
+      const { list } = getCurrentWordAssetEntry(group, mode);
+      if (list.length <= 1){
+        showOverlay("변이형이 없습니다.", 1200);
+        return;
+      }
+      activeWordAssetState[mode] = (activeWordAssetState[mode] + 1) % list.length;
+      render(getShouldAutoplay());
+      await saveState();
+      const entry = list[activeWordAssetState[mode]];
+      const label = entry?.label || "변이형";
+      const extraWord = entry?.word && entry.word !== group.word ? ` · ${entry.word}` : "";
+      showOverlay(`${label}${extraWord}`, 1000);
+    }
+
+    function showDefinitionPopup(){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("검색 결과가 없습니다.", 1200);
+        return;
+      }
+      showOverlay(`뜻풀이\n${group.definition || "뜻풀이가 없습니다."}`, 2200);
+    }
+
+    async function triggerMode(mode){
+      if (mode === currentMode){
+        if (mode === "Q"){
+          showDefinitionPopup();
+          return;
+        }
+        if (mode === "W" || mode === "E"){
+          await cycleCurrentWordAsset(mode);
+          return;
+        }
+      }
+      resetWordAssetState();
+      await setMode(mode);
     }
 
     function findPreviewExampleByGroupId(groupId, preferredText = ""){
@@ -2036,13 +2809,15 @@ async function saveState(){
       if (currentMode === "Q"){
         showMainText(labelWord || item.text || "");
       } else if (currentMode === "W"){
-        if (group?.wordVideo) showMainVideo(group.wordVideo, false);
+        const previewVideo = group ? getWordAssetVariants(group, "W")[0]?.url : "";
+        if (previewVideo) showMainVideo(previewVideo, false);
         else showMainText(labelWord || item.text || "");
       } else if (currentMode === "E"){
-        if (group?.wordSignImage) showMainImage(group.wordSignImage, "표제어 수어문자");
+        const previewSign = group ? getWordAssetVariants(group, "E")[0]?.url : "";
+        if (previewSign) showMainImage(previewSign, "표제어 수어문자");
         else showMainText(labelWord || item.text || "");
       } else if (currentMode === "G"){
-        if (group?.handShapeImage) showMainImage(group.handShapeImage, "표제어 수형그림");
+        if (group?.handShapeImages?.length) showMainGallery(group.handShapeImages, "표제어 수형그림");
         else showMainText(labelWord || item.text || "");
       } else if (currentMode === "A"){
         showMainText(example?.text || item.text || labelWord || "");
@@ -2085,14 +2860,19 @@ async function saveState(){
     function matchesGroupQuery(group, qNorm, scope){
       if (!qNorm) return true;
       if (scope === "word"){
-        return exactMatch ? group.wordNorm === qNorm : group.wordNorm.includes(qNorm);
+        const wordNorms = [group.wordNorm, ...(group.variantNorms || [])].filter(Boolean);
+        return exactMatch ? wordNorms.includes(qNorm) : group.wordSearchBlob.includes(qNorm);
       }
       if (scope === "example"){
         return exactMatch
           ? group.exampleNorms.some(norm => norm === qNorm)
           : group.exampleSearchBlob.includes(qNorm);
       }
-      return exactMatch ? (group.wordNorm === qNorm || group.exampleNorms.some(norm => norm === qNorm)) : group.searchBlob.includes(qNorm);
+      if (exactMatch){
+        const wordNorms = [group.wordNorm, ...(group.variantNorms || [])].filter(Boolean);
+        return wordNorms.includes(qNorm) || group.exampleNorms.some(norm => norm === qNorm) || group.definitionNorm === qNorm;
+      }
+      return group.searchBlob.includes(qNorm);
     }
 
     function matchesExampleQuery(item, qNorm, scope){
@@ -2135,6 +2915,7 @@ async function saveState(){
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
 
       updateCount();
+      resetWordAssetState();
       render();
       await saveState();
     }
@@ -2154,6 +2935,11 @@ async function saveState(){
     function hideAllMainPanels(){
       els.mainVideo.style.display = "none";
       els.mainImage.style.display = "none";
+      if (els.mainGallery){
+        els.mainGallery.style.display = "none";
+        els.mainGallery.classList.remove("is-single");
+        els.mainGallery.innerHTML = "";
+      }
       els.mainText.style.display = "none";
     }
 
@@ -2216,6 +3002,30 @@ async function saveState(){
       resetImageZoom();
     }
 
+    function showMainGallery(urls, altPrefix = "표제어 수형그림"){
+      const cleaned = (Array.isArray(urls) ? urls : []).filter(Boolean);
+      els.mainVideo.pause();
+      els.mainVideo.removeAttribute("src");
+      els.mainVideo.load();
+      els.mainVideo.dataset.currentSrc = "";
+      hideAllMainPanels();
+
+      if (!cleaned.length){
+        showMainText("표제어 수형그림이 없습니다.");
+        return;
+      }
+
+      const galleryUrls = cleaned.slice(0, 3);
+      els.mainGallery.classList.toggle("is-single", galleryUrls.length === 1);
+      els.mainGallery.innerHTML = galleryUrls.map((url, idx) => `
+        <div class="main-gallery-item">
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(`${altPrefix}${idx + 1}`)}" />
+        </div>
+      `).join("");
+      els.mainGallery.style.display = "flex";
+      resetImageZoom();
+    }
+
     function getShouldAutoplay(){
       return playbackMode === "AUTO" || playbackMode === "LOOP" || playbackMode === "CONT";
     }
@@ -2272,14 +3082,20 @@ async function saveState(){
         return;
       }
 
+      ensureWordAssetState(group);
+
       if (currentMode === "Q"){
         showMainText(group.word || "(표제어 없음)");
       } else if (currentMode === "W"){
-        showMainVideo(group.wordVideo || "", true);
+        const { entry } = getCurrentWordAssetEntry(group, "W");
+        if (entry?.url) showMainVideo(entry.url, true);
+        else showMainText("표제어 영상이 없습니다.");
       } else if (currentMode === "E"){
-        showMainImage(group.wordSignImage || "", "표제어 수어문자");
+        const { entry } = getCurrentWordAssetEntry(group, "E");
+        if (entry?.url) showMainImage(entry.url, "표제어 수어문자");
+        else showMainText("표제어 수어문자가 없습니다.");
       } else if (currentMode === "G"){
-        showMainImage(group.handShapeImage || "", "표제어 수형그림");
+        showMainGallery(group.handShapeImages || [], "표제어 수형그림");
       }
 
       setImage(els.wordSignImg, group.wordSignImage, "표제어 수어문자");
@@ -2687,58 +3503,74 @@ async function initFirebaseSync(){
   }
 }
 
+
     function getSearchSuggestions(){
       const qRaw = safe(els.searchInput.value).toLowerCase();
       const scope = getSearchScope();
-      if (!qRaw) return [];
+      if (!qRaw){
+        suggestionCacheKey = "";
+        suggestionCacheItems = [];
+        return [];
+      }
       const qNorm = normalizeHangulString(qRaw).toLowerCase();
-      const cap = 80;
+      const cap = isMobileViewport() ? 40 : 80;
+      const cacheKey = `${scope}|${qNorm}|${cap}`;
+      if (cacheKey === suggestionCacheKey) return suggestionCacheItems;
 
-      const getWordMatches = () => {
+      const buildMatches = (indexList, type) => {
         const list = [];
-        for (const item of wordSuggestionIndex){
+        const seen = type === "example" ? new Set() : null;
+        for (const item of indexList){
           const norm = item.norm || "";
           if (!norm || !norm.includes(qNorm)) continue;
-          list.push({ ...item, score: scoreSuggestion(norm, qNorm, item.text) });
-          if (list.length >= cap * 4) break;
+          if (seen){
+            const dupKey = `${item.id}::${item.text}`;
+            if (seen.has(dupKey)) continue;
+            seen.add(dupKey);
+          }
+          list.push({
+            type: item.type,
+            text: item.text,
+            word: item.word,
+            baseWord: item.baseWord || item.word,
+            id: item.id,
+            sourceId: item.sourceId || item.id,
+            len: item.len,
+            textLen: item.textLen || 0,
+            isVariant: !!item.isVariant,
+            variantLabel: item.variantLabel || "",
+            score: scoreSuggestion(norm, qNorm, item.text)
+          });
         }
         list.sort(compareSuggestionItems);
-        return list;
+        return list.slice(0, cap);
       };
 
-      const getExampleMatches = () => {
-        const list = [];
-        const seen = new Set();
-        for (const item of exampleSuggestionIndex){
-          const norm = item.norm || "";
-          if (!norm || !norm.includes(qNorm) || seen.has(`${item.id}::${item.text}`)) continue;
-          seen.add(`${item.id}::${item.text}`);
-          list.push({ ...item, score: scoreSuggestion(norm, qNorm, item.text) });
-          if (list.length >= cap * 4) break;
-        }
-        list.sort(compareSuggestionItems);
-        return list;
-      };
-
+      let items = [];
       if (scope === "word"){
-        return getWordMatches().slice(0, cap);
-      }
-      if (scope === "example"){
-        return getExampleMatches().slice(0, cap);
+        items = buildMatches(wordSuggestionIndex, "word");
+      } else if (scope === "example"){
+        items = buildMatches(exampleSuggestionIndex, "example");
+      } else {
+        items = [...buildMatches(wordSuggestionIndex, "word"), ...buildMatches(exampleSuggestionIndex, "example")]
+          .sort(compareSuggestionItems)
+          .slice(0, cap);
       }
 
-      return [...getWordMatches(), ...getExampleMatches()]
-        .sort(compareSuggestionItems)
-        .slice(0, cap);
+      suggestionCacheKey = cacheKey;
+      suggestionCacheItems = items;
+      return items;
     }
 
     function applySuggestionPick(item){
       if (!item) return;
+      clearUndoSnapshot();
       const suggestionValue = item.type === "word" ? item.word : item.text;
       els.searchInput.value = suggestionValue;
       els.searchInput.blur();
       els.searchSuggestions.classList.remove("open");
       els.searchSuggestions.innerHTML = "";
+      renderedSuggestionItems = [];
 
       restoreSearchPreview();
       Promise.resolve(applyFilter()).then(() => {
@@ -2770,6 +3602,7 @@ async function initFirebaseSync(){
 
     function renderSearchSuggestions(){
       const items = getSearchSuggestions();
+      renderedSuggestionItems = items;
       if (!items.length || document.activeElement !== els.searchInput){
         els.searchSuggestions.classList.remove("open");
         els.searchSuggestions.innerHTML = "";
@@ -2781,44 +3614,23 @@ async function initFirebaseSync(){
       const html = items.map((item, idx) => {
         let displayText = item.text;
         if (item.type === "word"){
-          displayText = duplicateWords.has(item.word) ? `${item.word} (ID:${item.id})` : item.word;
+          const idLabel = duplicateWords.has(item.word) ? ` (ID:${item.sourceId || item.id})` : "";
+          displayText = `${item.word}${idLabel}`;
         }
-        const wordDisplay = duplicateWords.has(item.word) ? `${item.word} (ID:${item.id})` : item.word;
+        const wordDisplay = duplicateWords.has(item.word) ? `${item.word} (ID:${item.sourceId || item.id})` : item.word;
+        const subLabel = item.type === "example"
+          ? `표제어: ${escapeHtml(wordDisplay)}`
+          : (item.isVariant ? `<span class="suggestion-sub">${escapeHtml(item.variantLabel || "변이형")} · 원표제어: ${escapeHtml(item.baseWord || item.word)}</span>` : ``);
         return `
           <div class="suggestion-item ${idx === searchFocusedIndex ? "active" : ""}" data-idx="${idx}">
             ${escapeHtml(displayText)}
-            ${item.type === "example" ? `<span class="suggestion-sub">표제어: ${escapeHtml(wordDisplay)}</span>` : ``}
+            ${item.type === "example" ? `<span class="suggestion-sub">표제어: ${escapeHtml(wordDisplay)}</span>` : subLabel}
           </div>
         `;
       }).join("");
 
       els.searchSuggestions.innerHTML = html;
       els.searchSuggestions.classList.add("open");
-      [...els.searchSuggestions.querySelectorAll('.suggestion-item')].forEach(el => {
-        const idx = Number(el.dataset.idx);
-        const item = items[idx];
-        let touchMoved = false;
-        const pick = () => applySuggestionPick(item);
-        el.addEventListener('mouseenter', () => {
-          searchFocusedIndex = idx;
-          previewSuggestionItem(item);
-          requestRenderSearchSuggestions();
-        });
-        el.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
-        el.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
-        el.addEventListener('touchend', (e) => {
-          if (touchMoved) return;
-          e.preventDefault();
-          e.stopPropagation();
-          pick();
-        }, { passive: false });
-        el.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          pick();
-        });
-      });
-
       const activeEl = els.searchSuggestions.querySelector('.suggestion-item.active');
       if (activeEl){
         activeEl.scrollIntoView({ block: 'nearest' });
@@ -2978,6 +3790,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function cyclePlaybackMode(){
+      rememberUndoSnapshot();
       const idx = PLAYBACK_MODES.indexOf(playbackMode);
       playbackMode = PLAYBACK_MODES[(idx + 1) % PLAYBACK_MODES.length];
       applyVideoLoopState();
@@ -2987,6 +3800,8 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function setMode(mode){
+      if (mode !== currentMode) rememberUndoSnapshot();
+      if (mode !== currentMode) resetWordAssetState();
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
 
@@ -3015,6 +3830,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function goNext(autoPlay = false){
+      clearUndoSnapshot();
       currentVideoTime = 0;
       if (isExampleMode()){
         if (!filteredExamplePool.length) return;
@@ -3039,6 +3855,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function goPrev(autoPlay = false){
+      clearUndoSnapshot();
       currentVideoTime = 0;
       if (isExampleMode()){
         if (!filteredExamplePool.length) return;
@@ -3063,6 +3880,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function shuffleCurrentOrder(){
+      rememberUndoSnapshot();
       currentVideoTime = 0;
       const keepMode = currentMode;
       const newSeed = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -3085,6 +3903,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     }
 
     async function goHome(){
+      clearUndoSnapshot();
       els.searchInput.value = "";
       els.categorySelect.value = "";
       els.searchScopeSelect.value = "word";
@@ -3190,6 +4009,19 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       }
       saveState();
       showOverlay(`구간 종료 ${abLoopEnd.toFixed(2)}초`, 900);
+    }
+
+    function clearABLoop(){
+      if (abLoopStart === null && abLoopEnd === null){
+        showOverlay("구간 반복이 설정되지 않았습니다", 900);
+        return;
+      }
+      abLoopStart = null;
+      abLoopEnd = null;
+      renderStatus();
+      saveState();
+      scheduleFirebaseStatePush();
+      showOverlay("구간 반복 초기화", 900);
     }
 
     async function captureCurrentStage(){
@@ -3333,7 +4165,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
                 <span class="pill">${escapeHtml(MODES[currentMode])}</span>
                 <span class="pill">${currentPoolIndex + 1} / ${filteredExamplePool.length}</span>
                 <span class="pill">${escapeHtml(item.category || "카테고리 없음")}</span>
-                <span class="pill">ID:${escapeHtml(item.groupId)}</span>
+                <span class="pill">ID:${escapeHtml(item.sourceId || item.groupId)}</span>
                 ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
               </div>
             </div>
@@ -3355,8 +4187,13 @@ ${selectedGroupIds.length}개 표제어`, 1200);
               ${item.video ? `<div>용례 영상 있음</div>` : `<div>용례 영상 없음</div>`}
               ${item.signImage ? `<div style="margin-top:8px;">용례 수어문자 있음</div>` : `<div style="margin-top:8px;">용례 수어문자 없음</div>`}
               ${item.groupWordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : ``}
-              ${item.groupHandShapeImage ? `<div style="margin-top:8px;">표제어 수형그림 있음</div>` : ``}
+              ${(item.groupHandShapeImages || []).length ? `<div style="margin-top:8px;">표제어 수형그림 ${(item.groupHandShapeImages || []).length}장</div>` : ``}
             </div>
+          </section>
+
+          <section class="section">
+            <h3>수정노트</h3>
+            <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
           </section>
         `;
       }
@@ -3378,7 +4215,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
               <span class="pill">${escapeHtml(MODES[currentMode])}</span>
               <span class="pill">${currentIndex + 1} / ${filteredGroups.length}</span>
                 <span class="pill">${escapeHtml(group.category || "카테고리 없음")}</span>
-                <span class="pill">ID:${escapeHtml(group.id)}</span>
+                <span class="pill">ID:${escapeHtml(group.sourceId || group.id)}</span>
                 ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
             </div>
           </div>
@@ -3395,6 +4232,11 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         </section>
 
         <section class="section">
+          <h3>뜻풀이</h3>
+          <div class="content">${escapeHtml(group.definition || "뜻풀이 없음")}</div>
+        </section>
+
+        <section class="section">
           <h3>카테고리</h3>
           <div class="content">${escapeHtml(group.category || "없음")}</div>
         </section>
@@ -3404,9 +4246,20 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           <div class="content">
             ${group.wordVideo ? `<div>표제어 영상 있음</div>` : `<div>표제어 영상 없음</div>`}
             ${group.wordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : `<div style="margin-top:8px;">표제어 수어문자 없음</div>`}
-            ${group.handShapeImage ? `<div style="margin-top:8px;">표제어 수형그림 있음</div>` : `<div style="margin-top:8px;">표제어 수형그림 없음</div>`}
+            ${(group.handShapeImages || []).length ? `<div style="margin-top:8px;">표제어 수형그림 ${(group.handShapeImages || []).length}장</div>` : `<div style="margin-top:8px;">표제어 수형그림 없음</div>`}
+            <div style="margin-top:8px;">변이형 수: ${(group.variants || []).length}</div>
             <div style="margin-top:8px;">용례 수: ${group.examples.length}</div>
           </div>
+        </section>
+
+        <section class="section">
+          <h3>변이형</h3>
+          <div class="content">${(group.variants || []).length ? group.variants.map(v => `${escapeHtml(v.label || "변이형")} · ${escapeHtml(v.word || group.word)}`).join("<br>") : "변이형 없음"}</div>
+        </section>
+
+        <section class="section">
+          <h3>수정노트</h3>
+          <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
         </section>
       `;
     }
@@ -3913,13 +4766,13 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         return;
       }
 
-      if (key === "q"){ e.preventDefault(); setMode("Q"); return; }
-      if (key === "w"){ e.preventDefault(); setMode("W"); return; }
-      if (key === "e"){ e.preventDefault(); setMode("E"); return; }
-      if (key === "a"){ e.preventDefault(); setMode("A"); return; }
-      if (key === "s"){ e.preventDefault(); setMode("S"); return; }
-      if (key === "d"){ e.preventDefault(); setMode("D"); return; }
-      if (key === "g"){ e.preventDefault(); setMode("G"); return; }
+      if (key === "q"){ e.preventDefault(); triggerMode("Q"); return; }
+      if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
+      if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
+      if (key === "a"){ e.preventDefault(); triggerMode("A"); return; }
+      if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
+      if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
+      if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
       if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
@@ -3960,23 +4813,32 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       }
 
       if (e.key === "Escape"){
+        if (els.noteModal?.classList.contains("open")){ closeNoteModal(); return; }
         closeMobileSheet();
       }
     }
 
     function bindEvents(){
+      els.searchInput.addEventListener("compositionstart", () => {
+        searchComposing = true;
+      });
+
       els.searchInput.addEventListener("input", () => {
+        if (searchComposing) return;
         searchFocusedIndex = -1;
+        suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
-        scheduleSearchApply(60);
+        scheduleSearchApply(isMobileViewport() ? 180 : 80);
       });
 
       // 한글 입력 시 조합(composition) 완료 후에도 제안 및 필터가 갱신되도록 처리합니다.
       // 입력을 정규화하여 분해된 자모를 완성형으로 변환합니다.
       els.searchInput.addEventListener("compositionend", () => {
+        searchComposing = false;
         els.searchInput.value = normalizeHangulString(els.searchInput.value);
         searchFocusedIndex = -1;
+        suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
         scheduleSearchApply(0);
@@ -3999,15 +4861,57 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           }
         }, 320);
       });
+      els.searchSuggestions.addEventListener("mouseover", (e) => {
+        const itemEl = e.target.closest(".suggestion-item");
+        if (!itemEl) return;
+        const idx = Number(itemEl.dataset.idx || -1);
+        const item = renderedSuggestionItems[idx];
+        if (!item) return;
+        searchFocusedIndex = idx;
+        previewSuggestionItem(item);
+        requestRenderSearchSuggestions();
+      });
+
+      els.searchSuggestions.addEventListener("touchstart", () => {
+        suggestionTouchMoved = false;
+      }, { passive:true });
+
+      els.searchSuggestions.addEventListener("touchmove", () => {
+        suggestionTouchMoved = true;
+      }, { passive:true });
+
+      const handleSuggestionTap = (e) => {
+        const itemEl = e.target.closest(".suggestion-item");
+        if (!itemEl) return;
+        const idx = Number(itemEl.dataset.idx || -1);
+        const item = renderedSuggestionItems[idx];
+        if (!item) return;
+        applySuggestionPick(item);
+      };
+
+      els.searchSuggestions.addEventListener("touchend", (e) => {
+        if (suggestionTouchMoved) return;
+        e.preventDefault();
+        handleSuggestionTap(e);
+      }, { passive:false });
+
+      els.searchSuggestions.addEventListener("click", (e) => {
+        e.preventDefault();
+        handleSuggestionTap(e);
+      });
 
       els.searchScopeSelect.addEventListener("change", () => {
+        rememberUndoSnapshot();
         searchFocusedIndex = -1;
+        suggestionCacheKey = "";
         updateSearchPlaceholder();
         requestRenderSearchSuggestions();
         applyFilter();
       });
 
       els.categorySelect.addEventListener("change", () => {
+        rememberUndoSnapshot();
+        suggestionCacheKey = "";
         updateQuickButtons();
         applyFilter();
       });
@@ -4018,6 +4922,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           const idx = scopes.indexOf(getSearchScope());
           els.searchScopeSelect.value = scopes[(idx + 1) % scopes.length];
           searchFocusedIndex = -1;
+          suggestionCacheKey = "";
           updateSearchPlaceholder();
           updateQuickButtons();
           requestRenderSearchSuggestions();
@@ -4044,6 +4949,8 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       }
 
       els.clearBtn.addEventListener("click", () => {
+        suggestionCacheKey = "";
+        rememberUndoSnapshot();
         clearTimeout(searchInputTimer);
         els.searchInput.value = "";
         els.categorySelect.value = "";
@@ -4061,7 +4968,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       els.nextBtn.addEventListener("click", () => goNext(getShouldAutoplay()));
 
       els.modeBtns.forEach(btn => {
-        btn.addEventListener("click", () => setMode(btn.dataset.mode));
+        btn.addEventListener("click", () => triggerMode(btn.dataset.mode));
       });
 
       // 여러 재생 버튼 모두에 클릭 이벤트 바인딩
@@ -4083,8 +4990,20 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           shuffleCurrentOrder();
         });
       }
-      if (els.homeBtn) els.homeBtn.addEventListener("click", goHome);
-      if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", goHome);
+      if (els.homeBtn) els.homeBtn.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
+      if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
+      if (els.undoBtn) els.undoBtn.addEventListener("click", () => { undoLastAction(); });
+      (els.noteBtns || []).forEach(btn => btn.addEventListener("click", openNoteModal));
+      els.noteSaveBtn?.addEventListener("click", () => { saveCurrentNote(); });
+      els.noteDeleteBtn?.addEventListener("click", () => { deleteCurrentNote(); });
+      els.noteCloseBtn?.addEventListener("click", closeNoteModal);
+      els.noteModal?.addEventListener("click", (e) => { if (e.target === els.noteModal) closeNoteModal(); });
+      els.zoomFitBtn?.addEventListener("click", () => { rememberUndoSnapshot(); zoomImageFit("left"); });
+      els.zoomResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); resetImageZoom(); });
+      els.abStartBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABStart(); });
+      els.abEndBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABEnd(); });
+      els.abResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); clearABLoop(); });
+      els.rotateHotspot?.addEventListener("click", (e) => { e.preventDefault(); handleRotateHotspot(); });
 
       document.addEventListener("keydown", handleGlobalKeydown);
 
@@ -4159,6 +5078,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       els.stage.addEventListener("touchend", (e) => {
         if (e.target === els.mainImage && isImageGestureActive()) return;
+        if (!stageTouchNavEligible) return;
         if (!e.changedTouches || !e.changedTouches.length) return;
         const dx = e.changedTouches[0].clientX - touchStartX;
         const dy = e.changedTouches[0].clientY - touchStartY;
@@ -4197,7 +5117,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         if (!canUseImageZoom()) return;
         e.preventDefault();
         if (imageZoom.scale > 1.01) resetImageZoom();
-        else zoomImageAt(2.2, e.clientX, e.clientY);
+        else zoomImageFit("center");
       });
 
       els.mainImage.addEventListener("touchstart", (e) => {
@@ -4269,7 +5189,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
           const t = e.changedTouches[0];
           if (now - imageZoom.lastTapAt < 300){
             if (imageZoom.scale > 1.01) resetImageZoom();
-            else zoomImageAt(2.2, t.clientX, t.clientY);
+            else zoomImageFit("center");
             imageZoom.lastTapAt = 0;
             e.preventDefault();
             e.stopPropagation();
@@ -4312,14 +5232,24 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       window.addEventListener("resize", () => {
         applyImageZoom();
         updateQuickButtons();
+        updateLandscapeFocusMode();
+        suggestionCacheKey = "";
         updateFirebaseStatus(els.firebaseStatus?.title || els.firebaseStatus?.textContent || "대기중",
           els.firebaseStatus?.classList.contains("error") ? "error" : (els.firebaseStatus?.classList.contains("ok") ? "ok" : "normal"));
+      });
+
+      window.addEventListener("orientationchange", () => {
+        setTimeout(() => {
+          updateLandscapeFocusMode();
+          applyImageZoom();
+        }, 80);
       });
 
       setupDragAndDrop();
       updatePlaybackButton();
       updateQuickButtons();
       updateStageGestureState();
+      updateLandscapeFocusMode();
     }
 
     function initEmptyState(){
@@ -4359,26 +5289,26 @@ O 현재 화면 캡처`);
       bindEvents();
       initEmptyState();
 
-      try{
-        await loadSelectionPresets();
-      } catch (err){
-        console.warn("선택학습 목록 복원 실패", err);
-      }
+      const auxPromise = Promise.allSettled([
+        loadSelectionPresets(),
+        loadNotesCache()
+      ]).catch(err => console.warn("보조 데이터 복원 실패", err));
 
-      const firebaseStarted = await initFirebaseSync();
+      const firebaseInitPromise = initFirebaseSync();
 
       let loaded = false;
 
-      if (firebaseStarted){
-        loaded = await loadInitialFirebaseSnapshot();
-      }
-
+      loaded = await tryRestoreIndexedCache();
       if (!loaded){
         loaded = await tryAutoLoadDefaultFile();
       }
 
-      if (!loaded){
-        loaded = await tryRestoreIndexedCache();
+      await auxPromise;
+
+      const firebaseStarted = await firebaseInitPromise;
+      if (firebaseStarted){
+        const remoteLoaded = await loadInitialFirebaseSnapshot();
+        loaded = remoteLoaded || loaded;
       }
 
       if (!loaded){
