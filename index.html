@@ -1239,6 +1239,14 @@
       }
     }
 
+  
+    .info-line{display:flex;align-items:center;gap:12px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.05)}
+    .info-line.compact{padding:6px 14px}
+    .info-key{font-weight:700;color:#9fc3ff;min-width:74px;line-height:1.35}
+    .info-value{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;line-height:1.45;min-width:0}
+    .info-value .link-btn{height:32px}
+    .suggestion-item.selected{background:rgba(87,142,255,.22);outline:1px solid rgba(130,176,255,.55)}
+
   </style>
 </head>
 <body>
@@ -1538,6 +1546,12 @@
     let firebaseBootstrapRemoteExists = false;
     let presetNameValue = "";
     let selectedPresetName = "";
+    let selectionUndoStack = [];
+    let selectionRedoStack = [];
+    let lastViewedExampleToken = "";
+    let lastExampleTokenByGroup = {};
+    let multiSelectedSearchItems = [];
+    let multiSelectedSearchKeys = new Set();
 
     // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
     let duplicateWords = new Set();
@@ -2181,9 +2195,18 @@
       const baseGroupsBySourceId = new Map();
       const baseGroupsBySourceUrl = new Map();
 
+      function makeStableGroupId(row){
+        const sid = safe(row.sourceId);
+        const surl = safe(row.sourceUrl);
+        const keySource = sid ? `sid:${sid}` : `url:${surl}`;
+        const sig = [safe(row.word), safe(row.category), safe(row.definition)].join("||");
+        return `${keySource}::${makeDataHash(sig)}`;
+      }
+
       function createGroup(row, key){
         return {
-          id: key,
+          id: makeStableGroupId(row),
+          legacyKey: key,
           sourceId: row.sourceId,
           word: row.word,
           wordNorm: row.wordNorm,
@@ -2824,18 +2847,20 @@ async function saveState(){
       if (!raw) return "";
       if (groupById && groupById.has(String(raw))) return String(raw);
 
+      const plain = raw.replace(/^g:/, "");
       const matchId = raw.match(/signWordId=(\d+)/i);
-      const sourceId = safe(matchId?.[1] || "");
+      const firstPart = safe(raw.split("||")[0] || "");
+      const sourceId = safe(matchId?.[1] || (/^\d+$/.test(plain) ? plain : /^\d+$/.test(firstPart) ? firstPart : ""));
+      const sourceUrl = safe(/^https?:/i.test(firstPart) ? firstPart : "");
       const parts = raw.split("||");
-      const sourceUrl = safe(parts[0] || "");
       const word = safe(parts[1] || "");
       const category = safe(parts[2] || "");
       const definition = safe(parts[3] || "");
 
       const pool = groups.filter(g => {
-        if (sourceId && safe(g.sourceId) !== sourceId) return false;
-        if (!sourceId && sourceUrl && safe(g.sourceUrl) !== sourceUrl) return false;
-        return true;
+        if (sourceId) return safe(g.sourceId) === sourceId;
+        if (sourceUrl) return safe(g.sourceUrl) === sourceUrl;
+        return false;
       });
       const candidates = pool.length ? pool : groups;
 
@@ -2872,7 +2897,11 @@ async function saveState(){
         const byUrl = candidates.find(g => safe(g.sourceUrl) === sourceUrl);
         if (byUrl) return String(byUrl.id);
       }
-      return raw;
+
+      const legacy = groups.find(g => safe(g.legacyKey) === raw);
+      if (legacy) return String(legacy.id);
+
+      return "";
     }
 
     function normalizeSelectionToken(token){
@@ -2971,7 +3000,81 @@ async function saveState(){
       return `${base} · 용례${(parsed.exampleIndex || 0) + 1}`;
     }
 
-    function getSearchScope(){
+    
+    function createSelectionHistorySnapshot(){
+      return {
+        selectedGroupIds:[...(selectedGroupIds||[])],
+        selectionPresets: JSON.parse(JSON.stringify(selectionPresets||{})),
+        selectedPresetName: safe(selectedPresetName),
+        presetNameValue: safe(presetNameValue),
+        selectionModeActive: !!selectionModeActive
+      };
+    }
+
+    function pushSelectionHistory(){
+      selectionUndoStack.push(createSelectionHistorySnapshot());
+      if (selectionUndoStack.length > 100) selectionUndoStack.shift();
+      selectionRedoStack = [];
+    }
+
+    async function restoreSelectionHistorySnapshot(snap){
+      if (!snap) return;
+      selectedGroupIds = Array.isArray(snap.selectedGroupIds) ? snap.selectedGroupIds.map(normalizeSelectionToken).filter(Boolean).slice(0, MAX_SELECTION_ITEMS) : [];
+      selectionPresets = snap.selectionPresets && typeof snap.selectionPresets === 'object' ? JSON.parse(JSON.stringify(snap.selectionPresets)) : {};
+      selectedPresetName = safe(snap.selectedPresetName);
+      presetNameValue = safe(snap.presetNameValue);
+      selectionModeActive = !!snap.selectionModeActive && selectedGroupIds.length > 0;
+      await saveSelectionPresets();
+      await applyFilter({save:false});
+      renderInfo();
+      await saveState();
+    }
+
+    async function undoSelectionHistory(){
+      if (!selectionUndoStack.length) { showOverlay("되돌릴 항목이 없습니다", 900); return; }
+      const current = createSelectionHistorySnapshot();
+      const snap = selectionUndoStack.pop();
+      selectionRedoStack.push(current);
+      await restoreSelectionHistorySnapshot(snap);
+      showOverlay("되돌리기 완료", 900);
+    }
+
+    async function redoSelectionHistory(){
+      if (!selectionRedoStack.length) { showOverlay("다시 실행할 항목이 없습니다", 900); return; }
+      const current = createSelectionHistorySnapshot();
+      const snap = selectionRedoStack.pop();
+      selectionUndoStack.push(current);
+      await restoreSelectionHistorySnapshot(snap);
+      showOverlay("다시 실행 완료", 900);
+    }
+
+    function getSuggestionMultiKey(item){
+      if (!item) return "";
+      return `${item.type||'word'}:${item.id||''}:${item.text||''}`;
+    }
+
+    function clearMultiSelectedSearch(){
+      multiSelectedSearchItems = [];
+      multiSelectedSearchKeys = new Set();
+    }
+
+    function toggleMultiSelectedSearchItem(item){
+      const key = getSuggestionMultiKey(item);
+      if (!key) return;
+      if (multiSelectedSearchKeys.has(key)){
+        multiSelectedSearchKeys.delete(key);
+        multiSelectedSearchItems = multiSelectedSearchItems.filter(v => getSuggestionMultiKey(v) !== key);
+      } else {
+        multiSelectedSearchKeys.add(key);
+        multiSelectedSearchItems.push(item);
+      }
+    }
+
+    function hasActiveMultiSearchSelection(){
+      return multiSelectedSearchItems.length > 0;
+    }
+
+function getSearchScope(){
       return els.searchScopeSelect.value || "word";
     }
 
@@ -3355,6 +3458,8 @@ async function saveState(){
 
     async function applyFilter(options = {}){
       const { save = true } = options;
+      const previousGroupId = safe(getCurrentGroup()?.id || "");
+      const previousExampleToken = isExampleMode() ? makeExampleSelectionToken(getCurrentPoolItem()) : lastViewedExampleToken;
       const q = safe(els.searchInput.value).trim();
       const qId = searchIdMode ? q.replace(/\D+/g, "") : "";
       const qNorm = (!searchIdMode && q) ? normalizeHangulString(q.toLowerCase()).toLowerCase() : "";
@@ -3366,6 +3471,9 @@ async function saveState(){
       const selectedPick = getActiveSelectedSearchPick(q, scope);
       const selectedGroupId = selectedPick?.id ? String(selectedPick.id) : "";
       const selectedExampleText = selectedPick?.type === "example" ? safe(selectedPick.text) : "";
+      const multiGroupSet = hasActiveMultiSearchSelection() ? new Set(multiSelectedSearchItems.map(item => String(item.id || "")).filter(Boolean)) : null;
+      const multiExampleKeySet = hasActiveMultiSearchSelection() ? new Set(multiSelectedSearchItems.filter(item => item.type === "example").map(item => `${String(item.id || "")}::${safe(item.text)}`)) : null;
+      const multiHasWord = hasActiveMultiSearchSelection() ? multiSelectedSearchItems.some(item => item.type !== "example") : false;
 
       const groupBase = groupsByCategory.get(cat) || [];
       const exampleBase = examplesByCategory.get(cat) || [];
@@ -3373,7 +3481,9 @@ async function saveState(){
       filteredGroups = [];
       for (const g of groupBase){
         if (selectionSet && !selectionSet.has(g.id)) continue;
-        if (selectedGroupId){
+        if (multiGroupSet && multiGroupSet.size){
+          if (!multiGroupSet.has(String(g.id))) continue;
+        } else if (selectedGroupId){
           if (String(g.id) !== selectedGroupId) continue;
         } else if (searchIdMode){
           if (qId && !String(g.sourceId || "").includes(qId)) continue;
@@ -3392,7 +3502,11 @@ async function saveState(){
           const exampleSelected = selectionExampleTokenSet && selectionExampleTokenSet.has(exToken);
           if (!groupSelected && !exampleSelected) continue;
         }
-        if (selectedGroupId){
+        if (multiGroupSet && multiGroupSet.size){
+          const groupMatch = multiHasWord && multiGroupSet.has(String(item.groupId));
+          const exampleMatch = multiExampleKeySet && multiExampleKeySet.has(`${String(item.groupId)}::${safe(item.text)}`);
+          if (!groupMatch && !exampleMatch) continue;
+        } else if (selectedGroupId){
           if (String(item.groupId) !== selectedGroupId) continue;
           if (selectedExampleText && safe(item.text) !== selectedExampleText) continue;
         } else if (searchIdMode){
@@ -3410,10 +3524,26 @@ async function saveState(){
         : exampleCandidates;
       applyDeterministicShuffleOrder();
 
+      if (previousGroupId && filteredGroups.length){
+        const groupIdx = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
+        if (groupIdx >= 0) currentIndex = groupIdx;
+      }
+      if (previousExampleToken && filteredExamplePool.length){
+        const exIdx = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === previousExampleToken);
+        if (exIdx >= 0) currentPoolIndex = exIdx;
+      }
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
 
       applyPendingSearchPickToResults();
+      if (previousGroupId && filteredGroups.length){
+        const groupIdx2 = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
+        if (groupIdx2 >= 0) currentIndex = groupIdx2;
+      }
+      if (previousExampleToken && filteredExamplePool.length){
+        const exIdx2 = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === previousExampleToken);
+        if (exIdx2 >= 0) currentPoolIndex = exIdx2;
+      }
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
 
@@ -3425,6 +3555,7 @@ async function saveState(){
 
     function setImage(imgEl, url, alt){
       if (url){
+        imgEl.crossOrigin = "anonymous";
         imgEl.src = url;
         imgEl.alt = alt;
         imgEl.style.display = "block";
@@ -3470,6 +3601,7 @@ async function saveState(){
       applyVideoLoopState();
 
       if (els.mainVideo.dataset.currentSrc !== (url || "")){
+        els.mainVideo.crossOrigin = "anonymous";
         els.mainVideo.dataset.currentSrc = url || "";
         if (url){
           els.mainVideo.src = url;
@@ -3494,6 +3626,7 @@ async function saveState(){
       hideAllMainPanels();
 
       if (url){
+        els.mainImage.crossOrigin = "anonymous";
         els.mainImage.src = url;
         els.mainImage.alt = alt;
         els.mainImage.style.display = "block";
@@ -3522,7 +3655,7 @@ async function saveState(){
       els.mainGallery.classList.toggle("is-single", galleryUrls.length === 1);
       els.mainGallery.innerHTML = galleryUrls.map((url, idx) => `
         <div class="main-gallery-item">
-          <img src="${escapeHtml(url)}" alt="${escapeHtml(`${altPrefix}${idx + 1}`)}" />
+          <img crossorigin="anonymous" src="${escapeHtml(url)}" alt="${escapeHtml(`${altPrefix}${idx + 1}`)}" />
         </div>
       `).join("");
       els.mainGallery.style.display = "flex";
@@ -3557,6 +3690,10 @@ async function saveState(){
 
       if (isExampleMode()){
         const item = getCurrentPoolItem();
+        if (item){
+          lastViewedExampleToken = makeExampleSelectionToken(item);
+          lastExampleTokenByGroup[String(item.groupId)] = lastViewedExampleToken;
+        }
         if (!item){
           showMainText("검색 결과가 없습니다.");
           setImage(els.wordSignImg, "", "");
@@ -3935,13 +4072,14 @@ async function uploadCurrentDatasetToFirebase(reason = "manual", force = false){
 
 async function getPreferredInitialState(){
   if (pendingRemoteStateEnvelope?.payload) return pendingRemoteStateEnvelope.payload;
-  if (firebaseReady && hasRemoteStateInRoom){
+  if (firebaseReady){
     try{
       const snap = await getDoc(roomDocRef());
+      firebaseBootstrapChecked = true;
+      hasRemoteStateInRoom = !!snap.exists();
+      firebaseBootstrapRemoteExists = !!snap.exists();
       if (snap.exists()){
         const envelope = snap.data();
-        firebaseBootstrapChecked = true;
-        firebaseBootstrapRemoteExists = true;
         pendingRemoteStateEnvelope = envelope;
         return envelope?.payload || null;
       }
@@ -4382,6 +4520,7 @@ async function initFirebaseSync(){
         showOverlay("선택학습 항목은 최대 50개까지 추가할 수 있습니다", 1600);
         return false;
       }
+      pushSelectionHistory();
       selectedGroupIds.push(token);
       selectionSearch = "";
       selectionFocusedIndex = -1;
@@ -4401,6 +4540,7 @@ async function initFirebaseSync(){
 
     function removeSelectedGroup(id){
       const token = normalizeSelectionToken(id);
+      pushSelectionHistory();
       selectedGroupIds = getSelectionEntries().filter(w => w !== token);
       if (!selectedGroupIds.length && selectionModeActive){
         selectionModeActive = false;
@@ -4440,6 +4580,7 @@ async function initFirebaseSync(){
     }
 
     async function clearCurrentSelectionEntries(){
+      pushSelectionHistory();
       selectedGroupIds = [];
       selectionModeActive = false;
       const target = getActivePresetStorageName();
@@ -4456,6 +4597,7 @@ async function initFirebaseSync(){
     }
 
     async function renameSelectedPreset(){
+      pushSelectionHistory();
       const oldName = safe(selectedPresetName);
       if (!oldName || !selectionPresets[oldName]){
         showOverlay("이름을 바꿀 목록을 선택해 주세요", 1200);
@@ -4545,6 +4687,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
     }
 
     async function loadSelectedPreset(){
+      pushSelectionHistory();
       selectionUiLockUntil = Date.now() + 2000;
       const name = safe(selectedPresetName);
       if (!name || !selectionPresets[name]){
@@ -4562,6 +4705,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
     }
 
     async function deleteSelectedPreset(){
+      pushSelectionHistory();
       selectionUiLockUntil = Date.now() + 2500;
       const name = safe(selectedPresetName);
       if (!name || !selectionPresets[name]){
@@ -4646,6 +4790,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (mode !== currentMode && !preserveWordAssetState) resetWordAssetState();
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
+      const currentExampleItem = prevWasExample ? getCurrentPoolItem() : null;
+      const currentExampleToken = currentExampleItem ? makeExampleSelectionToken(currentExampleItem) : lastViewedExampleToken;
 
       currentMode = mode;
       els.modeBtns.forEach(btn => {
@@ -4655,12 +4801,19 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (!prevWasExample && nextIsExample){
         const group = getCurrentGroup();
         if (group){
-          const idx = filteredExamplePool.findIndex(item => item.groupId === group.id);
-          if (idx >= 0) currentPoolIndex = idx;
+          const rememberedToken = lastExampleTokenByGroup[String(group.id)] || currentExampleToken || "";
+          const rememberedIdx = rememberedToken ? filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === rememberedToken) : -1;
+          if (rememberedIdx >= 0) currentPoolIndex = rememberedIdx;
+          else {
+            const idx = filteredExamplePool.findIndex(item => item.groupId === group.id);
+            if (idx >= 0) currentPoolIndex = idx;
+          }
         }
       } else if (prevWasExample && !nextIsExample){
-        const item = getCurrentPoolItem();
+        const item = currentExampleItem;
         if (item){
+          lastViewedExampleToken = currentExampleToken;
+          lastExampleTokenByGroup[String(item.groupId)] = currentExampleToken;
           const idx = filteredGroups.findIndex(g => g.id === item.groupId);
           if (idx >= 0) currentIndex = idx;
         }
@@ -4877,8 +5030,25 @@ ${getSelectionEntries().length}개 항목`, 1200);
         canvas.height = height;
         const ctx = canvas.getContext("2d");
 
+        const drawElementBox = (el) => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return {
+            x: r.left - rect.left,
+            y: r.top - rect.top,
+            w: r.width,
+            h: r.height
+          };
+        };
+
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, width, height);
+
+        const stageBg = getComputedStyle(els.stage).backgroundColor;
+        if (stageBg && stageBg !== 'rgba(0, 0, 0, 0)'){
+          ctx.fillStyle = stageBg;
+          ctx.fillRect(0,0,width,height);
+        }
 
         if (els.mainText.style.display === "flex"){
           const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -4902,11 +5072,21 @@ ${getSelectionEntries().length}개 항목`, 1200);
             ctx.fillText(line, width / 2, y, width * 0.88);
             y += lineHeight;
           });
+        } else if (els.mainGallery.style.display === "flex"){
+          const imgs = [...els.mainGallery.querySelectorAll('img')].filter(img => img.complete && img.naturalWidth);
+          if (!imgs.length){ showOverlay("캡처할 이미지가 없습니다", 1200); return; }
+          for (const img of imgs){
+            const box = drawElementBox(img);
+            if (!box) continue;
+            ctx.drawImage(img, box.x, box.y, box.w, box.h);
+          }
         } else if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
-          ctx.drawImage(els.mainImage, 0, 0, width, height);
+          const box = drawElementBox(els.mainImage);
+          ctx.drawImage(els.mainImage, box.x, box.y, box.w, box.h);
         } else if (els.mainVideo.style.display === "block"){
+          const box = drawElementBox(els.mainVideo);
           try {
-            ctx.drawImage(els.mainVideo, 0, 0, width, height);
+            ctx.drawImage(els.mainVideo, box.x, box.y, box.w, box.h);
           } catch (err) {
             showOverlay("이 영상은 브라우저 보안 때문에 캡처가 제한될 수 있습니다", 1500);
             return;
@@ -5602,18 +5782,30 @@ ${getSelectionEntries().length}개 항목`, 1200);
         previewSuggestionItem(items[searchFocusedIndex]);
       } else if (e.key === "Enter"){
         e.preventDefault();
+        if (hasActiveMultiSearchSelection()){
+          clearSelectedSearchPick();
+          els.searchSuggestions.classList.remove("open");
+          restoreSearchPreview();
+          applyFilter();
+          showOverlay(`다중 선택 적용
+${multiSelectedSearchItems.length}개`, 1000);
+          return;
+        }
         const item = items[Math.max(searchFocusedIndex, 0)];
         if (item) applySuggestionPick(item);
       } else if (e.key === "Escape"){
         els.searchSuggestions.classList.remove("open");
         restoreSearchPreview();
+        clearMultiSelectedSearch();
       }
     }
 
     function handleGlobalKeydown(e){
-      if (isTypingContext()) return;
-
       const key = e.key.toLowerCase();
+      if (e.ctrlKey && key === 'z'){ e.preventDefault(); undoSelectionHistory(); return; }
+      if (e.ctrlKey && key === 'y'){ e.preventDefault(); redoSelectionHistory(); return; }
+      if (e.ctrlKey && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
+      if (isTypingContext()) return;
 
       if (e.code === "Space"){
         e.preventDefault();
@@ -5642,6 +5834,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
       if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
       if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
+      if (key === "u"){ e.preventDefault(); loadSelectedPreset(); return; }
       if (key === "y"){ e.preventDefault(); if (selectionModeActive) stopSelectionMode(); else startSelectionMode(); return; }
       if (e.code === "Backquote" && e.shiftKey){ e.preventDefault(); toggleFirebaseLiveSync(); return; }
       if (e.code === "Backquote"){ e.preventDefault(); reconnectFirebaseRoom(); return; }
@@ -5709,6 +5902,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           clearSelectedSearchPick();
         }
         searchFocusedIndex = -1;
+        clearMultiSelectedSearch();
         suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
@@ -5723,6 +5917,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           clearSelectedSearchPick();
         }
         searchFocusedIndex = -1;
+        clearMultiSelectedSearch();
         suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
@@ -5789,6 +5984,13 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const handleSuggestionTap = (e) => {
         const item = getSuggestionItemFromEvent(e);
         if (!item) return;
+        if (e && (e.ctrlKey || e.metaKey)){
+          toggleMultiSelectedSearchItem(item);
+          requestRenderSearchSuggestions();
+          previewSuggestionItem(item);
+          return;
+        }
+        clearMultiSelectedSearch();
         applySuggestionPick(item);
       };
 
@@ -5809,6 +6011,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.searchScopeSelect.addEventListener("change", () => {
         rememberUndoSnapshot();
         clearSelectedSearchPick();
+        clearMultiSelectedSearch();
         searchFocusedIndex = -1;
         suggestionCacheKey = "";
         updateSearchPlaceholder();
@@ -5819,6 +6022,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.categorySelect.addEventListener("change", () => {
         rememberUndoSnapshot();
         clearSelectedSearchPick();
+        clearMultiSelectedSearch();
         suggestionCacheKey = "";
         updateQuickButtons();
         applyFilter();
