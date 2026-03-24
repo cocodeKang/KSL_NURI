@@ -3131,6 +3131,7 @@ async function saveState(){
     }
 
     async function triggerMode(mode){
+      const prevMode = currentMode;
       if (mode === currentMode){
         if (mode === "Q"){
           showDefinitionPopup();
@@ -3155,6 +3156,9 @@ async function saveState(){
         ensureWordAssetState(getCurrentGroup());
       }
       await setMode(mode, { preserveWordAssetState: preserveVariantSlot });
+      if ((mode === "W" || mode === "E") && prevMode !== mode){
+        forceVariantHintPopup();
+      }
     }
 
     function findPreviewExampleByGroupId(groupId, preferredText = ""){
@@ -3693,6 +3697,8 @@ function isSyncUiBusy(){
   const tag = String(active?.tagName || "").toUpperCase();
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (els.searchSuggestions?.classList?.contains("open")) return true;
+  if (els.selectionContent?.querySelector?.('[data-role="preset-select"]:focus')) return true;
+  if (els.selectionContent?.querySelector?.('[data-role="preset-name"]:focus')) return true;
   const hoveredSelection = document.querySelector('.selection-panel:hover, .selection-panel :hover, .search-wrap:hover, .search-wrap :hover');
   if (hoveredSelection) return true;
   const focusedSelection = document.querySelector('.selection-panel :focus, .search-wrap :focus');
@@ -3941,8 +3947,15 @@ async function toggleFirebaseLiveSync(force){
     if (!ok) return;
   }
   if (liveSyncEnabled){
+    if (rows.length){
+      await flushPendingFirebaseStatePush(buildStatePayload());
+    }
     startFirebaseLiveWatchers();
-    await loadInitialFirebaseSnapshot();
+    if (!(rows.length && Date.now() < localStateHoldUntil)){
+      await loadInitialFirebaseSnapshot();
+    } else {
+      updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+    }
     showOverlay("실시간 리스너 켜짐", 900);
   } else {
     cleanupFirebaseWatchers();
@@ -3986,7 +3999,9 @@ async function reconnectFirebaseRoom(){
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
   if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
   pendingRemoteStateEnvelope = null;
-  const remoteLoaded = await loadInitialFirebaseSnapshot();
+  const remoteLoaded = (!(rows.length && Date.now() < localStateHoldUntil))
+    ? await loadInitialFirebaseSnapshot()
+    : false;
   if (liveSyncEnabled) startFirebaseLiveWatchers();
   if (!remoteLoaded){
     const localState = await restoreState();
@@ -5005,14 +5020,22 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       if (presetNameInput){
+        ["focus","mousedown","click","keydown"].forEach(evt => {
+          presetNameInput.addEventListener(evt, () => lockSelectionUi(9000));
+        });
         presetNameInput.addEventListener("input", () => {
+          lockSelectionUi(9000);
           presetNameValue = presetNameInput.value;
           saveState();
         });
       }
 
       if (presetSelect){
+        ["focus","mousedown","click","keydown"].forEach(evt => {
+          presetSelect.addEventListener(evt, () => lockSelectionUi(12000));
+        });
         presetSelect.addEventListener("change", () => {
+          lockSelectionUi(12000);
           selectedPresetName = presetSelect.value;
           saveState();
         });
@@ -5140,6 +5163,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if ((group.variants || []).length){
         showOverlay("변이형 있음", 500);
       }
+    }
+
+    function forceVariantHintPopup(){
+      lastVariantHintGroupId = "";
+      maybeShowVariantHint(true);
     }
 
     function render(autoPlay = false){
@@ -5803,6 +5831,25 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       bindTapZone(els.tapPrevZone, () => goPrev(getShouldAutoplay()));
       bindTapZone(els.tapNextZone, () => goNext(getShouldAutoplay()));
+
+      els.stage.addEventListener("click", (e) => {
+        if (isMobileViewport()) return;
+        if (e.defaultPrevented) return;
+        if (e.target?.closest?.('.controls, .topbar, .selection-panel, .suggestions, .mobile-sheet')) return;
+        if (e.target === els.mainImage && isImageGestureActive()) return;
+        const rect = els.stage.getBoundingClientRect();
+        if (!rect.width) return;
+        const ratioX = (e.clientX - rect.left) / rect.width;
+        if (ratioX <= 0.15){
+          goPrev(getShouldAutoplay());
+          return;
+        }
+        if (ratioX >= 0.85){
+          goNext(getShouldAutoplay());
+          return;
+        }
+        forceVariantHintPopup();
+      });
 
       els.mainImage.addEventListener("load", () => {
         applyImageZoom();
