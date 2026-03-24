@@ -1624,6 +1624,8 @@
     let remoteApplyTimer = null;
     let selectionUiLockUntil = 0;
     let localStateHoldUntil = 0;
+    let firebasePushEnabled = false;
+    let firebaseBootstrapping = true;
 
     let abLoopStart = null;
     let abLoopEnd = null;
@@ -2640,8 +2642,8 @@ async function saveState(){
   localStateHoldUntil = Math.max(localStateHoldUntil, Date.now() + 1800);
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
-  if (!isApplyingRemoteState){
-    scheduleFirebaseStatePush(payload);
+  if (!isApplyingRemoteState && firebasePushEnabled && !firebaseBootstrapping){
+    scheduleFirebaseStatePush(payload, !!liveSyncEnabled);
   }
 }
 
@@ -2817,11 +2819,77 @@ async function saveState(){
       try { return decodeURIComponent(raw); } catch { return raw; }
     }
 
+    function findCanonicalGroupIdFromLegacy(rawGroupId){
+      const raw = safe(rawGroupId);
+      if (!raw) return "";
+      if (groupById && groupById.has(String(raw))) return String(raw);
+
+      const matchId = raw.match(/signWordId=(\d+)/i);
+      const sourceId = safe(matchId?.[1] || "");
+      const parts = raw.split("||");
+      const sourceUrl = safe(parts[0] || "");
+      const word = safe(parts[1] || "");
+      const category = safe(parts[2] || "");
+      const definition = safe(parts[3] || "");
+
+      const pool = groups.filter(g => {
+        if (sourceId && safe(g.sourceId) !== sourceId) return false;
+        if (!sourceId && sourceUrl && safe(g.sourceUrl) !== sourceUrl) return false;
+        return true;
+      });
+      const candidates = pool.length ? pool : groups;
+
+      const exact = candidates.find(g =>
+        (!sourceId || safe(g.sourceId) === sourceId) &&
+        (!sourceUrl || safe(g.sourceUrl) === sourceUrl) &&
+        (!word || safe(g.word) === word) &&
+        (!category || safe(g.category) === category) &&
+        (!definition || safe(g.definition) === definition)
+      );
+      if (exact) return String(exact.id);
+
+      const byWordCat = candidates.find(g =>
+        (!sourceId || safe(g.sourceId) === sourceId) &&
+        (!sourceUrl || safe(g.sourceUrl) === sourceUrl) &&
+        (!word || safe(g.word) === word) &&
+        (!category || safe(g.category) === category)
+      );
+      if (byWordCat) return String(byWordCat.id);
+
+      const byDefCat = candidates.find(g =>
+        (!sourceId || safe(g.sourceId) === sourceId) &&
+        (!sourceUrl || safe(g.sourceUrl) === sourceUrl) &&
+        (!definition || safe(g.definition) === definition) &&
+        (!category || safe(g.category) === category)
+      );
+      if (byDefCat) return String(byDefCat.id);
+
+      if (sourceId){
+        const byId = candidates.find(g => safe(g.sourceId) === sourceId);
+        if (byId) return String(byId.id);
+      }
+      if (sourceUrl){
+        const byUrl = candidates.find(g => safe(g.sourceUrl) === sourceUrl);
+        if (byUrl) return String(byUrl.id);
+      }
+      return raw;
+    }
+
     function normalizeSelectionToken(token){
       const raw = safe(token);
       if (!raw) return "";
-      if (raw.startsWith("e:") || raw.startsWith("g:")) return raw;
-      return `g:${encodeURIComponent(raw)}`;
+      if (raw.startsWith("e:")){
+        const body = raw.slice(2);
+        const sep = body.lastIndexOf("::");
+        const encodedGroupId = sep >= 0 ? body.slice(0, sep) : body;
+        const idxRaw = sep >= 0 ? body.slice(sep + 2) : "0";
+        const groupId = decodeSelectionGroupId(encodedGroupId);
+        const canonical = findCanonicalGroupIdFromLegacy(groupId);
+        return canonical ? `e:${encodeURIComponent(canonical)}::${Number(idxRaw || 0) || 0}` : "";
+      }
+      const groupRaw = raw.startsWith("g:") ? decodeSelectionGroupId(raw.slice(2)) : raw;
+      const canonical = findCanonicalGroupIdFromLegacy(groupRaw);
+      return canonical ? `g:${encodeURIComponent(canonical)}` : "";
     }
 
     function parseSelectionToken(token){
@@ -3056,8 +3124,29 @@ async function saveState(){
       activeWordAssetState.index = 0;
     }
 
+    function getEffectiveVariants(group){
+      if (!group) return [];
+      const explicit = Array.isArray(group.variants) ? group.variants.filter(Boolean) : [];
+      if (explicit.length) return explicit;
+      const siblings = groups.filter(item => {
+        if (!item || item.id === group.id) return false;
+        const sameSource = (safe(item.sourceId) && safe(group.sourceId) && safe(item.sourceId) === safe(group.sourceId))
+          || (safe(item.sourceUrl) && safe(group.sourceUrl) && safe(item.sourceUrl) === safe(group.sourceUrl));
+        if (!sameSource) return false;
+        const hasMedia = safe(item.wordVideo) || safe(item.wordSignImage) || ((item.handShapeImages || []).length);
+        return !!hasMedia;
+      });
+      return siblings.map((item, idx) => ({
+        label: item.variantLabel || `변이형${idx + 1}`,
+        word: item.word || group.word,
+        video: item.wordVideo || "",
+        signImage: item.wordSignImage || "",
+        handShapeImages: [...(item.handShapeImages || [])]
+      }));
+    }
+
     function getWordVariantSlotCount(group){
-      return group ? (1 + ((group.variants || []).length || 0)) : 0;
+      return group ? (1 + getEffectiveVariants(group).length) : 0;
     }
 
     function getWordAssetEntryBySlot(group, mode, slot){
@@ -3067,10 +3156,11 @@ async function saveState(){
           url: mode === "W" ? safe(group.wordVideo) : safe(group.wordSignImage),
           label: "표제어",
           word: group.word,
+          handShapeImages: [...(group.handShapeImages || [])],
           isVariant: false
         };
       }
-      const variant = (group.variants || [])[slot - 1] || null;
+      const variant = getEffectiveVariants(group)[slot - 1] || null;
       if (!variant){
         return null;
       }
@@ -3078,6 +3168,7 @@ async function saveState(){
         url: mode === "W" ? safe(variant.video) : safe(variant.signImage),
         label: variant.label || `변이형${slot}`,
         word: variant.word || group.word,
+        handShapeImages: [...(variant.handShapeImages || [])],
         isVariant: true
       };
     }
@@ -3100,7 +3191,7 @@ async function saveState(){
     }
 
     function describeVariantSlot(group, mode, slot){
-      const totalVariants = (group?.variants || []).length || 0;
+      const totalVariants = getEffectiveVariants(group).length || 0;
       const typeLabel = mode === "W" ? "영상" : "수어문자";
       if (slot <= 0 || totalVariants <= 0) return `표제어 ${typeLabel}`;
       return `변이형 ${slot}/${totalVariants} ${typeLabel}`;
@@ -3212,7 +3303,7 @@ async function saveState(){
       }
 
       setImage(els.wordSignImg, group?.wordSignImage || "", "표제어 수어문자");
-      setImage(els.handShapeImg, group?.handShapeImage || "", "수형그림");
+      setImage(els.handShapeImg, (group?.handShapeImages?.[0] || group?.handShapeImage || ""), "수형그림");
       els.statusText.textContent = `미리보기 | ${labelWord || item.text || ""} | ${modeLabel}`;
     }
 
@@ -3509,7 +3600,11 @@ async function saveState(){
         if (entry?.url) showMainImage(entry.url, "표제어 수어문자");
         else showMainText(slot > 0 ? "변이형 수어문자가 없습니다." : "표제어 수어문자가 없습니다.");
       } else if (currentMode === "G"){
-        showMainGallery(group.handShapeImages || [], "표제어 수형그림");
+        const currentAsset = getCurrentWordAssetEntry(group, "E");
+        const galleryImages = (currentAsset?.slot > 0 && currentAsset?.entry?.handShapeImages?.length)
+          ? currentAsset.entry.handShapeImages
+          : (group.handShapeImages || []);
+        showMainGallery(galleryImages, "표제어 수형그림");
       }
 
       setImage(els.wordSignImg, group.wordSignImage, "표제어 수어문자");
@@ -3719,7 +3814,7 @@ function shouldDeferRemoteApply(envelope = null){
 function cloneSelectionPresetsForSync(){
   const entries = Object.entries(selectionPresets || {})
     .slice(0, 120)
-    .map(([name, ids]) => [safe(name).slice(0, 80), Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS) : []]);
+    .map(([name, ids]) => [safe(name).slice(0, 80), Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS).map(v => normalizeSelectionToken(v)).filter(Boolean) : []]);
   return Object.fromEntries(entries);
 }
 
@@ -3780,7 +3875,7 @@ function scheduleFirebaseStatePush(payload = null, immediate = false){
     }).finally(() => {
       pendingFirebaseStatePromise = null;
     });
-  }, immediate ? 0 : 1000);
+  }, immediate ? 0 : (liveSyncEnabled ? 250 : 1000));
 }
 
 async function flushPendingFirebaseStatePush(payload = null){
@@ -3978,8 +4073,10 @@ async function toggleFirebaseLiveSync(force){
     if (!ok) return;
   }
   if (liveSyncEnabled){
+    firebasePushEnabled = false;
     await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
     startFirebaseLiveWatchers();
+    firebasePushEnabled = true;
     updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
     showOverlay("실시간 리스너 켜짐", 900);
   } else {
@@ -3991,6 +4088,8 @@ async function toggleFirebaseLiveSync(force){
 async function loadInitialFirebaseSnapshot(options = {}){
   const { forceRemote = false, silent = false } = options;
   if (!firebaseReady || !firebaseDb) return false;
+  const prevPushEnabled = firebasePushEnabled;
+  firebasePushEnabled = false;
   try{
     const snap = await getDoc(roomDocRef());
     firebaseBootstrapChecked = true;
@@ -4017,7 +4116,10 @@ async function loadInitialFirebaseSnapshot(options = {}){
 
 async function reconnectFirebaseRoom(){
   const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
-  syncRoomKey = nextRoom;
+  firebaseBootstrapping = true;
+  firebasePushEnabled = false;
+  const nextRoomKey = nextRoom;
+  syncRoomKey = nextRoomKey;
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
   if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
   pendingRemoteStateEnvelope = null;
@@ -4029,6 +4131,8 @@ async function reconnectFirebaseRoom(){
   if (liveSyncEnabled) startFirebaseLiveWatchers();
 
   updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  firebaseBootstrapping = false;
+  firebasePushEnabled = true;
   showOverlay(remoteLoaded ? `Firestore 기준으로 이어받음\n${syncRoomKey}` : `Firestore에 저장된 상태 없음\n${syncRoomKey}`, 1100);
 }
 
@@ -4283,6 +4387,7 @@ async function initFirebaseSync(){
       selectionFocusedIndex = -1;
       renderInfo();
       saveState();
+      Promise.resolve().then(() => persistCurrentSelectionToActivePreset("auto")).catch(() => {});
       return true;
     }
 
@@ -4303,6 +4408,7 @@ async function initFirebaseSync(){
       applyFilter();
       renderInfo();
       saveState();
+      Promise.resolve().then(() => persistCurrentSelectionToActivePreset("auto")).catch(() => {});
       if (firebaseReady) flushPendingFirebaseStatePush(buildStatePayload());
     }
 
@@ -4311,6 +4417,78 @@ async function initFirebaseSync(){
       const sourceId = safe(group.sourceId || group.id);
       return duplicateWords.has(group.word) ? `${group.word} (ID:${sourceId})` : group.word;
     }
+
+    function getActivePresetStorageName(){
+      const bySelected = safe(selectedPresetName);
+      if (bySelected && Object.prototype.hasOwnProperty.call(selectionPresets || {}, bySelected)) return bySelected;
+      const byInput = safe(presetNameValue);
+      if (byInput && Object.prototype.hasOwnProperty.call(selectionPresets || {}, byInput)) return byInput;
+      return "";
+    }
+
+    async function persistCurrentSelectionToActivePreset(reason = "auto"){
+      const target = getActivePresetStorageName();
+      if (!target) return false;
+      selectionPresets[target] = [...getSelectionEntries()];
+      selectedPresetName = target;
+      presetNameValue = target;
+      await saveSelectionPresets();
+      await saveState();
+      await flushPendingFirebaseStatePush(buildStatePayload());
+      if (reason === "auto") renderInfo();
+      return true;
+    }
+
+    async function clearCurrentSelectionEntries(){
+      selectedGroupIds = [];
+      selectionModeActive = false;
+      const target = getActivePresetStorageName();
+      if (target){
+        selectionPresets[target] = [];
+        selectedPresetName = target;
+        presetNameValue = target;
+        await saveSelectionPresets();
+      }
+      await saveState();
+      await flushPendingFirebaseStatePush(buildStatePayload());
+      renderInfo();
+      showOverlay("현재 선택학습 항목 전체삭제", 1100);
+    }
+
+    async function renameSelectedPreset(){
+      const oldName = safe(selectedPresetName);
+      if (!oldName || !selectionPresets[oldName]){
+        showOverlay("이름을 바꿀 목록을 선택해 주세요", 1200);
+        return;
+      }
+      const nextName = safe(presetNameValue);
+      if (!nextName){
+        showOverlay("새 목록 이름을 입력해 주세요", 1200);
+        return;
+      }
+      if (nextName === oldName){
+        showOverlay("같은 이름입니다", 900);
+        return;
+      }
+      if (selectionPresets[nextName]){
+        showOverlay("이미 같은 이름의 목록이 있습니다", 1300);
+        return;
+      }
+      selectionPresets[nextName] = [...(selectionPresets[oldName] || [])];
+      delete selectionPresets[oldName];
+      selectedPresetName = nextName;
+      presetNameValue = nextName;
+      localStateHoldUntil = Date.now() + 5000;
+      pendingRemoteStateEnvelope = null;
+      await saveSelectionPresets();
+      await saveState();
+      await flushPendingFirebaseStatePush(buildStatePayload());
+      pendingRemoteStateEnvelope = null;
+      renderInfo();
+      showOverlay(`목록 이름변경 완료
+${nextName}`, 1200);
+    }
+
 
     function addCurrentGroupToSelection(){
       if (isExampleMode() || selectedSearchPick?.type === "example" || getSearchScope() === "example"){
@@ -4354,7 +4532,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         showOverlay("저장할 표제어 목록이 없습니다", 1200);
         return;
       }
-      selectionPresets[name] = [...getSelectionEntries()];
+      selectionPresets[name] = [...getSelectionEntries()].map(normalizeSelectionToken).filter(Boolean);
       selectedPresetName = name;
       localStateHoldUntil = Date.now() + 5000;
       pendingRemoteStateEnvelope = null;
@@ -4374,6 +4552,8 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         return;
       }
       selectedGroupIds = (selectionPresets[name] || []).map(normalizeSelectionToken).filter(Boolean);
+      selectedPresetName = name;
+      presetNameValue = name;
       localStateHoldUntil = Date.now() + 4000;
       pendingRemoteStateEnvelope = null;
       renderInfo();
@@ -4390,9 +4570,13 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       }
       delete selectionPresets[name];
       if (selectedPresetName === name) selectedPresetName = "";
+      if (presetNameValue === name) presetNameValue = "";
+      localStateHoldUntil = Date.now() + 5000;
+      pendingRemoteStateEnvelope = null;
       await saveSelectionPresets();
       await saveState();
       await flushPendingFirebaseStatePush(buildStatePayload());
+      pendingRemoteStateEnvelope = null;
       renderInfo();
       showOverlay(`선택학습 목록 삭제 완료\n${name}`, 1200);
     }
@@ -4737,7 +4921,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
         const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
         a.href = canvas.toDataURL("image/png");
         a.download = `ksl_capture_${ts}.png`;
+        document.body.appendChild(a);
         a.click();
+        a.remove();
         showOverlay("현재 화면 캡처 완료", 900);
       } catch (err){
         console.error(err);
@@ -4762,6 +4948,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
             <div class="selection-top">
               <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
               <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">선택학습 시작</button>
+              <button data-role="selection-clear-all" class="icon-btn" style="height:40px;">전체삭제</button>
             </div>
 
             <div class="preset-row">
@@ -4792,13 +4979,21 @@ ${getSelectionEntries().length}개 항목`, 1200);
       `;
     }
 
-    function buildOriginalLinkHtml(sourceUrl){
-      if (!sourceUrl) return `<div class="content">원문 페이지 정보 없음</div>`;
+    function buildInfoLineHtml(label, contentHtml = "", options = {}){
+      const { valueClass = "", compact = false } = options;
       return `
-        <div class="content">
-          <a class="link-btn" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" style="height:38px;">원문 페이지 이동하기</a>
+        <div class="info-line ${compact ? "compact" : ""}">
+          <div class="info-key">${escapeHtml(label)}</div>
+          <div class="info-value ${valueClass}">${contentHtml || `<span class="muted">없음</span>`}</div>
         </div>
       `;
+    }
+
+    function buildOriginalLinkHtml(sourceUrl){
+      const linkHtml = sourceUrl
+        ? `<a class="link-btn" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" style="height:34px;">원문 페이지 이동하기</a>`
+        : `<span class="muted">원문 페이지 정보 없음</span>`;
+      return buildInfoLineHtml("원문", linkHtml, { compact:true });
     }
 
     function buildInfoHtml(){
@@ -4830,13 +5025,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
           </div>
 
           <section class="section">
-            <h3>원문</h3>
             ${buildOriginalLinkHtml(sourceUrl)}
-          </section>
-
-          <section class="section">
-            <h3>용례번역문</h3>
-            <div class="content">${escapeHtml(item.text || "문장 없음")}</div>
+            ${buildInfoLineHtml("용례", escapeHtml(item.text || "문장 없음"), { compact:true })}
           </section>
 
           <section class="section">
@@ -4880,23 +5070,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
         </div>
 
         <section class="section">
-          <h3>원문</h3>
           ${buildOriginalLinkHtml(sourceUrl)}
-        </section>
-
-        <section class="section">
-          <h3>표제어</h3>
-          <div class="content">${escapeHtml(group.word || "없음")}</div>
-        </section>
-
-        <section class="section">
-          <h3>뜻풀이</h3>
-          <div class="content">${escapeHtml(group.definition || "뜻풀이 없음")}</div>
-        </section>
-
-        <section class="section">
-          <h3>카테고리</h3>
-          <div class="content">${escapeHtml(group.category || "없음")}</div>
+          ${buildInfoLineHtml("표제어", escapeHtml(group.word || "없음"), { compact:true })}
+          ${buildInfoLineHtml("뜻풀이", escapeHtml(group.definition || "뜻풀이 없음"), { compact:true })}
+          ${buildInfoLineHtml("카테고리", escapeHtml(group.category || "없음"), { compact:true })}
         </section>
 
         <section class="section">
@@ -4905,14 +5082,14 @@ ${getSelectionEntries().length}개 항목`, 1200);
             ${group.wordVideo ? `<div>표제어 영상 있음</div>` : `<div>표제어 영상 없음</div>`}
             ${group.wordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : `<div style="margin-top:8px;">표제어 수어문자 없음</div>`}
             ${(group.handShapeImages || []).length ? `<div style="margin-top:8px;">표제어 수형그림 ${(group.handShapeImages || []).length}장</div>` : `<div style="margin-top:8px;">표제어 수형그림 없음</div>`}
-            <div style="margin-top:8px;">변이형 수: ${(group.variants || []).length}</div>
+            <div style="margin-top:8px;">변이형 수: ${getEffectiveVariants(group).length}</div>
             <div style="margin-top:8px;">용례 수: ${group.examples.length}</div>
           </div>
         </section>
 
         <section class="section">
           <h3>변이형</h3>
-          <div class="content">${(group.variants || []).length ? group.variants.map(v => `${escapeHtml(v.label || "변이형")} · ${escapeHtml(v.word || group.word)}`).join("<br>") : "변이형 없음"}</div>
+          <div class="content">${getEffectiveVariants(group).length ? getEffectiveVariants(group).map(v => `${escapeHtml(v.label || "변이형")} · ${escapeHtml(v.word || group.word)}`).join("<br>") : "변이형 없음"}</div>
         </section>
 
         <section class="section">
@@ -4928,6 +5105,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const selectionSuggestions = container.querySelector('[data-role="selection-suggestions"]');
       const selectionAddCurrentBtn = container.querySelector('[data-role="selection-add-current"]');
       const selectionStartBtn = container.querySelector('[data-role="selection-start"]');
+      const selectionClearAllBtn = container.querySelector('[data-role="selection-clear-all"]');
       const presetNameInput = container.querySelector('[data-role="preset-name"]');
       const presetSelect = container.querySelector('[data-role="preset-select"]');
       const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
@@ -5035,6 +5213,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
         selectionStartBtn.addEventListener("click", startSelectionMode);
       }
 
+      if (selectionClearAllBtn){
+        selectionClearAllBtn.addEventListener("click", clearCurrentSelectionEntries);
+      }
+
       if (presetNameInput){
         ["focus","mousedown","click","keydown"].forEach(evt => {
           presetNameInput.addEventListener(evt, () => lockSelectionUi(9000));
@@ -5053,7 +5235,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
         presetSelect.addEventListener("change", () => {
           lockSelectionUi(12000);
           selectedPresetName = presetSelect.value;
+          if (selectedPresetName) presetNameValue = selectedPresetName;
           saveState();
+          renderInfo();
         });
       }
 
@@ -5063,6 +5247,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       if (presetLoadBtn){
         presetLoadBtn.addEventListener("click", loadSelectedPreset);
+      }
+
+      if (presetRenameBtn){
+        presetRenameBtn.addEventListener("click", renameSelectedPreset);
       }
 
       if (presetDeleteBtn){
@@ -5176,7 +5364,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
       if (!force && lastVariantHintGroupId === group.id) return;
       lastVariantHintGroupId = group.id;
-      if ((group.variants || []).length){
+      if (getEffectiveVariants(group).length){
         showOverlay("변이형 있음", 500);
       }
     }
@@ -5491,9 +5679,15 @@ ${getSelectionEntries().length}개 항목`, 1200);
         return;
       }
 
-      if (e.code === "BracketRight" || e.code === "Backslash"){
+      if (e.code === "BracketRight"){
         e.preventDefault();
         setABEnd();
+        return;
+      }
+
+      if (e.code === "Backslash"){
+        e.preventDefault();
+        clearABLoop();
         return;
       }
 
@@ -6053,6 +6247,8 @@ O 현재 화면 캡처`);
     async function boot(){
       bindEvents();
       initEmptyState();
+      firebaseBootstrapping = true;
+      firebasePushEnabled = false;
 
       const auxPromise = Promise.allSettled([
         loadSelectionPresets(),
@@ -6092,6 +6288,8 @@ O 현재 화면 캡처`);
         renderInfo();
       }
 
+      firebaseBootstrapping = false;
+      firebasePushEnabled = true;
       if (firebaseStarted && remoteLoaded){
         updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
       }
