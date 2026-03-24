@@ -1627,6 +1627,7 @@
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
     const FRAME_STEP = 1 / 30;
+    const MAX_SELECTION_ITEMS = 50;
 
     function fallbackKey(key){
       return `${LOCAL_FALLBACK_PREFIX}${key}`;
@@ -2759,9 +2760,9 @@ async function saveState(){
       if (typeof state.currentPoolIndex === "number") currentPoolIndex = state.currentPoolIndex;
       if (state.playbackMode && PLAYBACK_MODES.includes(state.playbackMode)) playbackMode = state.playbackMode;
       if (Array.isArray(state.selectedGroupIds)){
-        selectedGroupIds = state.selectedGroupIds.slice(0, 30).map(normalizeSelectionToken).filter(Boolean);
+        selectedGroupIds = state.selectedGroupIds.slice(0, MAX_SELECTION_ITEMS).map(normalizeSelectionToken).filter(Boolean);
       } else if (Array.isArray(state.selectedWords)){
-        selectedGroupIds = state.selectedWords.slice(0, 30).map(normalizeSelectionToken).filter(Boolean);
+        selectedGroupIds = state.selectedWords.slice(0, MAX_SELECTION_ITEMS).map(normalizeSelectionToken).filter(Boolean);
       }
       selectionModeActive = !!state.selectionModeActive;
       if (typeof state.categoryValue === "string") els.categorySelect.value = state.categoryValue;
@@ -2776,7 +2777,7 @@ async function saveState(){
       if (state.selectionPresets && typeof state.selectionPresets === "object" && !Array.isArray(state.selectionPresets)){
         selectionPresets = Object.fromEntries(Object.entries(state.selectionPresets).map(([name, ids]) => [
           safe(name).slice(0, 80),
-          Array.isArray(ids) ? ids.slice(0, 30).map(v => normalizeSelectionToken(v)).filter(Boolean) : []
+          Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS).map(v => normalizeSelectionToken(v)).filter(Boolean) : []
         ]));
       }
       if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
@@ -3692,6 +3693,10 @@ function isSyncUiBusy(){
   const tag = String(active?.tagName || "").toUpperCase();
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (els.searchSuggestions?.classList?.contains("open")) return true;
+  const hoveredSelection = document.querySelector('.selection-panel:hover, .selection-panel :hover, .search-wrap:hover, .search-wrap :hover');
+  if (hoveredSelection) return true;
+  const focusedSelection = document.querySelector('.selection-panel :focus, .search-wrap :focus');
+  if (focusedSelection) return true;
   return false;
 }
 
@@ -3705,7 +3710,7 @@ function shouldDeferRemoteApply(envelope = null){
 function cloneSelectionPresetsForSync(){
   const entries = Object.entries(selectionPresets || {})
     .slice(0, 120)
-    .map(([name, ids]) => [safe(name).slice(0, 80), Array.isArray(ids) ? ids.slice(0, 30) : []]);
+    .map(([name, ids]) => [safe(name).slice(0, 80), Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS) : []]);
   return Object.fromEntries(entries);
 }
 
@@ -3792,7 +3797,7 @@ async function pushStateToFirebase(payload = null){
   const envelope = buildSyncEnvelope(payload);
   const signature = JSON.stringify({ room: syncRoomKey, fp: envelope.datasetFingerprint, payload: envelope.payload });
   if (signature === lastPushedStateSignature) return false;
-  await setDoc(roomDocRef(), envelope, { merge: true });
+  await setDoc(roomDocRef(), envelope);
   lastPushedStateSignature = signature;
   lastRemoteAppliedUpdatedAt = Math.max(lastRemoteAppliedUpdatedAt, envelope.updatedAtClient || 0);
   lastLocalStateSavedAt = Math.max(lastLocalStateSavedAt, envelope.payload?.localSavedAt || envelope.updatedAtClient || 0);
@@ -4238,8 +4243,8 @@ async function initFirebaseSync(){
       if (!token) return false;
       selectedGroupIds = getSelectionEntries();
       if (selectedGroupIds.includes(token)) return false;
-      if (selectedGroupIds.length >= 30){
-        showOverlay("선택학습 항목은 최대 30개까지 추가할 수 있습니다", 1600);
+      if (selectedGroupIds.length >= MAX_SELECTION_ITEMS){
+        showOverlay("선택학습 항목은 최대 50개까지 추가할 수 있습니다", 1600);
         return false;
       }
       selectedGroupIds.push(token);
@@ -4320,6 +4325,8 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       }
       selectionPresets[name] = [...getSelectionEntries()];
       selectedPresetName = name;
+      localStateHoldUntil = Date.now() + 5000;
+      pendingRemoteStateEnvelope = null;
       await saveSelectionPresets();
       await saveState();
       await flushPendingFirebaseStatePush(buildStatePayload());
@@ -4336,6 +4343,8 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         return;
       }
       selectedGroupIds = (selectionPresets[name] || []).map(normalizeSelectionToken).filter(Boolean);
+      localStateHoldUntil = Date.now() + 4000;
+      pendingRemoteStateEnvelope = null;
       renderInfo();
       await saveState();
       showOverlay(`선택학습 목록 불러오기 완료\n${name}`, 1200);
@@ -4737,6 +4746,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
                 }).join("")}
               </select>
               <button data-role="preset-load" class="icon-btn" style="height:38px;">불러오기</button>
+              <button data-role="preset-rename" class="icon-btn" style="height:38px;">이름변경</button>
               <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
             </div>
 
@@ -4891,6 +4901,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const presetSelect = container.querySelector('[data-role="preset-select"]');
       const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
       const presetLoadBtn = container.querySelector('[data-role="preset-load"]');
+      const presetRenameBtn = container.querySelector('[data-role="preset-rename"]');
       const presetDeleteBtn = container.querySelector('[data-role="preset-delete"]');
       const lockSelectionUi = (ms = 3000) => {
         selectionUiLockUntil = Math.max(selectionUiLockUntil, Date.now() + ms);
