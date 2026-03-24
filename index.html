@@ -1616,6 +1616,9 @@
     let pendingRemoteStateEnvelope = null;
     let lastRemoteAppliedUpdatedAt = 0;
     let lastVariantHintGroupId = "";
+    let lastLocalStateSavedAt = 0;
+    let syncUiBusyUntil = 0;
+    let remoteApplyTimer = null;
 
     let abLoopStart = null;
     let abLoopEnd = null;
@@ -2627,6 +2630,7 @@
 async function saveState(){
   const payload = buildStatePayload();
   payload.localSavedAt = Date.now();
+  lastLocalStateSavedAt = payload.localSavedAt;
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
   if (!isApplyingRemoteState){
@@ -2886,8 +2890,9 @@ async function saveState(){
       const parsed = parseSelectionToken(token);
       if (!parsed) return "선택 항목";
       const group = groupById.get(String(parsed.groupId || "")) || null;
-      if (parsed.type === "group") return formatSelectionWordLabel(group);
-      const base = formatSelectionWordLabel(group);
+      if (parsed.type === "group") return group ? formatSelectionWordLabel(group) : (safe(parsed.groupId) || "표제어");
+      const item = findExampleBySelectionToken(token);
+      const base = group ? formatSelectionWordLabel(group) : (safe(item?.word) || safe(parsed.groupId) || "표제어");
       return `${base} · 용례${(parsed.exampleIndex || 0) + 1}`;
     }
 
@@ -3637,7 +3642,9 @@ function buildDatasetFingerprint(dataRows = rows){
 
 function updateFirebaseStatus(text, tone = "normal"){
   if (!els.firebaseStatus) return;
-  const fullText = safe(text) || "대기중";
+  let fullText = safe(text) || "대기중";
+  if (/이어받기 확인 중|진행상태 저장 중|동기화 중/i.test(fullText)) return;
+  if (/이어받기 완료|저장 완료|저장됨|동기화 완료/i.test(fullText)) fullText = `연결됨 · ${syncRoomKey}`;
   const now = Date.now();
   if (fullText === lastFirebaseStatusText && tone === lastFirebaseStatusTone && (now - lastFirebaseStatusAt) < 1200) return;
 
@@ -3660,6 +3667,33 @@ function updateFirebaseStatus(text, tone = "normal"){
   lastFirebaseStatusText = fullText;
   lastFirebaseStatusTone = tone;
   lastFirebaseStatusAt = now;
+}
+
+function markSyncUiBusy(ms = 1600){
+  syncUiBusyUntil = Math.max(syncUiBusyUntil, Date.now() + ms);
+  if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
+  remoteApplyTimer = setTimeout(() => {
+    remoteApplyTimer = null;
+    if (pendingRemoteStateEnvelope && !isSyncUiBusy()){
+      applyRemoteStateEnvelope(pendingRemoteStateEnvelope, { silent: true }).catch(err => console.warn("지연된 원격 상태 반영 실패", err));
+    }
+  }, ms + 40);
+}
+
+function isSyncUiBusy(){
+  if (searchComposing) return true;
+  if (Date.now() < syncUiBusyUntil) return true;
+  const active = document.activeElement;
+  const tag = String(active?.tagName || "").toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return false;
+}
+
+function shouldDeferRemoteApply(envelope = null){
+  if (isApplyingRemoteState) return true;
+  if (!envelope) return isSyncUiBusy();
+  if (envelope?.updatedBy === firebaseUid) return false;
+  return isSyncUiBusy();
 }
 
 function cloneSelectionPresetsForSync(){
@@ -3696,7 +3730,8 @@ function buildStatePayload(){
     activeWordAssetState: {
       groupId: safe(activeWordAssetState?.groupId || ""),
       index: Number.isFinite(activeWordAssetState?.index) ? Math.max(0, Number(activeWordAssetState.index)) : 0
-    }
+    },
+    localSavedAt: lastLocalStateSavedAt || Date.now()
   };
 }
 
@@ -3751,10 +3786,10 @@ async function pushStateToFirebase(payload = null){
   const envelope = buildSyncEnvelope(payload);
   const signature = JSON.stringify({ room: syncRoomKey, fp: envelope.datasetFingerprint, payload: envelope.payload });
   if (signature === lastPushedStateSignature) return false;
-  updateFirebaseStatus(`진행상태 저장 중 · ${syncRoomKey}`);
   await setDoc(roomDocRef(), envelope, { merge: true });
   lastPushedStateSignature = signature;
   lastRemoteAppliedUpdatedAt = Math.max(lastRemoteAppliedUpdatedAt, envelope.updatedAtClient || 0);
+  lastLocalStateSavedAt = Math.max(lastLocalStateSavedAt, envelope.payload?.localSavedAt || envelope.updatedAtClient || 0);
   updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
   return true;
 }
@@ -3785,7 +3820,9 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
   const { silent = false } = options;
   const payload = envelope?.payload || envelope;
   if (!payload) return false;
-  if ((searchComposing || document.activeElement === els.searchInput) && envelope?.updatedBy !== firebaseUid){
+  if (shouldDeferRemoteApply(envelope)){
+    pendingRemoteStateEnvelope = envelope;
+    markSyncUiBusy(900);
     return false;
   }
 
@@ -3813,6 +3850,7 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
 
   lastAppliedRemoteStateSignature = signature;
   if (updatedAtClient) lastRemoteAppliedUpdatedAt = updatedAtClient;
+  lastLocalStateSavedAt = Math.max(lastLocalStateSavedAt, Number(payload?.localSavedAt || 0), updatedAtClient || 0);
   pendingRemoteStateEnvelope = null;
 
   isApplyingRemoteState = true;
@@ -3827,7 +3865,7 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     isApplyingRemoteState = false;
   }
 
-  updateFirebaseStatus(`이어받기 완료 · ${syncRoomKey}`, "ok");
+  if (!silent) updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
   if (!silent) showOverlay("다른 기기 진행상태를 불러왔습니다", 1200);
   return true;
 }
@@ -3850,7 +3888,13 @@ function startFirebaseLiveWatchers(){
     if (!liveSyncEnabled) return;
     if (!snap.exists()) return;
     try{
-      await applyRemoteStateEnvelope(snap.data(), { silent: true });
+      const envelope = snap.data();
+      if (shouldDeferRemoteApply(envelope)){
+        pendingRemoteStateEnvelope = envelope;
+        markSyncUiBusy(900);
+        return;
+      }
+      await applyRemoteStateEnvelope(envelope, { silent: true });
     }catch(err){
       console.error("실시간 상태 반영 실패", err);
     }
@@ -3871,9 +3915,6 @@ async function toggleFirebaseLiveSync(force){
   if (liveSyncEnabled){
     startFirebaseLiveWatchers();
     await loadInitialFirebaseSnapshot();
-    if (rows.length && !pendingRemoteStateEnvelope){
-      scheduleFirebaseStatePush(buildStatePayload(), true);
-    }
     showOverlay("실시간 리스너 켜짐", 900);
   } else {
     cleanupFirebaseWatchers();
@@ -3884,13 +3925,17 @@ async function toggleFirebaseLiveSync(force){
 async function loadInitialFirebaseSnapshot(){
   if (!firebaseReady || !firebaseDb) return false;
   try{
-    updateFirebaseStatus(`이어받기 확인 중 · ${syncRoomKey}`);
     const snap = await getDoc(roomDocRef());
     if (!snap.exists()){
       updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
       return false;
     }
     const envelope = snap.data();
+    const remoteTs = Number(envelope?.updatedAtClient || 0);
+    if (rows.length && remoteTs && remoteTs <= lastLocalStateSavedAt){
+      updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+      return false;
+    }
     pendingRemoteStateEnvelope = envelope;
     if (rows.length){
       return applyRemoteStateEnvelope(envelope, { silent: true });
@@ -3906,14 +3951,13 @@ async function loadInitialFirebaseSnapshot(){
 
 async function reconnectFirebaseRoom(){
   const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
+  if (rows.length){
+    await flushPendingFirebaseStatePush(buildStatePayload());
+  }
   syncRoomKey = nextRoom;
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
   if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
   pendingRemoteStateEnvelope = null;
-  lastAppliedRemoteStateSignature = "";
-  lastPushedStateSignature = "";
-  lastRemoteAppliedUpdatedAt = 0;
-  updateFirebaseStatus(`이어받기 확인 중 · ${syncRoomKey}`);
   const remoteLoaded = await loadInitialFirebaseSnapshot();
   if (liveSyncEnabled) startFirebaseLiveWatchers();
   if (!remoteLoaded){
@@ -3923,12 +3967,10 @@ async function reconnectFirebaseRoom(){
       await applyFilter({ save: false });
       render(false);
     }
-    if (liveSyncEnabled && rows.length){
-      scheduleFirebaseStatePush(buildStatePayload(), true);
-    }
-    showOverlay(`연결 코드 적용
-${syncRoomKey}`, 1000);
   }
+  updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  showOverlay(`연결 코드 적용
+${syncRoomKey}`, 850);
 }
 
 async function initFirebaseSync(){
@@ -4210,7 +4252,7 @@ async function initFirebaseSync(){
     }
 
     function addCurrentGroupToSelection(){
-      if (isExampleMode()){
+      if (isExampleMode() || selectedSearchPick?.type === "example" || getSearchScope() === "example"){
         const item = getCurrentPoolItem();
         if (!item){
           showOverlay("현재 추가할 용례가 없습니다", 1200);
@@ -4255,6 +4297,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       selectedPresetName = name;
       await saveSelectionPresets();
       await saveState();
+      await flushPendingFirebaseStatePush(buildStatePayload());
       renderInfo();
       showOverlay(`선택학습 목록 저장 완료\n${name}`, 1200);
     }
@@ -4281,6 +4324,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       if (selectedPresetName === name) selectedPresetName = "";
       await saveSelectionPresets();
       await saveState();
+      await flushPendingFirebaseStatePush(buildStatePayload());
       renderInfo();
       showOverlay(`선택학습 목록 삭제 완료\n${name}`, 1200);
     }
@@ -5398,6 +5442,17 @@ ${getSelectionEntries().length}개 항목`, 1200);
       updateSearchPlaceholder();
       updateLiveSyncButton();
 
+      document.addEventListener("focusin", (e) => {
+        if (e.target && e.target.closest && e.target.closest('.selection-panel, .preset-row, .header, .search-wrap')) markSyncUiBusy(1800);
+      });
+      document.addEventListener("mousedown", (e) => {
+        if (e.target && e.target.closest && e.target.closest('.selection-panel, .preset-row, .header, .search-wrap')) markSyncUiBusy(1400);
+      }, true);
+      document.addEventListener("touchstart", (e) => {
+        if (e.target && e.target.closest && e.target.closest('.selection-panel, .preset-row, .header, .search-wrap')) markSyncUiBusy(1400);
+      }, { passive:true, capture:true });
+      document.addEventListener("keydown", () => markSyncUiBusy(900), true);
+
       els.searchInput.addEventListener("focus", () => {
         renderSearchSuggestions();
       });
@@ -5710,7 +5765,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.mainImage.addEventListener("wheel", (e) => {
         if (!canUseImageZoom() || imageZoom.scale <= 1.01 || !e.shiftKey) return;
         e.preventDefault();
-        imageZoom.x += e.deltaY > 0 ? 40 : -40;
+        imageZoom.x += e.deltaY > 0 ? -40 : 40;
         applyImageZoom();
       }, { passive:false });
 
