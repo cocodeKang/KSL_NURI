@@ -1407,7 +1407,7 @@
 
   const FIREBASE_ROOM_STORAGE_KEY = "ksl-nuri-sync-room";
   const FIREBASE_LIVE_STORAGE_KEY = "ksl-nuri-live-listener";
-  const FIREBASE_DEFAULT_ROOM = "local";
+  const FIREBASE_DEFAULT_ROOM = "main";
   const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
   const OFFLINE_MODE = false;
 
@@ -1534,6 +1534,8 @@
     let selectionSearch = "";
     let selectionFocusedIndex = -1;
     let selectionPresets = {};
+    let firebaseBootstrapChecked = false;
+    let firebaseBootstrapRemoteExists = false;
     let presetNameValue = "";
     let selectedPresetName = "";
 
@@ -1614,6 +1616,7 @@
     let firebaseOfflineStatusTimer = null;
     let currentDatasetFingerprint = "";
     let pendingRemoteStateEnvelope = null;
+    let hasRemoteStateInRoom = false;
     let lastRemoteAppliedUpdatedAt = 0;
     let lastVariantHintGroupId = "";
     let lastLocalStateSavedAt = 0;
@@ -3767,6 +3770,7 @@ function buildSyncEnvelope(payload = null){
 
 function scheduleFirebaseStatePush(payload = null, immediate = false){
   if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return;
+  if (!firebaseBootstrapChecked) return;
   clearTimeout(pendingFirebaseStateTimer);
   pendingFirebaseStateTimer = setTimeout(() => {
     pendingFirebaseStatePromise = pushStateToFirebase(payload).catch(err => {
@@ -3800,6 +3804,7 @@ async function flushPendingFirebaseStatePush(payload = null){
 
 async function pushStateToFirebase(payload = null){
   if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return false;
+  if (!firebaseBootstrapChecked) return false;
   const envelope = buildSyncEnvelope(payload);
   const signature = JSON.stringify({ room: syncRoomKey, fp: envelope.datasetFingerprint, payload: envelope.payload });
   if (signature === lastPushedStateSignature) return false;
@@ -3833,23 +3838,45 @@ async function uploadCurrentDatasetToFirebase(reason = "manual", force = false){
   return pushStateToFirebase(buildStatePayload());
 }
 
+async function getPreferredInitialState(){
+  if (pendingRemoteStateEnvelope?.payload) return pendingRemoteStateEnvelope.payload;
+  if (firebaseReady && hasRemoteStateInRoom){
+    try{
+      const snap = await getDoc(roomDocRef());
+      if (snap.exists()){
+        const envelope = snap.data();
+        firebaseBootstrapChecked = true;
+        firebaseBootstrapRemoteExists = true;
+        pendingRemoteStateEnvelope = envelope;
+        return envelope?.payload || null;
+      }
+    }catch(err){
+      console.warn("초기 Firestore 상태 확인 실패", err);
+    }
+  }
+  return await restoreState();
+}
+
 async function applyRemoteStateEnvelope(envelope, options = {}){
-  const { silent = false } = options;
+  const { silent = false, forceRemote = false } = options;
   const payload = envelope?.payload || envelope;
   if (!payload) return false;
   const updatedAtClient = Number(envelope?.updatedAtClient || payload?.localSavedAt || 0);
-  if (envelope?.updatedBy !== firebaseUid && updatedAtClient && lastLocalStateSavedAt && updatedAtClient <= lastLocalStateSavedAt){
-    return false;
-  }
-  if (envelope?.updatedBy !== firebaseUid && Date.now() < localStateHoldUntil){
-    pendingRemoteStateEnvelope = envelope;
-    markSyncUiBusy(1600);
-    return false;
-  }
-  if (shouldDeferRemoteApply(envelope)){
-    pendingRemoteStateEnvelope = envelope;
-    markSyncUiBusy(1400);
-    return false;
+
+  if (!forceRemote){
+    if (envelope?.updatedBy !== firebaseUid && updatedAtClient && lastLocalStateSavedAt && updatedAtClient <= lastLocalStateSavedAt){
+      return false;
+    }
+    if (envelope?.updatedBy !== firebaseUid && Date.now() < localStateHoldUntil){
+      pendingRemoteStateEnvelope = envelope;
+      markSyncUiBusy(1600);
+      return false;
+    }
+    if (shouldDeferRemoteApply(envelope)){
+      pendingRemoteStateEnvelope = envelope;
+      markSyncUiBusy(1400);
+      return false;
+    }
   }
 
   const fingerprint = safe(envelope?.datasetFingerprint || payload?.datasetFingerprint || "");
@@ -3861,17 +3888,21 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
   }
 
   if (fingerprint && currentDatasetFingerprint && fingerprint !== currentDatasetFingerprint){
-    pendingRemoteStateEnvelope = envelope;
-    updateFirebaseStatus("다른 XLSX 기준 상태", "error");
-    if (!silent) showOverlay("동기화된 상태가 현재 XLSX와 다릅니다", 1600);
-    return false;
+    const sameNamedSource = safe(envelope?.sourceName || "") && safe(envelope?.sourceName || "") === safe(currentSourceName || "");
+    if (!(forceRemote || sameNamedSource)){
+      pendingRemoteStateEnvelope = envelope;
+      updateFirebaseStatus("다른 XLSX 기준 상태", "error");
+      if (!silent) showOverlay("동기화된 상태가 현재 XLSX와 다릅니다", 1600);
+      return false;
+    }
+    updateFirebaseStatus("Firestore 상태 기준 적용", "ok");
   }
 
-  if (updatedAtClient && updatedAtClient <= lastRemoteAppliedUpdatedAt) return false;
+  if (!forceRemote && updatedAtClient && updatedAtClient <= lastRemoteAppliedUpdatedAt) return false;
 
   const signature = JSON.stringify({ fp: fingerprint || currentDatasetFingerprint, payload });
-  if (envelope?.updatedBy === firebaseUid && signature === lastPushedStateSignature) return false;
-  if (signature === lastAppliedRemoteStateSignature) return false;
+  if (!forceRemote && envelope?.updatedBy === firebaseUid && signature === lastPushedStateSignature) return false;
+  if (!forceRemote && signature === lastAppliedRemoteStateSignature) return false;
 
   lastAppliedRemoteStateSignature = signature;
   if (updatedAtClient) lastRemoteAppliedUpdatedAt = updatedAtClient;
@@ -3890,8 +3921,8 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     isApplyingRemoteState = false;
   }
 
-  if (!silent) updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
-  if (!silent) showOverlay("다른 기기 진행상태를 불러왔습니다", 1200);
+  updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  if (!silent) showOverlay(forceRemote ? "Firestore 기준 상태를 불러왔습니다" : "다른 기기 진행상태를 불러왔습니다", 1200);
   return true;
 }
 
@@ -3947,15 +3978,9 @@ async function toggleFirebaseLiveSync(force){
     if (!ok) return;
   }
   if (liveSyncEnabled){
-    if (rows.length){
-      await flushPendingFirebaseStatePush(buildStatePayload());
-    }
+    await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
     startFirebaseLiveWatchers();
-    if (!(rows.length && Date.now() < localStateHoldUntil)){
-      await loadInitialFirebaseSnapshot();
-    } else {
-      updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
-    }
+    updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
     showOverlay("실시간 리스너 켜짐", 900);
   } else {
     cleanupFirebaseWatchers();
@@ -3963,27 +3988,27 @@ async function toggleFirebaseLiveSync(force){
   }
 }
 
-async function loadInitialFirebaseSnapshot(){
+async function loadInitialFirebaseSnapshot(options = {}){
+  const { forceRemote = false, silent = false } = options;
   if (!firebaseReady || !firebaseDb) return false;
   try{
     const snap = await getDoc(roomDocRef());
+    firebaseBootstrapChecked = true;
+    hasRemoteStateInRoom = !!snap.exists();
+    firebaseBootstrapRemoteExists = !!snap.exists();
     if (!snap.exists()){
       updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
       return false;
     }
     const envelope = snap.data();
-    const remoteTs = Number(envelope?.updatedAtClient || 0);
-    if (rows.length && remoteTs && remoteTs <= lastLocalStateSavedAt){
-      updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
-      return false;
-    }
     pendingRemoteStateEnvelope = envelope;
     if (rows.length){
-      return applyRemoteStateEnvelope(envelope, { silent: true });
+      return applyRemoteStateEnvelope(envelope, { silent, forceRemote: true });
     }
     updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
     return true;
   } catch (err){
+    firebaseBootstrapChecked = true;
     console.error("Firestore 상태 불러오기 실패", err);
     updateFirebaseStatus("이어받기 확인 실패", "error");
     return false;
@@ -3992,28 +4017,19 @@ async function loadInitialFirebaseSnapshot(){
 
 async function reconnectFirebaseRoom(){
   const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
-  if (rows.length){
-    await flushPendingFirebaseStatePush(buildStatePayload());
-  }
   syncRoomKey = nextRoom;
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
   if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
   pendingRemoteStateEnvelope = null;
-  const remoteLoaded = (!(rows.length && Date.now() < localStateHoldUntil))
-    ? await loadInitialFirebaseSnapshot()
-    : false;
+  firebaseBootstrapChecked = false;
+  firebaseBootstrapRemoteExists = false;
+
+  const remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+
   if (liveSyncEnabled) startFirebaseLiveWatchers();
-  if (!remoteLoaded){
-    const localState = await restoreState();
-    if (localState && rows.length){
-      applyRestoredUIState(localState);
-      await applyFilter({ save: false });
-      render(false);
-    }
-  }
+
   updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
-  showOverlay(`연결 코드 적용
-${syncRoomKey}`, 850);
+  showOverlay(remoteLoaded ? `Firestore 기준으로 이어받음\n${syncRoomKey}` : `Firestore에 저장된 상태 없음\n${syncRoomKey}`, 1100);
 }
 
 async function initFirebaseSync(){
@@ -5199,8 +5215,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       updateCategoryOptions();
 
-      const state = await restoreState();
-      applyRestoredUIState(state);
+      const state = await getPreferredInitialState();
+      if (state) applyRestoredUIState(state);
       updateQuickButtons();
 
       if (saveCacheToo){
@@ -6046,6 +6062,14 @@ O 현재 화면 캡처`);
       const firebaseInitPromise = initFirebaseSync();
 
       let loaded = false;
+      let remoteLoaded = false;
+
+      const firebaseStarted = await firebaseInitPromise;
+      if (firebaseStarted){
+        remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+      } else {
+        firebaseBootstrapChecked = true;
+      }
 
       loaded = await tryRestoreIndexedCache();
       if (!loaded){
@@ -6054,10 +6078,12 @@ O 현재 화면 캡처`);
 
       await auxPromise;
 
-      const firebaseStarted = await firebaseInitPromise;
-      if (firebaseStarted){
-        const remoteLoaded = await loadInitialFirebaseSnapshot();
-        loaded = remoteLoaded || loaded;
+      if (firebaseStarted && rows.length){
+        if (pendingRemoteStateEnvelope){
+          remoteLoaded = await applyRemoteStateEnvelope(pendingRemoteStateEnvelope, { silent: true, forceRemote: true }) || remoteLoaded;
+        } else if (hasRemoteStateInRoom){
+          remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true }) || remoteLoaded;
+        }
       }
 
       if (!loaded){
@@ -6066,8 +6092,8 @@ O 현재 화면 캡처`);
         renderInfo();
       }
 
-      if (firebaseStarted && rows.length){
-        scheduleFirebaseStatePush(buildStatePayload(), true);
+      if (firebaseStarted && remoteLoaded){
+        updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
       }
     }
 
