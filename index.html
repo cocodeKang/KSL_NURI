@@ -1588,6 +1588,7 @@
     let lastAppliedRemoteStateSignature = "";
     let pendingFirebaseStateTimer = null;
     let pendingFirebaseDatasetTimer = null;
+    let pendingFirebaseStatePromise = null;
     let isApplyingRemoteState = false;
     let isApplyingRemoteDataset = false;
     let lastFirebaseStatusText = "";
@@ -2606,6 +2607,7 @@
 
 async function saveState(){
   const payload = buildStatePayload();
+  payload.localSavedAt = Date.now();
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
   if (!isApplyingRemoteState){
@@ -2855,11 +2857,8 @@ async function saveState(){
       if (!parsed) return "선택 항목";
       const group = groupById.get(String(parsed.groupId || "")) || null;
       if (parsed.type === "group") return formatSelectionWordLabel(group);
-      const example = findExampleBySelectionToken(parsed.token);
       const base = formatSelectionWordLabel(group);
-      const snippet = safe(example?.text || "용례").replace(/\s+/g, " ").trim();
-      const short = snippet.length > 18 ? `${snippet.slice(0, 18)}…` : snippet;
-      return `${base} · ${short || `용례 ${parsed.exampleIndex + 1}`}`;
+      return `${base} · 용례${(parsed.exampleIndex || 0) + 1}`;
     }
 
     function getSearchScope(){
@@ -3626,11 +3625,33 @@ function scheduleFirebaseStatePush(payload = null, immediate = false){
   if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return;
   clearTimeout(pendingFirebaseStateTimer);
   pendingFirebaseStateTimer = setTimeout(() => {
-    pushStateToFirebase(payload).catch(err => {
+    pendingFirebaseStatePromise = pushStateToFirebase(payload).catch(err => {
       console.error("Firestore 상태 저장 실패", err);
       updateFirebaseStatus("상태 저장 실패", "error");
+      throw err;
+    }).finally(() => {
+      pendingFirebaseStatePromise = null;
     });
   }, immediate ? 0 : 1000);
+}
+
+async function flushPendingFirebaseStatePush(payload = null){
+  if (pendingFirebaseStateTimer){
+    clearTimeout(pendingFirebaseStateTimer);
+    pendingFirebaseStateTimer = null;
+    pendingFirebaseStatePromise = pushStateToFirebase(payload).catch(err => {
+      console.error("Firestore 상태 저장 실패", err);
+      updateFirebaseStatus("상태 저장 실패", "error");
+      throw err;
+    }).finally(() => {
+      pendingFirebaseStatePromise = null;
+    });
+  }
+  if (pendingFirebaseStatePromise){
+    try{
+      await pendingFirebaseStatePromise;
+    }catch{}
+  }
 }
 
 async function pushStateToFirebase(payload = null){
@@ -3758,6 +3779,7 @@ async function loadInitialFirebaseSnapshot(){
 }
 
 async function reconnectFirebaseRoom(){
+  await flushPendingFirebaseStatePush(buildStatePayload());
   const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
   syncRoomKey = nextRoom;
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
@@ -4134,14 +4156,20 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         showOverlay("먼저 표제어를 하나 이상 선택해 주세요", 1500);
         return;
       }
+      const entries = getSelectionEntries();
+      const hasExampleOnly = entries.length > 0 && entries.every(token => parseSelectionToken(token)?.type === "example");
       selectionModeActive = true;
       currentIndex = 0;
       currentPoolIndex = 0;
+      if (hasExampleOnly && !isExampleMode(currentMode)){
+        currentMode = "D";
+      }
 
       // 이전 검색/카테고리 조건 때문에 선택한 표제어 일부만 보이는 문제를 막습니다.
       els.searchInput.value = "";
       els.categorySelect.value = "";
       els.searchScopeSelect.value = "word";
+      clearSelectedSearchPick();
       updateSearchPlaceholder();
       searchFocusedIndex = -1;
       els.searchSuggestions.classList.remove("open");
@@ -4291,6 +4319,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.searchInput.value = "";
       els.categorySelect.value = "";
       els.searchScopeSelect.value = "word";
+      clearSelectedSearchPick();
       updateSearchPlaceholder();
 
       searchFocusedIndex = -1;
@@ -5136,6 +5165,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
       if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
       if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
+      if (key === "y"){ e.preventDefault(); if (selectionModeActive) stopSelectionMode(); else startSelectionMode(); return; }
+      if (e.code === "Backquote"){ e.preventDefault(); reconnectFirebaseRoom(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
       if (key === "c"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
@@ -5443,7 +5474,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       if (els.pushCloudBtn){
-        els.pushCloudBtn.addEventListener("click", () => {
+        els.pushCloudBtn.addEventListener("click", async () => {
           if (!firebaseReady){
             updateFirebaseStatus("연결 준비중", "error");
             showOverlay("동기화 연결이 아직 준비되지 않았습니다", 1500);
@@ -5454,8 +5485,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
             showOverlay("먼저 같은 XLSX 파일을 불러와 주세요", 1300);
             return;
           }
-          scheduleFirebaseDatasetUpload("manual-button", true);
-          scheduleFirebaseStatePush(buildStatePayload(), true);
+          try{
+            updateFirebaseStatus(`진행상태 저장 중 · ${syncRoomKey}`);
+            await flushPendingFirebaseStatePush(buildStatePayload());
+            await pushStateToFirebase(buildStatePayload());
+            showOverlay("진행상태 저장", 1000);
+          }catch(err){
+            console.error("수동 저장 실패", err);
+            updateFirebaseStatus("상태 저장 실패", "error");
+            showOverlay("진행상태 저장 실패", 1400);
+          }
         });
       }
 
@@ -5513,7 +5552,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.mainImage.addEventListener("wheel", (e) => {
         if (!canUseImageZoom() || imageZoom.scale <= 1.01 || !e.shiftKey) return;
         e.preventDefault();
-        imageZoom.x += e.deltaY > 0 ? 40 : -40;
+        imageZoom.x += e.deltaY > 0 ? -40 : 40;
         applyImageZoom();
       }, { passive:false });
 
