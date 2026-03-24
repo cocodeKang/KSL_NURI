@@ -1118,16 +1118,17 @@
 
       #homeBtn,
       .desktop-only,
-      #zoomResetBtn,
-      #abStartBtn,
-      #abResetBtn{
-        display:none !important;
-      }
-
       #prevBtn,
       #nextBtn,
       #undoBtn{
-        display:inline-flex;
+        display:none !important;
+      }
+
+      #zoomResetBtn,
+      #abStartBtn,
+      #abEndBtn,
+      #abResetBtn{
+        display:inline-flex !important;
       }
 
       .mode-btn,
@@ -1141,17 +1142,16 @@
       .mode-btn[data-mode="W"]{ grid-column:2; grid-row:1; }
       .mode-btn[data-mode="E"]{ grid-column:3; grid-row:1; }
       .mode-btn[data-mode="G"]{ grid-column:4; grid-row:1; }
+      #abStartBtn{ grid-column:5; grid-row:1; }
       .mode-btn[data-mode="A"]{ grid-column:1; grid-row:2; }
       .mode-btn[data-mode="S"]{ grid-column:2; grid-row:2; }
       .mode-btn[data-mode="D"]{ grid-column:3; grid-row:2; }
       #shuffleBtn{ grid-column:4; grid-row:2; }
-      #prevBtn{ grid-column:5; grid-row:1; font-size:0; }
-      #nextBtn{ grid-column:5; grid-row:2; font-size:0; }
-      #prevBtn::before{ content:"<<"; font-size:18px; line-height:1; }
-      #nextBtn::before{ content:">>"; font-size:18px; line-height:1; }
-      #undoBtn{ grid-column:2; grid-row:3; }
+      #abEndBtn{ grid-column:5; grid-row:2; }
+      .mode-btn[data-mode="Z"]{ grid-column:1; grid-row:3; }
+      #zoomResetBtn{ grid-column:2; grid-row:3; }
       #zoomFitBtn{ grid-column:3; grid-row:3; }
-      #abEndBtn{ grid-column:4; grid-row:3; display:inline-flex !important; }
+      #abResetBtn{ grid-column:4; grid-row:3; }
 
       .icon-btn,.playback-btn,.select-btn,.link-btn{
         height:38px;
@@ -1333,14 +1333,15 @@
         <button class="mode-btn" data-mode="E" title="표제어 수어문자">E</button>
         <button class="mode-btn" data-mode="G" title="표제어 수형그림">G</button>
         <button class="mode-btn" data-mode="A" title="용례번역문 텍스트">A</button>
+        <button class="mode-btn" data-mode="Z" title="뜻풀이">Z</button>
         <button class="mode-btn" data-mode="S" title="용례번역문 영상">S</button>
         <button class="mode-btn" data-mode="D" title="용례번역문 수어문자">D</button>
         <!-- 추가된 R 버튼: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
-        <button id="zoomFitBtn" class="mode-btn" title="위아래 최대 확대">처음확대</button>
-        <button id="zoomResetBtn" class="mode-btn" title="원래 크기로 복귀">↺</button>
-        <button id="abStartBtn" class="mode-btn mobile-only" title="구간 시작">⟪</button>
-        <button id="abEndBtn" class="mode-btn mobile-only" title="구간 종료">⟫</button>
+        <button id="zoomFitBtn" class="mode-btn" title="왼쪽 기준 최대 확대 / 다시 누르면 원래대로">C</button>
+        <button id="zoomResetBtn" class="mode-btn" title="원래대로">되돌리기</button>
+        <button id="abStartBtn" class="mode-btn mobile-only" title="구간 시작">[</button>
+        <button id="abEndBtn" class="mode-btn mobile-only" title="구간 종료">]</button>
         <button id="abResetBtn" class="mode-btn mobile-only" title="구간 반복 초기화">⟲</button>
       </div>
 
@@ -1417,6 +1418,7 @@
       W: "표제어 영상",
       E: "표제어 수어문자",
       A: "용례번역문 텍스트",
+      Z: "뜻풀이",
       S: "용례번역문 영상",
       D: "용례번역문 수어문자",
       G: "표제어 수형그림"
@@ -2620,8 +2622,7 @@ async function saveState(){
     }
 
     function canUseImageZoom(){
-      return isMobileViewport()
-        && currentMode === "D"
+      return currentMode === "D"
         && els.mainImage
         && els.mainImage.style.display !== "none"
         && !!els.mainImage.getAttribute("src");
@@ -2653,7 +2654,7 @@ async function saveState(){
     }
 
     function updateStageGestureState(){
-      const disableTapZones = isMobileViewport() && currentMode === "D" && !!els.mainImage.getAttribute("src");
+      const disableTapZones = currentMode === "D" && !!els.mainImage.getAttribute("src") && (isMobileViewport() || canUseImageZoom());
       [els.tapPrevZone, els.tapNextZone].forEach(zone => {
         if (!zone) return;
         zone.style.pointerEvents = disableTapZones ? "none" : "auto";
@@ -2730,10 +2731,9 @@ async function saveState(){
       if (typeof state.currentPoolIndex === "number") currentPoolIndex = state.currentPoolIndex;
       if (state.playbackMode && PLAYBACK_MODES.includes(state.playbackMode)) playbackMode = state.playbackMode;
       if (Array.isArray(state.selectedGroupIds)){
-        selectedGroupIds = state.selectedGroupIds.slice(0, 30);
+        selectedGroupIds = state.selectedGroupIds.slice(0, 30).map(normalizeSelectionToken).filter(Boolean);
       } else if (Array.isArray(state.selectedWords)){
-        // 구 버전 호환: selectedWords 를 id 목록으로 간주
-        selectedGroupIds = state.selectedWords.slice(0, 30);
+        selectedGroupIds = state.selectedWords.slice(0, 30).map(normalizeSelectionToken).filter(Boolean);
       }
       selectionModeActive = !!state.selectionModeActive;
       if (typeof state.categoryValue === "string") els.categorySelect.value = state.categoryValue;
@@ -2747,7 +2747,7 @@ async function saveState(){
       if (state.selectionPresets && typeof state.selectionPresets === "object" && !Array.isArray(state.selectionPresets)){
         selectionPresets = Object.fromEntries(Object.entries(state.selectionPresets).map(([name, ids]) => [
           safe(name).slice(0, 80),
-          Array.isArray(ids) ? ids.slice(0, 30).map(v => safe(v)).filter(Boolean) : []
+          Array.isArray(ids) ? ids.slice(0, 30).map(v => normalizeSelectionToken(v)).filter(Boolean) : []
         ]));
       }
       if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
@@ -2778,8 +2778,88 @@ async function saveState(){
       updateQuickButtons();
     }
 
+    function normalizeSelectionToken(token){
+      const raw = safe(token);
+      if (!raw) return "";
+      if (/^e:[^:]+::\d+$/i.test(raw) || /^g:.+/i.test(raw)) return raw;
+      return `g:${raw}`;
+    }
+
+    function parseSelectionToken(token){
+      const raw = normalizeSelectionToken(token);
+      if (!raw) return null;
+      if (raw.startsWith("e:")){
+        const body = raw.slice(2);
+        const [groupId, idxRaw] = body.split("::");
+        return { type:"example", token:raw, groupId:safe(groupId), exampleIndex: Number(idxRaw || 0) || 0 };
+      }
+      const groupId = raw.startsWith("g:") ? raw.slice(2) : raw;
+      return { type:"group", token:`g:${groupId}`, groupId:safe(groupId), exampleIndex:null };
+    }
+
+    function makeGroupSelectionToken(id){
+      const gid = safe(id);
+      return gid ? `g:${gid}` : "";
+    }
+
+    function makeExampleSelectionToken(itemOrGroupId, exampleIndex = null){
+      if (itemOrGroupId && typeof itemOrGroupId === "object"){
+        const gid = safe(itemOrGroupId.groupId);
+        const idx = Number(itemOrGroupId.exampleIndex || 0) || 0;
+        return gid ? `e:${gid}::${idx}` : "";
+      }
+      const gid = safe(itemOrGroupId);
+      const idx = Number(exampleIndex || 0) || 0;
+      return gid ? `e:${gid}::${idx}` : "";
+    }
+
+    function getSelectionEntries(){
+      return Array.from(new Set((selectedGroupIds || []).map(normalizeSelectionToken).filter(Boolean)));
+    }
+
     function getSelectionWordSet(){
-      return new Set(selectedGroupIds);
+      const set = new Set();
+      getSelectionEntries().forEach(token => {
+        const parsed = parseSelectionToken(token);
+        if (parsed?.groupId) set.add(parsed.groupId);
+      });
+      return set;
+    }
+
+    function getSelectionGroupTokenSet(){
+      const set = new Set();
+      getSelectionEntries().forEach(token => {
+        const parsed = parseSelectionToken(token);
+        if (parsed?.type === "group" && parsed.groupId) set.add(parsed.groupId);
+      });
+      return set;
+    }
+
+    function getSelectionExampleTokenSet(){
+      const set = new Set();
+      getSelectionEntries().forEach(token => {
+        const parsed = parseSelectionToken(token);
+        if (parsed?.type === "example") set.add(parsed.token);
+      });
+      return set;
+    }
+
+    function findExampleBySelectionToken(token){
+      const parsed = parseSelectionToken(token);
+      if (!parsed || parsed.type !== "example") return null;
+      return examplePool.find(item => String(item.groupId) === parsed.groupId && Number(item.exampleIndex || 0) === parsed.exampleIndex) || null;
+    }
+
+    function formatSelectionTokenLabel(token){
+      const parsed = parseSelectionToken(token);
+      if (!parsed) return "선택 항목";
+      const group = groupById.get(String(parsed.groupId || "")) || null;
+      if (parsed.type === "group") return formatSelectionWordLabel(group);
+      const example = findExampleBySelectionToken(parsed.token);
+      const base = formatSelectionWordLabel(group);
+      const snippet = safe(example?.text || "용례").replace(/\s+/g, " ").trim();
+      const short = snippet.length > 18 ? `${snippet.slice(0, 18)}…` : snippet;
+      return `${base} · ${short || `용례 ${parsed.exampleIndex + 1}`}`;
     }
 
     function getSearchScope(){
@@ -3060,6 +3140,8 @@ async function saveState(){
 
       if (currentMode === "Q"){
         showMainText(labelWord || item.text || "");
+      } else if (currentMode === "Z"){
+        showMainText(group?.definition || "뜻풀이가 없습니다.");
       } else if (currentMode === "W"){
         const previewVideo = group ? getWordAssetEntryBySlot(group, "W", 0)?.url : "";
         if (previewVideo) showMainVideo(previewVideo, false);
@@ -3142,6 +3224,8 @@ async function saveState(){
       const cat = safe(els.categorySelect.value);
       const scope = getSearchScope();
       const selectionSet = selectionModeActive ? getSelectionWordSet() : null;
+      const selectionGroupTokenSet = selectionModeActive ? getSelectionGroupTokenSet() : null;
+      const selectionExampleTokenSet = selectionModeActive ? getSelectionExampleTokenSet() : null;
       const selectedPick = getActiveSelectedSearchPick(q, scope);
       const selectedGroupId = selectedPick?.id ? String(selectedPick.id) : "";
       const selectedExampleText = selectedPick?.type === "example" ? safe(selectedPick.text) : "";
@@ -3165,7 +3249,12 @@ async function saveState(){
 
       const exampleCandidates = [];
       for (const item of exampleBase){
-        if (selectionSet && !selectionSet.has(item.groupId)) continue;
+        if (selectionModeActive){
+          const exToken = makeExampleSelectionToken(item);
+          const groupSelected = selectionGroupTokenSet && selectionGroupTokenSet.has(String(item.groupId));
+          const exampleSelected = selectionExampleTokenSet && selectionExampleTokenSet.has(exToken);
+          if (!groupSelected && !exampleSelected) continue;
+        }
         if (selectedGroupId){
           if (String(item.groupId) !== selectedGroupId) continue;
           if (selectedExampleText && safe(item.text) !== selectedExampleText) continue;
@@ -3179,7 +3268,9 @@ async function saveState(){
       }
       if (qNorm || qId) sortFilteredExamplesByWordLength(exampleCandidates);
 
-      filteredExamplePool = selectionModeActive ? buildBalancedExamplePool(exampleCandidates) : exampleCandidates;
+      filteredExamplePool = selectionModeActive
+        ? (selectionExampleTokenSet && selectionExampleTokenSet.size ? exampleCandidates : buildBalancedExamplePool(exampleCandidates))
+        : exampleCandidates;
       applyDeterministicShuffleOrder();
 
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
@@ -3361,6 +3452,8 @@ async function saveState(){
 
       if (currentMode === "Q"){
         showMainText(group.word || "(표제어 없음)");
+      } else if (currentMode === "Z"){
+        showMainText(group.definition || "뜻풀이가 없습니다.");
       } else if (currentMode === "W"){
         const { entry, slot } = getCurrentWordAssetEntry(group, "W");
         if (entry?.url) showMainVideo(entry.url, true);
@@ -3498,7 +3591,7 @@ function buildStatePayload(){
     searchIdMode,
     searchSelectedPick: selectedSearchPick,
     selectionModeActive,
-    selectedGroupIds,
+    selectedGroupIds: getSelectionEntries(),
     selectionPresets: cloneSelectionPresetsForSync(),
     sourceName: currentSourceName,
     presetNameValue,
@@ -3920,23 +4013,34 @@ async function initFirebaseSync(){
       return list;
     }
 
-    function addSelectedGroup(id){
-      id = safe(id);
-      if (!id) return;
-      if (selectedGroupIds.includes(id)) return;
+    function addSelectionToken(token){
+      token = normalizeSelectionToken(token);
+      if (!token) return false;
+      selectedGroupIds = getSelectionEntries();
+      if (selectedGroupIds.includes(token)) return false;
       if (selectedGroupIds.length >= 30){
-        showOverlay("선택학습 표제어는 최대 30개까지 추가할 수 있습니다", 1600);
-        return;
+        showOverlay("선택학습 항목은 최대 30개까지 추가할 수 있습니다", 1600);
+        return false;
       }
-      selectedGroupIds.push(id);
+      selectedGroupIds.push(token);
       selectionSearch = "";
       selectionFocusedIndex = -1;
       renderInfo();
       saveState();
+      return true;
+    }
+
+    function addSelectedGroup(id){
+      return addSelectionToken(makeGroupSelectionToken(id));
+    }
+
+    function addSelectedExample(item){
+      return addSelectionToken(makeExampleSelectionToken(item));
     }
 
     function removeSelectedGroup(id){
-      selectedGroupIds = selectedGroupIds.filter(w => w !== id);
+      const token = normalizeSelectionToken(id);
+      selectedGroupIds = getSelectionEntries().filter(w => w !== token);
       if (!selectedGroupIds.length && selectionModeActive){
         selectionModeActive = false;
       }
@@ -3952,20 +4056,35 @@ async function initFirebaseSync(){
     }
 
     function addCurrentGroupToSelection(){
-      const id = isExampleMode() ? safe(getCurrentPoolItem()?.groupId) : safe(getCurrentGroup()?.id);
+      if (isExampleMode()){
+        const item = getCurrentPoolItem();
+        if (!item){
+          showOverlay("현재 추가할 용례가 없습니다", 1200);
+          return;
+        }
+        const token = makeExampleSelectionToken(item);
+        if (getSelectionEntries().includes(token)) {
+          showOverlay("이미 선택학습에 추가된 용례입니다", 1200);
+          return;
+        }
+        addSelectedExample(item);
+        showOverlay(`선택학습 추가
+${formatSelectionTokenLabel(token)}`, 1100);
+        return;
+      }
+      const id = safe(getCurrentGroup()?.id);
       if (!id) {
         showOverlay("현재 추가할 표제어가 없습니다", 1200);
         return;
       }
-      if (selectedGroupIds.includes(id)) {
+      const token = makeGroupSelectionToken(id);
+      if (getSelectionEntries().includes(token)) {
         showOverlay("이미 선택학습에 추가된 표제어입니다", 1200);
         return;
       }
       addSelectedGroup(id);
-      const group = groupById.get(String(id)) || null;
-      const label = formatSelectionWordLabel(group);
       showOverlay(`선택학습 추가
-${label}`, 1100);
+${formatSelectionTokenLabel(token)}`, 1100);
     }
 
     async function saveCurrentSelectionPreset(){
@@ -3978,7 +4097,7 @@ ${label}`, 1100);
         showOverlay("저장할 표제어 목록이 없습니다", 1200);
         return;
       }
-      selectionPresets[name] = [...selectedGroupIds];
+      selectionPresets[name] = [...getSelectionEntries()];
       selectedPresetName = name;
       await saveSelectionPresets();
       renderInfo();
@@ -3991,7 +4110,7 @@ ${label}`, 1100);
         showOverlay("불러올 목록을 선택해 주세요", 1200);
         return;
       }
-      selectedGroupIds = [...selectionPresets[name]];
+      selectedGroupIds = (selectionPresets[name] || []).map(normalizeSelectionToken).filter(Boolean);
       renderInfo();
       await saveState();
       showOverlay(`선택학습 목록 불러오기 완료\n${name}`, 1200);
@@ -4039,7 +4158,7 @@ ${label}`, 1100);
           render(false);
         }
         showOverlay(`선택학습 시작
-${selectedGroupIds.length}개 표제어`, 1200);
+${getSelectionEntries().length}개 항목`, 1200);
         saveState();
       });
     }
@@ -4355,20 +4474,15 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       // Build selection panel for managing custom study list
       const presetNames = Object.keys(selectionPresets).sort((a,b) => a.localeCompare(b, "ko"));
 
-      // Map selected group IDs to display objects containing word and id
-      const selectedObjects = selectedGroupIds.map(id => {
-        const g = groups.find(gr => gr.id === id);
-        return {
-          id,
-          word: g ? g.word : id,
-          sourceId: g ? safe(g.sourceId || g.id) : safe(id)
-        };
-      });
+      const selectedObjects = getSelectionEntries().map(token => ({
+        id: token,
+        label: formatSelectionTokenLabel(token)
+      }));
 
       // Build HTML
       return `
         <section class="section">
-          <h3>표제어 선택학습</h3>
+          <h3>선택학습</h3>
           <div class="selection-panel">
             <div class="selection-top">
               <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
@@ -4391,12 +4505,11 @@ ${selectedGroupIds.length}개 표제어`, 1200);
               <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
             </div>
 
-            <div class="content">선택한 표제어에 포함된 전체 용례만 따로 모아 집중 학습합니다. 순차는 골고루 섞이고, 랜덤은 전체 순서를 섞습니다.</div>
+            <div class="content">표제어를 넣으면 해당 표제어의 전체 용례를, 용례 상태에서 현재추가를 누르면 선택한 그 용례만 따로 학습합니다.</div>
             <div class="selected-chips">
               ${selectedObjects.length ? selectedObjects.map(obj => {
-                const display = duplicateWords.has(obj.word) ? `${obj.word} (ID:${obj.sourceId})` : obj.word;
-                return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(display)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
-              }).join("") : `<span class="pill">선택된 표제어 없음</span>`}
+                return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(obj.label)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
+              }).join("") : `<span class="pill">선택된 항목 없음</span>`}
             </div>
           </div>
         </section>
@@ -4623,13 +4736,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       if (selectionAddCurrentBtn){
         selectionAddCurrentBtn.addEventListener("click", () => {
-          if (isExampleMode()){
-            const item = getCurrentPoolItem();
-            if (item) addSelectedGroup(item.groupId);
-          } else {
-            const group = getCurrentGroup();
-            if (group) addSelectedGroup(group.id);
-          }
+          addCurrentGroupToSelection();
         });
       }
 
@@ -5024,12 +5131,14 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "a"){ e.preventDefault(); triggerMode("A"); return; }
+      if (key === "z"){ e.preventDefault(); triggerMode("Z"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
       if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
       if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
       if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
+      if (key === "c"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
       if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
@@ -5275,7 +5384,11 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       els.noteDeleteBtn?.addEventListener("click", () => { deleteCurrentNote(); });
       els.noteCloseBtn?.addEventListener("click", closeNoteModal);
       els.noteModal?.addEventListener("click", (e) => { if (e.target === els.noteModal) closeNoteModal(); });
-      els.zoomFitBtn?.addEventListener("click", () => { rememberUndoSnapshot(); zoomImageFit("left"); });
+      els.zoomFitBtn?.addEventListener("click", () => {
+        rememberUndoSnapshot();
+        if (imageZoom.scale > 1.01) resetImageZoom();
+        else zoomImageFit("left");
+      });
       els.zoomResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); resetImageZoom(); });
       els.abStartBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABStart(); });
       els.abEndBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABEnd(); });
@@ -5396,6 +5509,13 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         if (imageZoom.scale > 1.01) resetImageZoom();
         else zoomImageFit("center");
       });
+
+      els.mainImage.addEventListener("wheel", (e) => {
+        if (!canUseImageZoom() || imageZoom.scale <= 1.01 || !e.shiftKey) return;
+        e.preventDefault();
+        imageZoom.x += e.deltaY > 0 ? 40 : -40;
+        applyImageZoom();
+      }, { passive:false });
 
       els.mainImage.addEventListener("touchstart", (e) => {
         if (!canUseImageZoom()) return;
