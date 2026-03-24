@@ -1275,11 +1275,8 @@
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
-        <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="실시간 방 이름" value="main" />
-        <button id="syncRoomApplyBtn" class="icon-btn" title="Firebase 실시간 연결">연결</button>
-        <button id="pushCloudBtn" class="icon-btn" title="현재 데이터를 Firebase에 업로드">업로드</button>
-        <div id="firebaseStatus" class="firebase-status">대기중</div>
-        <button id="noteBtn" class="icon-btn" title="수정노트">수정</button>
+        <div class="firebase-status offline-badge">오프라인</div>
+        <button id="noteBtn" class="icon-btn" title="수정">수정</button>
         <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
       </div>
     </header>
@@ -1347,7 +1344,7 @@
       <!-- 데스크톱 환경에서는 재생 모드 버튼을 하단에 유지 -->
       <div class="extra-group desktop-only">
         <button id="playbackBtnDesktop" class="playback-btn" title="재생모드 전환">재생: 수동</button>
-        <button id="noteBtnDesktop" class="icon-btn desktop-only" title="수정노트">수정</button>
+        <button id="noteBtnDesktop" class="icon-btn desktop-only" title="수정">수정</button>
       </div>
     </footer>
   </div>
@@ -1379,23 +1376,10 @@
   </div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
-  import { getDatabase, ref as dbRef, get as dbGet, set as dbSet, onValue } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
-
-  const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyC6K7dRqHirEdSsddnZ85vY4QOUGdLVto0",
-    authDomain: "ksl-nuri.firebaseapp.com",
-    projectId: "ksl-nuri",
-    storageBucket: "ksl-nuri.firebasestorage.app",
-    messagingSenderId: "454023041529",
-    appId: "1:454023041529:web:fd2eab23671b9d0969ed28",
-    measurementId: "G-W1Q9968QLX"
-  };
-
   const FIREBASE_ROOM_STORAGE_KEY = "ksl-nuri-sync-room";
-  const FIREBASE_DEFAULT_ROOM = "main";
+  const FIREBASE_DEFAULT_ROOM = "local";
   const LOCAL_FALLBACK_PREFIX = "ksl-learning-fallback:";
+  const OFFLINE_MODE = true;
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
@@ -2462,7 +2446,7 @@
       (els.noteBtns || []).forEach(btn => {
         if (!btn) return;
         btn.classList.toggle("active", hasNote);
-        btn.title = hasNote ? "수정노트 있음" : "수정노트";
+        btn.title = hasNote ? "수정 있음" : "수정";
       });
     }
 
@@ -2473,7 +2457,7 @@
         showOverlay("기록할 항목이 없습니다", 1000);
         return;
       }
-      els.noteModalTitle.textContent = `수정노트 · ${getCurrentEntityLabel()}`;
+      els.noteModalTitle.textContent = `수정 · ${getCurrentEntityLabel()}`;
       els.noteTextarea.value = notesByKey[key] || "";
       els.noteModal.classList.add("open");
       els.noteModal.setAttribute("aria-hidden", "false");
@@ -2496,7 +2480,7 @@
       updateNoteButtons();
       renderInfo();
       closeNoteModal();
-      showOverlay(value ? "수정노트 저장" : "수정노트 비움", 1000);
+      showOverlay(value ? "수정 저장" : "수정 비움", 1000);
     }
 
     async function deleteCurrentNote(){
@@ -2508,7 +2492,7 @@
       updateNoteButtons();
       renderInfo();
       closeNoteModal();
-      showOverlay("수정노트 삭제", 1000);
+      showOverlay("수정 삭제", 1000);
     }
 
     function getFitVerticalZoomScale(){
@@ -3655,90 +3639,18 @@ function startFirebaseLiveWatchers(){
 }
 
 async function loadInitialFirebaseSnapshot(){
-  if (!firebaseReady) return false;
-
-  try{
-    const [metaSnap, stateSnap] = await Promise.all([
-      dbGet(dbRef(firebaseDb, `${roomBasePath()}/datasetMeta`)),
-      dbGet(dbRef(firebaseDb, `${roomBasePath()}/sharedState`))
-    ]);
-
-    let loaded = false;
-
-    if (metaSnap.exists()){
-      const metaVal = metaSnap.val();
-      remoteDatasetAvailable = !!(metaVal && (Array.isArray(metaVal.rows) || metaVal.chunkCount));
-      loaded = await applyRemoteDatasetMeta(metaVal, { silent: true });
-    }
-
-    if (stateSnap.exists()){
-      await applyRemoteStateEnvelope(stateSnap.val(), { silent: true });
-    }
-
-    startFirebaseLiveWatchers();
-    return loaded;
-  } catch (err){
-    console.warn("Firebase 초기 스냅샷 복원 실패", err);
-    updateFirebaseStatus("Firebase 초기 데이터 확인 실패", "error");
-    startFirebaseLiveWatchers();
-    return false;
-  }
+  return false;
 }
 
 async function reconnectFirebaseRoom(){
-  if (!firebaseReady){
-    showOverlay("Firebase 연결이 준비되지 않았습니다", 1500);
-    return;
-  }
-
-  syncRoomKey = sanitizeRoomKey(els.syncRoomInput.value);
-  els.syncRoomInput.value = syncRoomKey;
-  localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
-
-  remoteDatasetAvailable = false;
-  lastAppliedRemoteDatasetVersion = "";
-  lastPushedStateSignature = "";
-  lastAppliedRemoteStateSignature = "";
-
-  updateFirebaseStatus(`방 전환 중... · ${syncRoomKey}`);
-  const loadedRemote = await loadInitialFirebaseSnapshot();
-
-  if (rows.length){
-    scheduleFirebaseStatePush(buildStatePayload(), true);
-  }
-
-  showOverlay(`실시간 방 연결\n${syncRoomKey}`, 1000);
+  showOverlay("오프라인 모드에서는 실시간 연결을 사용하지 않습니다", 1400);
 }
 
 async function initFirebaseSync(){
-  if (location.protocol === "file:"){
-    updateFirebaseStatus("file:// 제한", "error");
-  }
-  try{
-    firebaseApp = initializeApp(FIREBASE_CONFIG);
-    firebaseAuth = getAuth(firebaseApp);
-    firebaseDb = getDatabase(firebaseApp);
-
-    await signInAnonymously(firebaseAuth);
-    firebaseUid = firebaseAuth.currentUser?.uid || "";
-    firebaseReady = true;
-
-    if (els.syncRoomInput){
-      els.syncRoomInput.value = syncRoomKey;
-    }
-
-    updateFirebaseStatus(`Firebase 연결 완료 · ${syncRoomKey}`, "ok");
-    return true;
-  } catch (err){
-    console.error("Firebase 초기화 실패", err);
-    const msg = String(err?.message || err || "");
-    if (/auth\/admin-restricted-operation|auth\/operation-not-allowed|CONFIGURATION_NOT_FOUND/i.test(msg)){
-      updateFirebaseStatus("익명 로그인 설정 필요", "error");
-    } else {
-      updateFirebaseStatus("Firebase 연결 실패", "error");
-    }
-    return false;
-  }
+  firebaseReady = false;
+  firebaseUid = "";
+  updateFirebaseStatus("오프라인 모드");
+  return false;
 }
 
 
@@ -3842,7 +3754,15 @@ async function initFirebaseSync(){
         : (item.type === "word" ? item.word : item.text);
       pendingSearchPick = item;
       setSelectedSearchPick(item, suggestionValue);
-      els.searchInput.value = suggestionValue;
+      const applySearchInputValue = () => {
+        if (els.searchInput.value !== suggestionValue){
+          els.searchInput.value = suggestionValue;
+        }
+      };
+      applySearchInputValue();
+      requestAnimationFrame(applySearchInputValue);
+      setTimeout(applySearchInputValue, 0);
+      setTimeout(applySearchInputValue, 30);
       if (typeof els.searchInput.setSelectionRange === "function"){
         const end = suggestionValue.length;
         requestAnimationFrame(() => {
@@ -3854,7 +3774,9 @@ async function initFirebaseSync(){
       els.searchSuggestions.innerHTML = "";
       renderedSuggestionItems = [];
       restoreSearchPreview();
-      Promise.resolve(applyFilter());
+      Promise.resolve().then(() => applyFilter()).then(() => {
+        applySearchInputValue();
+      });
     }
 
     function applyPendingSearchPickToResults(){
@@ -4855,7 +4777,6 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       const buffer = await file.arrayBuffer();
       const dataRows = await parseFileByNameAndBuffer(file.name, buffer);
       await finalizeLoadedData(dataRows, file.name, false, true);
-      scheduleFirebaseDatasetUpload("manual-file", true, true);
     }
 
     async function tryAutoLoadDefaultFile(){
@@ -5088,7 +5009,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       });
 
       els.searchInput.addEventListener("input", (e) => {
-        if (searchComposing || e.isComposing) return;
+        if (searchComposing || e.isComposing || /composition/i.test(e.inputType || "")) return;
         if (selectedSearchPick && safe(els.searchInput.value) !== safe(selectedSearchPick.suggestionValue)){
           clearSelectedSearchPick();
         }
@@ -5581,7 +5502,7 @@ O 현재 화면 캡처`);
         loadNotesCache()
       ]).catch(err => console.warn("보조 데이터 복원 실패", err));
 
-      const firebaseInitPromise = initFirebaseSync();
+      const firebaseInitPromise = Promise.resolve(false);
 
       let loaded = false;
 
@@ -5599,7 +5520,9 @@ O 현재 화면 캡처`);
       }
 
       if (!loaded){
-        els.statusText.textContent = "기본 파일 자동 로드 실패 - 파일을 직접 불러와 주세요";
+        els.statusText.textContent = "XLSX 파일을 불러오거나 화면에 끌어놓아 주세요";
+        showMainText("XLSX 파일을 불러오거나 화면에 끌어놓아 주세요.");
+        renderInfo();
       }
 
       if (firebaseStarted && rows.length){
