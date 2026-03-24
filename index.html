@@ -1565,6 +1565,8 @@
     let activeWordAssetState = { groupId: "", index: 0 };
     let searchIdMode = false;
     let pendingSearchPick = null;
+    let selectedSearchPick = null;
+    let searchPersistTimer = null;
     const FIREBASE_DATASET_CHUNK_SIZE = 340000;
 
     let firebaseApp = null;
@@ -2669,6 +2671,7 @@ async function saveState(){
       if (typeof state.searchValue === "string") els.searchInput.value = state.searchValue;
       if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
       if (typeof state.searchIdMode === "boolean") searchIdMode = state.searchIdMode;
+      selectedSearchPick = state && typeof state.searchSelectedPick === "object" ? state.searchSelectedPick : null;
       if (!["word", "example", "all"].includes(els.searchScopeSelect.value)) els.searchScopeSelect.value = "word";
       updateSearchIdButton();
       updateSearchPlaceholder();
@@ -2734,8 +2737,46 @@ async function saveState(){
       els.searchIdBtn.title = searchIdMode ? "ID 검색 모드 켜짐" : "ID 검색 모드";
     }
 
+
+    function clearSelectedSearchPick(){
+      selectedSearchPick = null;
+    }
+
+    function setSelectedSearchPick(item, suggestionValue){
+      if (!item){
+        selectedSearchPick = null;
+        return;
+      }
+      selectedSearchPick = {
+        type: item.type,
+        id: String(item.id || ""),
+        text: safe(item.text),
+        word: safe(item.word),
+        sourceId: String(item.sourceId || item.id || ""),
+        suggestionValue: safe(suggestionValue),
+        searchScope: getSearchScope(),
+        searchIdMode: !!searchIdMode
+      };
+    }
+
+    function getActiveSelectedSearchPick(q, scope){
+      if (!selectedSearchPick) return null;
+      if (!!searchIdMode !== !!selectedSearchPick.searchIdMode) return null;
+      if (scope !== safe(selectedSearchPick.searchScope)) return null;
+      if (safe(q) !== safe(selectedSearchPick.suggestionValue)) return null;
+      return selectedSearchPick;
+    }
+
+    function scheduleSearchStatePersist(delay = 320){
+      clearTimeout(searchPersistTimer);
+      searchPersistTimer = setTimeout(() => {
+        Promise.resolve(saveState()).catch(err => console.warn("검색 상태 저장 실패", err));
+      }, delay);
+    }
+
     async function setSearchIdMode(enabled){
       searchIdMode = !!enabled;
+      clearSelectedSearchPick();
       suggestionCacheKey = "";
       suggestionCacheItems = [];
       searchFocusedIndex = -1;
@@ -3016,13 +3057,17 @@ async function saveState(){
       return exactMatch ? (item.wordNorm === qNorm || item.textNorm === qNorm) : item.searchBlob.includes(qNorm);
     }
 
-    async function applyFilter(){
+    async function applyFilter(options = {}){
+      const { save = true } = options;
       const q = safe(els.searchInput.value).trim();
       const qId = searchIdMode ? q.replace(/\D+/g, "") : "";
       const qNorm = (!searchIdMode && q) ? normalizeHangulString(q.toLowerCase()).toLowerCase() : "";
       const cat = safe(els.categorySelect.value);
       const scope = getSearchScope();
       const selectionSet = selectionModeActive ? getSelectionWordSet() : null;
+      const selectedPick = getActiveSelectedSearchPick(q, scope);
+      const selectedGroupId = selectedPick?.id ? String(selectedPick.id) : "";
+      const selectedExampleText = selectedPick?.type === "example" ? safe(selectedPick.text) : "";
 
       const groupBase = groupsByCategory.get(cat) || [];
       const exampleBase = examplesByCategory.get(cat) || [];
@@ -3030,7 +3075,9 @@ async function saveState(){
       filteredGroups = [];
       for (const g of groupBase){
         if (selectionSet && !selectionSet.has(g.id)) continue;
-        if (searchIdMode){
+        if (selectedGroupId){
+          if (String(g.id) !== selectedGroupId) continue;
+        } else if (searchIdMode){
           if (qId && !String(g.sourceId || "").includes(qId)) continue;
         } else if (!matchesGroupQuery(g, qNorm, scope)) {
           continue;
@@ -3042,7 +3089,10 @@ async function saveState(){
       const exampleCandidates = [];
       for (const item of exampleBase){
         if (selectionSet && !selectionSet.has(item.groupId)) continue;
-        if (searchIdMode){
+        if (selectedGroupId){
+          if (String(item.groupId) !== selectedGroupId) continue;
+          if (selectedExampleText && safe(item.text) !== selectedExampleText) continue;
+        } else if (searchIdMode){
           const group = groupById.get(String(item.groupId || ""));
           if (qId && !String(group?.sourceId || "").includes(qId)) continue;
         } else if (!matchesExampleQuery(item, qNorm, scope)) {
@@ -3065,7 +3115,7 @@ async function saveState(){
       updateCount();
       resetWordAssetState();
       render();
-      await saveState();
+      if (save) await saveState();
     }
 
     function setImage(imgEl, url, alt){
@@ -3356,6 +3406,7 @@ function buildStatePayload(){
     searchValue: els.searchInput.value,
     searchScope: els.searchScopeSelect.value,
     searchIdMode,
+    searchSelectedPick: selectedSearchPick,
     selectionModeActive,
     selectedGroupIds,
     selectionPresets: cloneSelectionPresetsForSync(),
@@ -3427,11 +3478,11 @@ async function loadDatasetRowsFromMeta(meta){
   return JSON.parse(json);
 }
 
-function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false){
+function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false, force = false){
   if (!firebaseReady || !firebaseUid || !rows.length || isApplyingRemoteDataset) return;
   clearTimeout(pendingFirebaseDatasetTimer);
   pendingFirebaseDatasetTimer = setTimeout(() => {
-    uploadCurrentDatasetToFirebase(reason).catch(err => {
+    uploadCurrentDatasetToFirebase(reason, force).catch(err => {
       console.error("Firebase 데이터 업로드 실패", err);
       updateFirebaseStatus("클라우드 업로드 실패", "error");
       showOverlay("Firebase 업로드 실패", 1500);
@@ -3439,7 +3490,7 @@ function scheduleFirebaseDatasetUpload(reason = "manual", immediate = false){
   }, immediate ? 0 : 350);
 }
 
-async function uploadCurrentDatasetToFirebase(reason = "manual"){
+async function uploadCurrentDatasetToFirebase(reason = "manual", force = false){
   if (!firebaseReady){
     updateFirebaseStatus("Firebase 연결 대기중", "error");
     showOverlay("Firebase가 아직 준비되지 않았습니다", 1400);
@@ -3462,7 +3513,7 @@ async function uploadCurrentDatasetToFirebase(reason = "manual"){
 
   const json = JSON.stringify(rows);
   const hash = makeDataHash(json);
-  if (hash === lastUploadedDatasetHash && remoteDatasetAvailable){
+  if (!force && hash === lastUploadedDatasetHash && remoteDatasetAvailable){
     updateFirebaseStatus(`이미 최신 데이터 업로드됨 · ${syncRoomKey}`, "ok");
     showOverlay("이미 최신 클라우드 데이터입니다", 1000);
     return;
@@ -3537,6 +3588,9 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
   const { silent = false } = options;
   const payload = envelope?.payload || envelope;
   if (!payload) return false;
+  if ((searchComposing || document.activeElement === els.searchInput) && envelope?.updatedBy !== firebaseUid){
+    return false;
+  }
 
   const signature = JSON.stringify(payload);
   if (envelope?.updatedBy === firebaseUid && signature === lastPushedStateSignature) return false;
@@ -3787,8 +3841,15 @@ async function initFirebaseSync(){
         ? String(item.sourceId || "").replace(/\D+/g, "")
         : (item.type === "word" ? item.word : item.text);
       pendingSearchPick = item;
+      setSelectedSearchPick(item, suggestionValue);
       els.searchInput.value = suggestionValue;
-      els.searchInput.blur();
+      if (typeof els.searchInput.setSelectionRange === "function"){
+        const end = suggestionValue.length;
+        requestAnimationFrame(() => {
+          try { els.searchInput.setSelectionRange(end, end); } catch {}
+        });
+      }
+      if (isMobileViewport()) els.searchInput.blur();
       els.searchSuggestions.classList.remove("open");
       els.searchSuggestions.innerHTML = "";
       renderedSuggestionItems = [];
@@ -4747,7 +4808,17 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         await saveDataCache(sourceName);
       }
 
-      await applyFilter();
+      await applyFilter({ save: false });
+      if (!filteredGroups.length && groups.length && (safe(els.searchInput.value) || safe(els.categorySelect.value) || searchIdMode)){
+        els.searchInput.value = "";
+        els.categorySelect.value = "";
+        searchIdMode = false;
+        clearSelectedSearchPick();
+        updateSearchIdButton();
+        updateSearchPlaceholder();
+        await applyFilter({ save: false });
+        showOverlay("이전 검색 조건을 초기화했습니다", 1200);
+      }
 
       currentIndex = Math.min(currentIndex, Math.max(filteredGroups.length - 1, 0));
       currentPoolIndex = Math.min(currentPoolIndex, Math.max(filteredExamplePool.length - 1, 0));
@@ -4784,7 +4855,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
       const buffer = await file.arrayBuffer();
       const dataRows = await parseFileByNameAndBuffer(file.name, buffer);
       await finalizeLoadedData(dataRows, file.name, false, true);
-      scheduleFirebaseDatasetUpload("manual-file", true);
+      scheduleFirebaseDatasetUpload("manual-file", true, true);
     }
 
     async function tryAutoLoadDefaultFile(){
@@ -4906,8 +4977,9 @@ ${selectedGroupIds.length}개 표제어`, 1200);
     function scheduleSearchApply(delay = 45){
       clearTimeout(searchInputTimer);
       searchInputTimer = setTimeout(() => {
-        applyFilter();
+        applyFilter({ save: false });
         requestRenderSearchSuggestions();
+        scheduleSearchStatePersist(isMobileViewport() ? 280 : 360);
       }, delay);
     }
 
@@ -5017,22 +5089,28 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       els.searchInput.addEventListener("input", (e) => {
         if (searchComposing || e.isComposing) return;
+        if (selectedSearchPick && safe(els.searchInput.value) !== safe(selectedSearchPick.suggestionValue)){
+          clearSelectedSearchPick();
+        }
         searchFocusedIndex = -1;
         suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
-        scheduleSearchApply(isMobileViewport() ? 90 : 55);
+        scheduleSearchApply(isMobileViewport() ? 90 : 120);
       });
 
       // 한글 입력 시 조합(composition) 완료 후에도 제안 및 필터가 갱신되도록 처리합니다.
       // 입력을 정규화하여 분해된 자모를 완성형으로 변환합니다.
       els.searchInput.addEventListener("compositionend", () => {
         searchComposing = false;
+        if (selectedSearchPick && safe(els.searchInput.value) !== safe(selectedSearchPick.suggestionValue)){
+          clearSelectedSearchPick();
+        }
         searchFocusedIndex = -1;
         suggestionCacheKey = "";
         restoreSearchPreview();
         requestRenderSearchSuggestions();
-        scheduleSearchApply(10);
+        scheduleSearchApply(20);
       });
 
       updateSearchIdButton();
@@ -5072,11 +5150,16 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         suggestionTouchMoved = true;
       }, { passive:true });
 
-      const handleSuggestionTap = (e) => {
-        const itemEl = e.target.closest(".suggestion-item");
-        if (!itemEl) return;
+      const getSuggestionItemFromEvent = (e) => {
+        const rawTarget = e.target && typeof e.target.closest === "function" ? e.target : e.target?.parentElement;
+        const itemEl = rawTarget?.closest ? rawTarget.closest(".suggestion-item") : null;
+        if (!itemEl) return null;
         const idx = Number(itemEl.dataset.idx || -1);
-        const item = renderedSuggestionItems[idx];
+        return renderedSuggestionItems[idx] || null;
+      };
+
+      const handleSuggestionTap = (e) => {
+        const item = getSuggestionItemFromEvent(e);
         if (!item) return;
         applySuggestionPick(item);
       };
@@ -5087,13 +5170,17 @@ ${selectedGroupIds.length}개 표제어`, 1200);
         handleSuggestionTap(e);
       }, { passive:false });
 
-      els.searchSuggestions.addEventListener("click", (e) => {
+      els.searchSuggestions.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        const item = getSuggestionItemFromEvent(e);
+        if (!item) return;
         e.preventDefault();
-        handleSuggestionTap(e);
+        applySuggestionPick(item);
       });
 
       els.searchScopeSelect.addEventListener("change", () => {
         rememberUndoSnapshot();
+        clearSelectedSearchPick();
         searchFocusedIndex = -1;
         suggestionCacheKey = "";
         updateSearchPlaceholder();
@@ -5103,6 +5190,7 @@ ${selectedGroupIds.length}개 표제어`, 1200);
 
       els.categorySelect.addEventListener("change", () => {
         rememberUndoSnapshot();
+        clearSelectedSearchPick();
         suggestionCacheKey = "";
         updateQuickButtons();
         applyFilter();
