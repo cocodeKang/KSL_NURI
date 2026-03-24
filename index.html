@@ -1240,11 +1240,18 @@
     }
 
   
-    .info-line{display:flex;align-items:center;gap:12px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.05)}
-    .info-line.compact{padding:6px 14px}
-    .info-key{font-weight:700;color:#9fc3ff;min-width:74px;line-height:1.35}
-    .info-value{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;line-height:1.45;min-width:0}
-    .info-value .link-btn{height:32px}
+    .info-line{display:flex;align-items:center;gap:10px;padding:5px 12px;flex-wrap:nowrap;border-bottom:1px solid rgba(255,255,255,.04)}
+    .info-line.compact{padding:4px 12px}
+    .info-key{font-weight:800;color:#a9c7ff;min-width:auto;line-height:1.15;letter-spacing:-.01em;white-space:nowrap}
+    .info-value{flex:1;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;line-height:1.2;min-width:0}
+    .info-value .link-btn{height:30px;padding:0 10px;border-radius:999px;font-size:13px}
+    .info-value, .info-value *{max-width:100%}
+    .info-value .single-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+    @media (max-width:720px){
+      .info-line{gap:8px;padding:4px 10px}
+      .info-key{font-size:12px}
+      .info-value{font-size:13px}
+    }
     .suggestion-item.selected{background:rgba(87,142,255,.22);outline:1px solid rgba(130,176,255,.55)}
 
   </style>
@@ -1639,6 +1646,7 @@
     let selectionUiLockUntil = 0;
     let localStateHoldUntil = 0;
     let firebasePushEnabled = false;
+    let remotePullCooldownUntil = 0;
     let firebaseBootstrapping = true;
 
     let abLoopStart = null;
@@ -2665,7 +2673,7 @@ async function saveState(){
   localStateHoldUntil = Math.max(localStateHoldUntil, Date.now() + 1800);
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
-  if (!isApplyingRemoteState && firebasePushEnabled && !firebaseBootstrapping){
+  if (!isApplyingRemoteState && firebasePushEnabled && !firebaseBootstrapping && Date.now() >= remotePullCooldownUntil){
     scheduleFirebaseStatePush(payload, !!liveSyncEnabled);
   }
 }
@@ -3227,10 +3235,19 @@ function getSearchScope(){
       activeWordAssetState.index = 0;
     }
 
+    function buildWordAssetSignature(entry, fallbackWord = ""){
+      if (!entry) return "";
+      const url = safe(entry.url || entry.video || "");
+      const sign = safe(entry.signImage || "");
+      const hand = Array.isArray(entry.handShapeImages) ? entry.handShapeImages.filter(Boolean).join("|") : "";
+      const word = safe(entry.word || fallbackWord || "");
+      const label = safe(entry.label || "");
+      return [url, sign, hand, word, label].join("||");
+    }
+
     function getEffectiveVariants(group){
       if (!group) return [];
       const explicit = Array.isArray(group.variants) ? group.variants.filter(Boolean) : [];
-      if (explicit.length) return explicit;
       const siblings = groups.filter(item => {
         if (!item || item.id === group.id) return false;
         const sameSource = (safe(item.sourceId) && safe(group.sourceId) && safe(item.sourceId) === safe(group.sourceId))
@@ -3238,14 +3255,44 @@ function getSearchScope(){
         if (!sameSource) return false;
         const hasMedia = safe(item.wordVideo) || safe(item.wordSignImage) || ((item.handShapeImages || []).length);
         return !!hasMedia;
-      });
-      return siblings.map((item, idx) => ({
+      }).map((item, idx) => ({
         label: item.variantLabel || `변이형${idx + 1}`,
         word: item.word || group.word,
         video: item.wordVideo || "",
         signImage: item.wordSignImage || "",
         handShapeImages: [...(item.handShapeImages || [])]
       }));
+
+      const baseSignature = buildWordAssetSignature({
+        url: group.wordVideo || "",
+        signImage: group.wordSignImage || "",
+        handShapeImages: [...(group.handShapeImages || [])],
+        word: group.word || "",
+        label: "표제어"
+      }, group.word);
+
+      const seen = new Set();
+      const merged = [];
+      [...explicit, ...siblings].forEach((entry, idx) => {
+        const normalized = {
+          label: safe(entry.label || `변이형${idx + 1}`),
+          word: safe(entry.word || group.word || ""),
+          video: safe(entry.video || entry.url || ""),
+          signImage: safe(entry.signImage || ""),
+          handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
+        };
+        const hasMedia = normalized.video || normalized.signImage || normalized.handShapeImages.length;
+        if (!hasMedia) return;
+        const signature = buildWordAssetSignature(normalized, group.word);
+        if (!signature || signature === baseSignature || seen.has(signature)) return;
+        seen.add(signature);
+        merged.push(normalized);
+      });
+      return merged;
+    }
+
+    function groupHasVariantAssets(group){
+      return getEffectiveVariants(group).length > 0;
     }
 
     function getWordVariantSlotCount(group){
@@ -3555,14 +3602,51 @@ function getSearchScope(){
 
     function setImage(imgEl, url, alt){
       if (url){
-        imgEl.crossOrigin = "anonymous";
+        imgEl.removeAttribute("crossorigin");
+        imgEl.referrerPolicy = "no-referrer-when-downgrade";
         imgEl.src = url;
         imgEl.alt = alt;
         imgEl.style.display = "block";
       } else {
         imgEl.removeAttribute("src");
+        imgEl.removeAttribute("crossorigin");
         imgEl.alt = "";
         imgEl.style.display = "none";
+      }
+    }
+
+
+    function installMediaDiagnostics(){
+      const imageErrorMessage = "이미지를 불러오지 못했습니다. URL 또는 외부 서버 정책(CORS/핫링크 차단)을 확인해 주세요.";
+      const videoErrorMessage = "영상을 불러오지 못했습니다. URL 또는 외부 서버 정책(CORS/핫링크 차단)을 확인해 주세요.";
+
+      const onImgError = (target, emptyText) => {
+        if (!target) return;
+        const src = target.getAttribute("src") || "";
+        console.warn("이미지 로드 실패", src);
+        target.style.display = "none";
+        if (target === els.mainImage){
+          showMainText(emptyText || imageErrorMessage);
+        }
+      };
+
+      if (els.wordSignImg){
+        els.wordSignImg.addEventListener("error", () => onImgError(els.wordSignImg, ""));
+      }
+      if (els.handShapeImg){
+        els.handShapeImg.addEventListener("error", () => onImgError(els.handShapeImg, ""));
+      }
+      if (els.mainImage){
+        els.mainImage.addEventListener("error", () => onImgError(els.mainImage, imageErrorMessage));
+      }
+      if (els.mainVideo){
+        els.mainVideo.addEventListener("error", () => {
+          const src = els.mainVideo.currentSrc || els.mainVideo.getAttribute("src") || "";
+          console.warn("영상 로드 실패", src, els.mainVideo.error);
+          if (els.mainVideo.style.display !== "none"){
+            showMainText(videoErrorMessage);
+          }
+        });
       }
     }
 
@@ -3601,7 +3685,7 @@ function getSearchScope(){
       applyVideoLoopState();
 
       if (els.mainVideo.dataset.currentSrc !== (url || "")){
-        els.mainVideo.crossOrigin = "anonymous";
+        els.mainVideo.removeAttribute("crossorigin");
         els.mainVideo.dataset.currentSrc = url || "";
         if (url){
           els.mainVideo.src = url;
@@ -3626,12 +3710,14 @@ function getSearchScope(){
       hideAllMainPanels();
 
       if (url){
-        els.mainImage.crossOrigin = "anonymous";
+        els.mainImage.removeAttribute("crossorigin");
+        els.mainImage.referrerPolicy = "no-referrer-when-downgrade";
         els.mainImage.src = url;
         els.mainImage.alt = alt;
         els.mainImage.style.display = "block";
       } else {
         els.mainImage.removeAttribute("src");
+        els.mainImage.removeAttribute("crossorigin");
         els.mainImage.alt = "";
         els.mainImage.style.display = "none";
       }
@@ -3655,7 +3741,7 @@ function getSearchScope(){
       els.mainGallery.classList.toggle("is-single", galleryUrls.length === 1);
       els.mainGallery.innerHTML = galleryUrls.map((url, idx) => `
         <div class="main-gallery-item">
-          <img crossorigin="anonymous" src="${escapeHtml(url)}" alt="${escapeHtml(`${altPrefix}${idx + 1}`)}" />
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(`${altPrefix}${idx + 1}`)}" referrerpolicy="no-referrer-when-downgrade" />
         </div>
       `).join("");
       els.mainGallery.style.display = "flex";
@@ -3816,10 +3902,11 @@ function buildHelpText(){
     "F 전체화면",
     "O 현재 화면 캡처",
     "[ 구간 시작",
-    "] 또는 \ 구간 종료",
+    "] 구간 종료",
+    "\\ 구간 초기화",
     "C 왼쪽 기준 최대 확대 / 다시 누르면 원래대로",
-    "Shift + 휠 위 왼쪽 이동",
-    "Shift + 휠 아래 오른쪽 이동",
+    "Shift + 휠 위 오른쪽 이동",
+    "Shift + 휠 아래 왼쪽 이동",
     "Shift + ? 도움말 열기/닫기",
     "← → 이전/다음",
     "Space 재생/일시정지",
@@ -4141,6 +4228,7 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
   if (updatedAtClient) lastRemoteAppliedUpdatedAt = updatedAtClient;
   lastLocalStateSavedAt = Math.max(lastLocalStateSavedAt, Number(payload?.localSavedAt || 0), updatedAtClient || 0);
   pendingRemoteStateEnvelope = null;
+  remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 1800);
 
   isApplyingRemoteState = true;
   try{
@@ -4212,6 +4300,8 @@ async function toggleFirebaseLiveSync(force){
   }
   if (liveSyncEnabled){
     firebasePushEnabled = false;
+    remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 2200);
+    if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
     await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
     startFirebaseLiveWatchers();
     firebasePushEnabled = true;
@@ -4264,6 +4354,8 @@ async function reconnectFirebaseRoom(){
   firebaseBootstrapChecked = false;
   firebaseBootstrapRemoteExists = false;
 
+  remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 2200);
+  if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
   const remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
 
   if (liveSyncEnabled) startFirebaseLiveWatchers();
@@ -5021,9 +5113,43 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     async function captureCurrentStage(){
-      try{
+      try {
+        const stage = els.stage;
+        if (!stage) return;
+
+        const downloadCanvas = (canvas) => {
+          const a = document.createElement("a");
+          const now = new Date();
+          const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
+          a.href = canvas.toDataURL("image/png");
+          a.download = `ksl_capture_${ts}.png`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          showOverlay("현재 화면 캡처 완료", 900);
+        };
+
+        if (window.html2canvas){
+          try{
+            const canvas = await window.html2canvas(stage, {
+              backgroundColor: "#000000",
+              useCORS: true,
+              allowTaint: true,
+              logging: false,
+              scale: Math.max(1, Math.min(2, window.devicePixelRatio || 1)),
+              ignoreElements: (el) => {
+                return el === els.tapPrevZone || el === els.tapNextZone || el === els.dropHint || el === els.rotateHotspot || el === els.overlayMsg;
+              }
+            });
+            downloadCanvas(canvas);
+            return;
+          }catch(err){
+            console.warn("html2canvas 캡처 실패, 수동 캔버스로 재시도", err);
+          }
+        }
+
+        const rect = stage.getBoundingClientRect();
         const canvas = document.createElement("canvas");
-        const rect = els.stage.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width));
         const height = Math.max(1, Math.round(rect.height));
         canvas.width = width;
@@ -5033,21 +5159,15 @@ ${getSelectionEntries().length}개 항목`, 1200);
         const drawElementBox = (el) => {
           if (!el) return null;
           const r = el.getBoundingClientRect();
-          return {
-            x: r.left - rect.left,
-            y: r.top - rect.top,
-            w: r.width,
-            h: r.height
-          };
+          return { x: r.left - rect.left, y: r.top - rect.top, w: r.width, h: r.height };
         };
 
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, width, height);
-
-        const stageBg = getComputedStyle(els.stage).backgroundColor;
-        if (stageBg && stageBg !== 'rgba(0, 0, 0, 0)'){
+        const stageBg = getComputedStyle(stage).backgroundColor;
+        if (stageBg && stageBg !== "rgba(0, 0, 0, 0)"){
           ctx.fillStyle = stageBg;
-          ctx.fillRect(0,0,width,height);
+          ctx.fillRect(0, 0, width, height);
         }
 
         if (els.mainText.style.display === "flex"){
@@ -5056,55 +5176,51 @@ ${getSelectionEntries().length}개 항목`, 1200);
           gradient.addColorStop(1, "#101725");
           ctx.fillStyle = gradient;
           ctx.fillRect(0, 0, width, height);
-
           const text = els.mainText.textContent || "";
           ctx.fillStyle = "#f7f9ff";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.font = `700 ${Math.max(24, Math.floor(width / 12))}px sans-serif`;
-
           const lines = text.split("\n");
           const lineHeight = Math.max(42, Math.floor(width / 10));
           const totalHeight = lines.length * lineHeight;
           let y = height / 2 - totalHeight / 2 + lineHeight / 2;
-
-          lines.forEach(line => {
-            ctx.fillText(line, width / 2, y, width * 0.88);
-            y += lineHeight;
-          });
-        } else if (els.mainGallery.style.display === "flex"){
-          const imgs = [...els.mainGallery.querySelectorAll('img')].filter(img => img.complete && img.naturalWidth);
-          if (!imgs.length){ showOverlay("캡처할 이미지가 없습니다", 1200); return; }
-          for (const img of imgs){
-            const box = drawElementBox(img);
-            if (!box) continue;
-            ctx.drawImage(img, box.x, box.y, box.w, box.h);
-          }
-        } else if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
-          const box = drawElementBox(els.mainImage);
-          ctx.drawImage(els.mainImage, box.x, box.y, box.w, box.h);
-        } else if (els.mainVideo.style.display === "block"){
-          const box = drawElementBox(els.mainVideo);
-          try {
-            ctx.drawImage(els.mainVideo, box.x, box.y, box.w, box.h);
-          } catch (err) {
-            showOverlay("이 영상은 브라우저 보안 때문에 캡처가 제한될 수 있습니다", 1500);
-            return;
-          }
-        } else {
-          showOverlay("캡처할 화면이 없습니다", 1200);
+          lines.forEach(line => { ctx.fillText(line, width / 2, y, width * 0.88); y += lineHeight; });
+          downloadCanvas(canvas);
           return;
         }
 
-        const a = document.createElement("a");
-        const now = new Date();
-        const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
-        a.href = canvas.toDataURL("image/png");
-        a.download = `ksl_capture_${ts}.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        showOverlay("현재 화면 캡처 완료", 900);
+        if (els.mainGallery.style.display === "flex"){
+          const imgs = [...els.mainGallery.querySelectorAll("img")].filter(img => img.complete && img.naturalWidth);
+          if (!imgs.length){ showOverlay("캡처할 이미지가 없습니다", 1200); return; }
+          for (const img of imgs){
+            const box = drawElementBox(img);
+            if (box) ctx.drawImage(img, box.x, box.y, box.w, box.h);
+          }
+          downloadCanvas(canvas);
+          return;
+        }
+
+        if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
+          const box = drawElementBox(els.mainImage);
+          ctx.drawImage(els.mainImage, box.x, box.y, box.w, box.h);
+          downloadCanvas(canvas);
+          return;
+        }
+
+        if (els.mainVideo.style.display === "block"){
+          const box = drawElementBox(els.mainVideo);
+          try {
+            ctx.drawImage(els.mainVideo, box.x, box.y, box.w, box.h);
+            downloadCanvas(canvas);
+            return;
+          } catch (err) {
+            showOverlay("영상 캡처는 브라우저 보안 정책으로 제한될 수 있습니다", 1600);
+            return;
+          }
+        }
+
+        showOverlay("캡처할 화면이 없습니다", 1200);
       } catch (err){
         console.error(err);
         showOverlay("화면 캡처에 실패했습니다", 1400);
@@ -5164,7 +5280,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return `
         <div class="info-line ${compact ? "compact" : ""}">
           <div class="info-key">${escapeHtml(label)}</div>
-          <div class="info-value ${valueClass}">${contentHtml || `<span class="muted">없음</span>`}</div>
+          <div class="info-value ${valueClass}"><span class="single-line">${contentHtml || `<span class="muted">없음</span>`}</span></div>
         </div>
       `;
     }
@@ -5544,7 +5660,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
       if (!force && lastVariantHintGroupId === group.id) return;
       lastVariantHintGroupId = group.id;
-      if (getEffectiveVariants(group).length){
+      if (groupHasVariantAssets(group)){
         showOverlay("변이형 있음", 500);
       }
     }
@@ -6449,7 +6565,8 @@ O 현재 화면 캡처`);
     }
 
     async function boot(){
-      bindEvents();
+      installMediaDiagnostics();
+    bindEvents();
       initEmptyState();
       firebaseBootstrapping = true;
       firebasePushEnabled = false;
