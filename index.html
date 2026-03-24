@@ -1619,6 +1619,8 @@
     let lastLocalStateSavedAt = 0;
     let syncUiBusyUntil = 0;
     let remoteApplyTimer = null;
+    let selectionUiLockUntil = 0;
+    let localStateHoldUntil = 0;
 
     let abLoopStart = null;
     let abLoopEnd = null;
@@ -2631,6 +2633,7 @@ async function saveState(){
   const payload = buildStatePayload();
   payload.localSavedAt = Date.now();
   lastLocalStateSavedAt = payload.localSavedAt;
+  localStateHoldUntil = Math.max(localStateHoldUntil, Date.now() + 1800);
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
   if (!isApplyingRemoteState){
@@ -3682,10 +3685,13 @@ function markSyncUiBusy(ms = 1600){
 
 function isSyncUiBusy(){
   if (searchComposing) return true;
-  if (Date.now() < syncUiBusyUntil) return true;
+  const now = Date.now();
+  if (now < syncUiBusyUntil) return true;
+  if (now < selectionUiLockUntil) return true;
   const active = document.activeElement;
   const tag = String(active?.tagName || "").toUpperCase();
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (els.searchSuggestions?.classList?.contains("open")) return true;
   return false;
 }
 
@@ -3820,9 +3826,18 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
   const { silent = false } = options;
   const payload = envelope?.payload || envelope;
   if (!payload) return false;
+  const updatedAtClient = Number(envelope?.updatedAtClient || payload?.localSavedAt || 0);
+  if (envelope?.updatedBy !== firebaseUid && updatedAtClient && lastLocalStateSavedAt && updatedAtClient <= lastLocalStateSavedAt){
+    return false;
+  }
+  if (envelope?.updatedBy !== firebaseUid && Date.now() < localStateHoldUntil){
+    pendingRemoteStateEnvelope = envelope;
+    markSyncUiBusy(1600);
+    return false;
+  }
   if (shouldDeferRemoteApply(envelope)){
     pendingRemoteStateEnvelope = envelope;
-    markSyncUiBusy(900);
+    markSyncUiBusy(1400);
     return false;
   }
 
@@ -3841,7 +3856,6 @@ async function applyRemoteStateEnvelope(envelope, options = {}){
     return false;
   }
 
-  const updatedAtClient = Number(envelope?.updatedAtClient || 0);
   if (updatedAtClient && updatedAtClient <= lastRemoteAppliedUpdatedAt) return false;
 
   const signature = JSON.stringify({ fp: fingerprint || currentDatasetFingerprint, payload });
@@ -3889,9 +3903,18 @@ function startFirebaseLiveWatchers(){
     if (!snap.exists()) return;
     try{
       const envelope = snap.data();
+      const remoteTs = Number(envelope?.updatedAtClient || envelope?.payload?.localSavedAt || 0);
+      if (envelope?.updatedBy !== firebaseUid && remoteTs && lastLocalStateSavedAt && remoteTs <= lastLocalStateSavedAt){
+        return;
+      }
+      if (envelope?.updatedBy !== firebaseUid && Date.now() < localStateHoldUntil){
+        pendingRemoteStateEnvelope = envelope;
+        markSyncUiBusy(1600);
+        return;
+      }
       if (shouldDeferRemoteApply(envelope)){
         pendingRemoteStateEnvelope = envelope;
-        markSyncUiBusy(900);
+        markSyncUiBusy(1400);
         return;
       }
       await applyRemoteStateEnvelope(envelope, { silent: true });
@@ -4120,6 +4143,8 @@ async function initFirebaseSync(){
       restoreSearchPreview();
       Promise.resolve().then(() => applyFilter()).then(() => {
         applySearchInputValue();
+        lastVariantHintGroupId = "";
+        maybeShowVariantHint(true);
       });
     }
 
@@ -4298,11 +4323,13 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       await saveSelectionPresets();
       await saveState();
       await flushPendingFirebaseStatePush(buildStatePayload());
+      pendingRemoteStateEnvelope = null;
       renderInfo();
       showOverlay(`선택학습 목록 저장 완료\n${name}`, 1200);
     }
 
     async function loadSelectedPreset(){
+      selectionUiLockUntil = Date.now() + 2000;
       const name = safe(selectedPresetName);
       if (!name || !selectionPresets[name]){
         showOverlay("불러올 목록을 선택해 주세요", 1200);
@@ -4315,6 +4342,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
     }
 
     async function deleteSelectedPreset(){
+      selectionUiLockUntil = Date.now() + 2500;
       const name = safe(selectedPresetName);
       if (!name || !selectionPresets[name]){
         showOverlay("삭제할 목록을 선택해 주세요", 1200);
@@ -4690,7 +4718,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return `
         <section class="section">
           <h3>선택학습</h3>
-          <div class="selection-panel">
+          <div class="selection-panel" data-role="selection-wrap">
             <div class="selection-top">
               <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
               <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">선택학습 시작</button>
@@ -4854,6 +4882,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     function bindDynamicInfoEvents(container){
+      const selectionWrap = container.querySelector('[data-role="selection-wrap"]');
       const selectionSearchInput = container.querySelector('[data-role="selection-search"]');
       const selectionSuggestions = container.querySelector('[data-role="selection-suggestions"]');
       const selectionAddCurrentBtn = container.querySelector('[data-role="selection-add-current"]');
@@ -4863,10 +4892,21 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
       const presetLoadBtn = container.querySelector('[data-role="preset-load"]');
       const presetDeleteBtn = container.querySelector('[data-role="preset-delete"]');
+      const lockSelectionUi = (ms = 3000) => {
+        selectionUiLockUntil = Math.max(selectionUiLockUntil, Date.now() + ms);
+        markSyncUiBusy(Math.min(ms, 2400));
+      };
+
+      if (selectionWrap){
+        selectionWrap.addEventListener("pointerdown", () => lockSelectionUi(6000));
+        selectionWrap.addEventListener("focusin", () => lockSelectionUi(6000));
+        selectionWrap.addEventListener("mouseenter", () => lockSelectionUi(2200));
+      }
 
       if (selectionSearchInput){
         // Update search string and refresh suggestions when user types
         selectionSearchInput.addEventListener("input", () => {
+          lockSelectionUi(2600);
           selectionSearch = selectionSearchInput.value;
           selectionFocusedIndex = -1;
           renderInfo();
@@ -4874,6 +4914,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
         // When composition (IME) ends, normalize and update search and suggestions
         selectionSearchInput.addEventListener("compositionend", () => {
+          lockSelectionUi(2600);
           // Normalize Hangul string to combine jamo into complete syllables
           selectionSearchInput.value = normalizeHangulString(selectionSearchInput.value);
           selectionSearch = selectionSearchInput.value;
@@ -4882,6 +4923,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         });
 
         selectionSearchInput.addEventListener("keydown", (e) => {
+          lockSelectionUi(2600);
           const items = getSelectionSuggestions();
           if (e.key === "ArrowDown"){
             e.preventDefault();
@@ -5076,13 +5118,13 @@ ${getSelectionEntries().length}개 항목`, 1200);
       els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${filteredGroups.length} | ${group.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
     }
 
-    function maybeShowVariantHint(){
+    function maybeShowVariantHint(force = false){
       const group = getCurrentGroup();
       if (!group){
         lastVariantHintGroupId = "";
         return;
       }
-      if (lastVariantHintGroupId === group.id) return;
+      if (!force && lastVariantHintGroupId === group.id) return;
       lastVariantHintGroupId = group.id;
       if ((group.variants || []).length){
         showOverlay("변이형 있음", 500);
