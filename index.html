@@ -1269,9 +1269,10 @@
         <button id="categoryQuickBtn" class="icon-btn mobile-only quick-btn" title="카테고리 변경">전체</button>
 
         <select id="searchScopeSelect" class="scope-select" title="검색 범위">
-          <option value="word" selected>표제어검색</option>
-          <option value="example">용례검색</option>
-          <option value="all">통합검색</option>
+          <option value="word" selected>표제어</option>
+          <option value="example">용례</option>
+          <option value="all">통합</option>
+          <option value="id">ID</option>
         </select>
 
         <select id="categorySelect" class="category-select" title="카테고리 선택">
@@ -1283,19 +1284,19 @@
 
       <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
-        <button id="loadFileBtn" class="icon-btn" title="파일 선택">불러오기</button>
+        <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
-        <button id="searchIdBtn" class="select-btn" title="ID 검색 모드">ID</button>
+        <button id="searchIdBtn" class="select-btn" title="ID 검색 모드" style="display:none !important;">ID</button>
         <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
-        <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none;">선택학습 종료</button>
+        <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none !important;">선택학습 종료</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
         <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="이어쓰기 코드" title="같은 코드를 PC와 휴대폰에 입력하세요" />
         <button id="syncRoomApplyBtn" class="icon-btn" title="이어쓰기 코드 연결">연결</button>
-        <button id="liveSyncBtn" class="icon-btn" title="실시간 리스너">리스너OFF</button>
+        <button id="liveSyncBtn" class="icon-btn" title="실시간 리스너">리스너</button>
         <button id="pushCloudBtn" class="icon-btn" title="진행상태 저장">저장</button>
         <div id="firebaseStatus" class="firebase-status offline-badge">로컬</div>
-        <button id="noteBtn" class="icon-btn" title="수정">수정</button>
+        <button id="noteBtn" class="icon-btn" title="노트">노트</button>
         <button id="playbackBtn" class="playback-btn mobile-only" title="재생모드 전환">재생: 수동</button>
       </div>
     </header>
@@ -1349,22 +1350,18 @@
         <button class="mode-btn" data-mode="E" title="표제어 수어문자">E</button>
         <button class="mode-btn" data-mode="G" title="표제어 수형그림">G</button>
         <button class="mode-btn" data-mode="A" title="용례번역문 텍스트">A</button>
-        <button class="mode-btn" data-mode="Z" title="뜻풀이">Z</button>
         <button class="mode-btn" data-mode="S" title="용례번역문 영상">S</button>
         <button class="mode-btn" data-mode="D" title="용례번역문 수어문자">D</button>
         <!-- 추가된 R 버튼: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
-        <button id="zoomFitBtn" class="mode-btn" title="왼쪽 기준 최대 확대 / 다시 누르면 원래대로">C</button>
-        <button id="zoomResetBtn" class="mode-btn" title="원래대로">되돌리기</button>
         <button id="abStartBtn" class="mode-btn mobile-only" title="구간 시작">[</button>
         <button id="abEndBtn" class="mode-btn mobile-only" title="구간 종료">]</button>
-        <button id="abResetBtn" class="mode-btn mobile-only" title="구간 반복 초기화">⟲</button>
       </div>
 
       <!-- 데스크톱 환경에서는 재생 모드 버튼을 하단에 유지 -->
       <div class="extra-group desktop-only">
         <button id="playbackBtnDesktop" class="playback-btn" title="재생모드 전환">재생: 수동</button>
-        <button id="noteBtnDesktop" class="icon-btn desktop-only" title="수정">수정</button>
+        <button id="noteBtnDesktop" class="icon-btn desktop-only" title="노트">노트</button>
       </div>
     </footer>
   </div>
@@ -1394,10 +1391,10 @@
   <div id="noteModal" class="note-modal" aria-hidden="true">
     <div class="note-dialog">
       <div class="note-head">
-        <strong id="noteModalTitle">수정</strong>
+        <strong id="noteModalTitle">노트</strong>
         <button id="noteCloseBtn" class="icon-btn" type="button">닫기</button>
       </div>
-      <textarea id="noteTextarea" class="note-textarea" placeholder="변경/수정이 필요한 내용을 기록해 두세요."></textarea>
+      <textarea id="noteTextarea" class="note-textarea" placeholder="이 항목에 대한 메모를 기록해 두세요."></textarea>
       <div class="note-actions">
         <button id="noteDeleteBtn" class="icon-btn" type="button">삭제</button>
         <button id="noteSaveBtn" class="select-btn" type="button">저장</button>
@@ -1598,6 +1595,7 @@
     let currentSourceName = "";
     let notesByKey = {};
     let undoSnapshot = null;
+    let redoSnapshot = null;
     let searchComposing = false;
     let suggestionCacheKey = "";
     let suggestionCacheItems = [];
@@ -1651,6 +1649,10 @@
 
     let abLoopStart = null;
     let abLoopEnd = null;
+    let abEndHoldTimer = null;
+    let abEndHoldTriggered = false;
+    let bracketRightHoldTimer = null;
+    let bracketRightHoldTriggered = false;
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
     const FRAME_STEP = 1 / 30;
@@ -2550,17 +2552,20 @@
 
     function rememberUndoSnapshot(){
       undoSnapshot = createUndoSnapshot();
+      redoSnapshot = null;
       updateUndoButton();
     }
 
     function clearUndoSnapshot(){
       undoSnapshot = null;
+      redoSnapshot = null;
       updateUndoButton();
     }
 
     async function undoLastAction(){
       if (!undoSnapshot) return;
       const snap = undoSnapshot;
+      redoSnapshot = createUndoSnapshot();
       undoSnapshot = null;
       updateUndoButton();
       currentMode = snap.currentMode || "Q";
@@ -2568,13 +2573,13 @@
       els.searchInput.value = snap.searchValue || "";
       els.searchScopeSelect.value = snap.searchScope || "word";
       searchIdMode = !!snap.searchIdMode;
+      syncSearchModeWithScope();
       els.categorySelect.value = snap.categoryValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
       currentVideoTime = snap.currentVideoTime || 0;
       abLoopStart = snap.abLoopStart ?? null;
       abLoopEnd = snap.abLoopEnd ?? null;
-      updateSearchIdButton();
       updateSearchIdButton();
       updateSearchPlaceholder();
       updateLiveSyncButton();
@@ -2589,13 +2594,48 @@
       showOverlay("되돌리기 완료", 900);
     }
 
+    async function redoLastAction(){
+      if (!redoSnapshot) {
+        showOverlay("다시 실행할 항목이 없습니다", 900);
+        return;
+      }
+      const snap = redoSnapshot;
+      redoSnapshot = null;
+      undoSnapshot = createUndoSnapshot();
+      currentMode = snap.currentMode || "Q";
+      playbackMode = snap.playbackMode || playbackMode;
+      els.searchInput.value = snap.searchValue || "";
+      els.searchScopeSelect.value = snap.searchScope || "word";
+      searchIdMode = !!snap.searchIdMode;
+      syncSearchModeWithScope();
+      els.categorySelect.value = snap.categoryValue || "";
+      groupShuffleSeed = snap.groupShuffleSeed ?? null;
+      exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
+      currentVideoTime = snap.currentVideoTime || 0;
+      abLoopStart = snap.abLoopStart ?? null;
+      abLoopEnd = snap.abLoopEnd ?? null;
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      updateLiveSyncButton();
+      await applyFilter();
+      currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
+      currentPoolIndex = clamp(snap.currentPoolIndex || 0, 0, Math.max(0, filteredExamplePool.length - 1));
+      els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+      applyVideoLoopState();
+      updatePlaybackButton();
+      render(false);
+      await saveState();
+      showOverlay("다시 실행 완료", 900);
+    }
+
     function updateNoteButtons(){
       const key = getCurrentEntityKey();
       const hasNote = !!safe((notesByKey || {})[key]);
       (els.noteBtns || []).forEach(btn => {
         if (!btn) return;
         btn.classList.toggle("active", hasNote);
-        btn.title = hasNote ? "수정 있음" : "수정";
+        btn.textContent = "노트";
+        btn.title = hasNote ? "노트 작성기록 있음" : "노트";
       });
     }
 
@@ -2606,7 +2646,7 @@
         showOverlay("기록할 항목이 없습니다", 1000);
         return;
       }
-      els.noteModalTitle.textContent = `수정 · ${getCurrentEntityLabel()}`;
+      els.noteModalTitle.textContent = `노트 · ${getCurrentEntityLabel()}`;
       els.noteTextarea.value = notesByKey[key] || "";
       els.noteModal.classList.add("open");
       els.noteModal.setAttribute("aria-hidden", "false");
@@ -2629,7 +2669,7 @@
       updateNoteButtons();
       renderInfo();
       closeNoteModal();
-      showOverlay(value ? "수정 저장" : "수정 비움", 1000);
+      showOverlay(value ? "노트 저장" : "노트 비움", 1000);
     }
 
     async function deleteCurrentNote(){
@@ -2641,7 +2681,7 @@
       updateNoteButtons();
       renderInfo();
       closeNoteModal();
-      showOverlay("수정 삭제", 1000);
+      showOverlay("노트 삭제", 1000);
     }
 
     function getFitVerticalZoomScale(){
@@ -2806,7 +2846,7 @@ async function saveState(){
       if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
       if (typeof state.searchIdMode === "boolean") searchIdMode = state.searchIdMode;
       selectedSearchPick = state && typeof state.searchSelectedPick === "object" ? state.searchSelectedPick : null;
-      if (!["word", "example", "all"].includes(els.searchScopeSelect.value)) els.searchScopeSelect.value = "word";
+      if (!["word", "example", "all", "id"].includes(els.searchScopeSelect.value)) els.searchScopeSelect.value = "word";
       updateSearchIdButton();
       updateSearchPlaceholder();
       updateLiveSyncButton();
@@ -3047,6 +3087,8 @@ async function saveState(){
       showOverlay("되돌리기 완료", 900);
     }
 
+
+
     async function redoSelectionHistory(){
       if (!selectionRedoStack.length) { showOverlay("다시 실행할 항목이 없습니다", 900); return; }
       const current = createSelectionHistorySnapshot();
@@ -3086,15 +3128,20 @@ function getSearchScope(){
       return els.searchScopeSelect.value || "word";
     }
 
+    function syncSearchModeWithScope(){
+      searchIdMode = getSearchScope() === "id";
+    }
+
     function updateSearchPlaceholder(){
-      if (searchIdMode){
+      syncSearchModeWithScope();
+      const scope = getSearchScope();
+      if (scope === "id"){
         els.searchInput.placeholder = "ID 검색";
         els.searchInput.inputMode = "numeric";
         els.searchInput.setAttribute("pattern", "[0-9]*");
         updateQuickButtons();
         return;
       }
-      const scope = getSearchScope();
       if (scope === "example") {
         els.searchInput.placeholder = "용례문장 검색";
       } else if (scope === "all") {
@@ -3108,10 +3155,7 @@ function getSearchScope(){
     }
 
     function updateSearchIdButton(){
-      if (!els.searchIdBtn) return;
-      els.searchIdBtn.classList.toggle("active", searchIdMode);
-      els.searchIdBtn.textContent = searchIdMode ? "ID✓" : "ID";
-      els.searchIdBtn.title = searchIdMode ? "ID 검색 모드 켜짐" : "ID 검색 모드";
+      return;
     }
 
 
@@ -3152,7 +3196,8 @@ function getSearchScope(){
     }
 
     async function setSearchIdMode(enabled){
-      searchIdMode = !!enabled;
+      els.searchScopeSelect.value = enabled ? "id" : "word";
+      syncSearchModeWithScope();
       clearSelectedSearchPick();
       suggestionCacheKey = "";
       suggestionCacheItems = [];
@@ -3212,7 +3257,7 @@ function getSearchScope(){
 
     function updateQuickButtons(){
       if (els.searchScopeQuickBtn){
-        const labelMap = { word: "표제어", example: "용례", all: "통합" };
+        const labelMap = { word: "표제어", example: "용례", all: "통합", id: "ID" };
         els.searchScopeQuickBtn.textContent = labelMap[getSearchScope()] || "표제어";
       }
       if (els.categoryQuickBtn){
@@ -3240,28 +3285,12 @@ function getSearchScope(){
       const url = safe(entry.url || entry.video || "");
       const sign = safe(entry.signImage || "");
       const hand = Array.isArray(entry.handShapeImages) ? entry.handShapeImages.filter(Boolean).join("|") : "";
-      const word = safe(entry.word || fallbackWord || "");
-      const label = safe(entry.label || "");
-      return [url, sign, hand, word, label].join("||");
+      return [url, sign, hand].join("||");
     }
 
     function getEffectiveVariants(group){
       if (!group) return [];
       const explicit = Array.isArray(group.variants) ? group.variants.filter(Boolean) : [];
-      const siblings = groups.filter(item => {
-        if (!item || item.id === group.id) return false;
-        const sameSource = (safe(item.sourceId) && safe(group.sourceId) && safe(item.sourceId) === safe(group.sourceId))
-          || (safe(item.sourceUrl) && safe(group.sourceUrl) && safe(item.sourceUrl) === safe(group.sourceUrl));
-        if (!sameSource) return false;
-        const hasMedia = safe(item.wordVideo) || safe(item.wordSignImage) || ((item.handShapeImages || []).length);
-        return !!hasMedia;
-      }).map((item, idx) => ({
-        label: item.variantLabel || `변이형${idx + 1}`,
-        word: item.word || group.word,
-        video: item.wordVideo || "",
-        signImage: item.wordSignImage || "",
-        handShapeImages: [...(item.handShapeImages || [])]
-      }));
 
       const baseSignature = buildWordAssetSignature({
         url: group.wordVideo || "",
@@ -3273,7 +3302,7 @@ function getSearchScope(){
 
       const seen = new Set();
       const merged = [];
-      [...explicit, ...siblings].forEach((entry, idx) => {
+      explicit.forEach((entry, idx) => {
         const normalized = {
           label: safe(entry.label || `변이형${idx + 1}`),
           word: safe(entry.word || group.word || ""),
@@ -3384,6 +3413,18 @@ function getSearchScope(){
         if (mode === "W" || mode === "E"){
           await cycleCurrentWordAsset(mode);
           return;
+        }
+        if (mode === "D" && isMobileViewport()){
+          if (canUseImageZoom() && imageZoom.scale > 1.01){
+            resetImageZoom();
+            showOverlay("원래 크기", 700);
+            return;
+          }
+          if (canUseImageZoom()){
+            zoomImageFit("left");
+            showOverlay("처음 위치 확대", 700);
+            return;
+          }
         }
       }
 
@@ -3876,8 +3917,8 @@ function updateExactMatchButton(){
 function updateLiveSyncButton(){
   if (!els.liveSyncBtn) return;
   els.liveSyncBtn.classList.toggle("active", !!liveSyncEnabled);
-  els.liveSyncBtn.textContent = liveSyncEnabled ? "리스너ON" : "리스너OFF";
-  els.liveSyncBtn.title = liveSyncEnabled ? "실시간 리스너 끄기 (~)" : "실시간 리스너 켜기 (~)";
+  els.liveSyncBtn.textContent = "리스너";
+  els.liveSyncBtn.title = liveSyncEnabled ? "실시간 리스너 켜짐 (~로 끄기)" : "실시간 리스너 꺼짐 (~로 켜기)";
 }
 
 function buildHelpText(){
@@ -3889,9 +3930,8 @@ function buildHelpText(){
     "E 표제어 수어문자 / 반복 시 변이형 순환",
     "G 표제어 수형그림",
     "A 용례 번역문",
-    "Z 뜻풀이",
     "S 용례 영상",
-    "D 용례 수어문자",
+    "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
     "Y 선택학습 시작/종료",
     "T 현재 항목 선택학습 추가",
@@ -4818,6 +4858,10 @@ ${formatSelectionTokenLabel(token)}`, 1100);
     }
 
     function startSelectionMode(){
+      if (selectionModeActive){
+        stopSelectionMode();
+        return;
+      }
       if (!selectedGroupIds.length){
         showOverlay("먼저 표제어를 하나 이상 선택해 주세요", 1500);
         return;
@@ -4842,7 +4886,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       els.searchSuggestions.innerHTML = "";
 
       els.selectionModeBtn.classList.add("active");
-      els.selectionExitBtn.style.display = "inline-flex";
+      if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
       Promise.resolve(applyFilter()).then(() => {
         if (isExampleMode(currentMode) && !filteredExamplePool.length && filteredGroups.length){
           currentMode = "Q";
@@ -4860,7 +4904,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
     function stopSelectionMode(){
       selectionModeActive = false;
       els.selectionModeBtn.classList.remove("active");
-      els.selectionExitBtn.style.display = "none";
+      if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
       applyFilter();
       showOverlay("선택학습 종료", 1000);
       saveState();
@@ -5003,7 +5047,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       selectionModeActive = false;
       els.selectionModeBtn.classList.remove("active");
-      els.selectionExitBtn.style.display = "none";
+      if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
 
       currentMode = "Q";
       currentIndex = 0;
@@ -5110,6 +5154,49 @@ ${getSelectionEntries().length}개 항목`, 1200);
       saveState();
       scheduleFirebaseStatePush();
       showOverlay("구간 반복 초기화", 900);
+    }
+
+
+    function clearABEndHoldTimer(){
+      if (abEndHoldTimer){
+        clearTimeout(abEndHoldTimer);
+        abEndHoldTimer = null;
+      }
+    }
+
+    function bindABEndLongPress(){
+      const btn = els.abEndBtn;
+      if (!btn) return;
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        abEndHoldTriggered = false;
+        clearABEndHoldTimer();
+        abEndHoldTimer = setTimeout(() => {
+          abEndHoldTriggered = true;
+          clearABEndHoldTimer();
+          rememberUndoSnapshot();
+          clearABLoop();
+        }, 650);
+      });
+      const finish = (e) => {
+        e.preventDefault();
+        const wasHold = abEndHoldTriggered;
+        clearABEndHoldTimer();
+        if (!wasHold){
+          rememberUndoSnapshot();
+          setABEnd();
+        }
+        abEndHoldTriggered = false;
+      };
+      btn.addEventListener("pointerup", finish);
+      btn.addEventListener("pointercancel", () => {
+        clearABEndHoldTimer();
+        abEndHoldTriggered = false;
+      });
+      btn.addEventListener("pointerleave", () => {
+        clearABEndHoldTimer();
+      });
+      btn.addEventListener("click", (e) => e.preventDefault());
     }
 
     async function captureCurrentStage(){
@@ -5243,7 +5330,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           <div class="selection-panel" data-role="selection-wrap">
             <div class="selection-top">
               <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
-              <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">선택학습 시작</button>
+              <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">${selectionModeActive ? "선택학습 해제" : "선택학습 시작"}</button>
               <button data-role="selection-clear-all" class="icon-btn" style="height:40px;">전체삭제</button>
             </div>
 
@@ -5259,7 +5346,6 @@ ${getSelectionEntries().length}개 항목`, 1200);
                   return `<option value="${escapeHtml(name)}" ${name === selectedPresetName ? "selected" : ""}>${escapeHtml(name)}</option>`;
                 }).join("")}
               </select>
-              <button data-role="preset-load" class="icon-btn" style="height:38px;">불러오기</button>
               <button data-role="preset-rename" class="icon-btn" style="height:38px;">이름변경</button>
               <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
             </div>
@@ -5336,7 +5422,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           </section>
 
           <section class="section">
-            <h3>수정</h3>
+            <h3>노트</h3>
             <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
           </section>
         `;
@@ -5389,7 +5475,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         </section>
 
         <section class="section">
-          <h3>수정</h3>
+          <h3>노트</h3>
           <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
         </section>
       `;
@@ -5405,7 +5491,6 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const presetNameInput = container.querySelector('[data-role="preset-name"]');
       const presetSelect = container.querySelector('[data-role="preset-select"]');
       const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
-      const presetLoadBtn = container.querySelector('[data-role="preset-load"]');
       const presetRenameBtn = container.querySelector('[data-role="preset-rename"]');
       const presetDeleteBtn = container.querySelector('[data-role="preset-delete"]');
       const lockSelectionUi = (ms = 3000) => {
@@ -5528,12 +5613,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
         ["focus","mousedown","click","keydown"].forEach(evt => {
           presetSelect.addEventListener(evt, () => lockSelectionUi(12000));
         });
-        presetSelect.addEventListener("change", () => {
+        presetSelect.addEventListener("change", async () => {
           lockSelectionUi(12000);
           selectedPresetName = presetSelect.value;
           if (selectedPresetName) presetNameValue = selectedPresetName;
-          saveState();
-          renderInfo();
+          await saveState();
+          if (selectedPresetName){
+            await loadSelectedPreset();
+          } else {
+            renderInfo();
+          }
         });
       }
 
@@ -5541,9 +5630,6 @@ ${getSelectionEntries().length}개 항목`, 1200);
         presetSaveBtn.addEventListener("click", saveCurrentSelectionPreset);
       }
 
-      if (presetLoadBtn){
-        presetLoadBtn.addEventListener("click", loadSelectedPreset);
-      }
 
       if (presetRenameBtn){
         presetRenameBtn.addEventListener("click", renameSelectedPreset);
@@ -5605,7 +5691,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       els.selectionModeBtn.classList.toggle("active", selectionModeActive);
-      els.selectionExitBtn.style.display = selectionModeActive ? "inline-flex" : "none";
+      if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
 
       let selector = "";
       if (keepPresetInput) selector = '[data-role="preset-name"]';
@@ -5658,11 +5744,15 @@ ${getSelectionEntries().length}개 항목`, 1200);
         lastVariantHintGroupId = "";
         return;
       }
-      if (!force && lastVariantHintGroupId === group.id) return;
-      lastVariantHintGroupId = group.id;
-      if (groupHasVariantAssets(group)){
-        showOverlay("변이형 있음", 500);
-      }
+      const entityKey = getCurrentEntityKey();
+      const hintKey = `${group.id}::${entityKey}`;
+      if (!force && lastVariantHintGroupId === hintKey) return;
+      lastVariantHintGroupId = hintKey;
+      const messages = [];
+      if (groupHasVariantAssets(group)) messages.push("변이형 영상 있음");
+      if (entityKey && !!safe((notesByKey || {})[entityKey])) messages.push("노트 작성기록 있음");
+      if (messages.length) showOverlay(messages.join("
+"), 500);
     }
 
     function forceVariantHintPopup(){
@@ -5945,13 +6035,12 @@ ${multiSelectedSearchItems.length}개`, 1000);
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "a"){ e.preventDefault(); triggerMode("A"); return; }
-      if (key === "z"){ e.preventDefault(); triggerMode("Z"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
       if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
       if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
       if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
       if (key === "u"){ e.preventDefault(); loadSelectedPreset(); return; }
-      if (key === "y"){ e.preventDefault(); if (selectionModeActive) stopSelectionMode(); else startSelectionMode(); return; }
+      if (key === "y"){ e.preventDefault(); startSelectionMode(); return; }
       if (e.code === "Backquote" && e.shiftKey){ e.preventDefault(); toggleFirebaseLiveSync(); return; }
       if (e.code === "Backquote"){ e.preventDefault(); reconnectFirebaseRoom(); return; }
       if (e.key === "?" && e.shiftKey){ e.preventDefault(); toggleHelpModal(); return; }
@@ -5990,7 +6079,14 @@ ${multiSelectedSearchItems.length}개`, 1000);
 
       if (e.code === "BracketRight"){
         e.preventDefault();
-        setABEnd();
+        if (bracketRightHoldTimer) return;
+        bracketRightHoldTriggered = false;
+        bracketRightHoldTimer = setTimeout(() => {
+          bracketRightHoldTriggered = true;
+          bracketRightHoldTimer = null;
+          rememberUndoSnapshot();
+          clearABLoop();
+        }, 650);
         return;
       }
 
@@ -6005,6 +6101,19 @@ ${multiSelectedSearchItems.length}개`, 1000);
         if (els.noteModal?.classList.contains("open")){ closeNoteModal(); return; }
         closeMobileSheet();
       }
+    }
+
+    function handleGlobalKeyup(e){
+      if (e.code !== "BracketRight") return;
+      if (bracketRightHoldTimer){
+        clearTimeout(bracketRightHoldTimer);
+        bracketRightHoldTimer = null;
+        if (!bracketRightHoldTriggered){
+          rememberUndoSnapshot();
+          setABEnd();
+        }
+      }
+      bracketRightHoldTriggered = false;
     }
 
     function bindEvents(){
@@ -6126,6 +6235,7 @@ ${multiSelectedSearchItems.length}개`, 1000);
 
       els.searchScopeSelect.addEventListener("change", () => {
         rememberUndoSnapshot();
+        syncSearchModeWithScope();
         clearSelectedSearchPick();
         clearMultiSelectedSearch();
         searchFocusedIndex = -1;
@@ -6146,9 +6256,10 @@ ${multiSelectedSearchItems.length}개`, 1000);
 
       if (els.searchScopeQuickBtn){
         els.searchScopeQuickBtn.addEventListener("click", () => {
-          const scopes = ["word", "example", "all"];
+          const scopes = ["word", "example", "all", "id"];
           const idx = scopes.indexOf(getSearchScope());
           els.searchScopeSelect.value = scopes[(idx + 1) % scopes.length];
+          syncSearchModeWithScope();
           searchFocusedIndex = -1;
           suggestionCacheKey = "";
           updateSearchPlaceholder();
@@ -6242,11 +6353,11 @@ ${multiSelectedSearchItems.length}개`, 1000);
       });
       els.zoomResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); resetImageZoom(); });
       els.abStartBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABStart(); });
-      els.abEndBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABEnd(); });
-      els.abResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); clearABLoop(); });
+      bindABEndLongPress();
       els.rotateHotspot?.addEventListener("click", (e) => { e.preventDefault(); handleRotateHotspot(); });
 
       document.addEventListener("keydown", handleGlobalKeydown);
+      document.addEventListener("keyup", handleGlobalKeyup);
 
       els.mobileInfoBtn.addEventListener("click", () => openMobileSheet("info"));
       els.mobileSheetClose.addEventListener("click", closeMobileSheet);
@@ -6268,7 +6379,7 @@ ${multiSelectedSearchItems.length}개`, 1000);
       });
 
       els.selectionModeBtn.addEventListener("click", startSelectionMode);
-      els.selectionExitBtn.addEventListener("click", stopSelectionMode);
+      // 선택학습 종료는 선택학습 버튼 재클릭으로 처리
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
       updateExactMatchButton();
@@ -6339,6 +6450,12 @@ ${multiSelectedSearchItems.length}개`, 1000);
         if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy)){
           if (dx < 0) goNext(getShouldAutoplay());
           else goPrev(getShouldAutoplay());
+          return;
+        }
+
+        if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx)){
+          if (dy < 0) undoLastAction();
+          else redoLastAction();
         }
       }, {passive:true});
 
