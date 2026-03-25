@@ -596,7 +596,7 @@
     .info-scroll{
       flex:1;
       overflow:auto;
-      padding:18px 18px 14px;
+      padding:14px 14px 10px;
       -webkit-overflow-scrolling:touch;
     }
 
@@ -613,7 +613,7 @@
       align-items:flex-start;
       gap:10px;
       justify-content:space-between;
-      margin-bottom:10px;
+      margin-bottom:8px;
     }
 
     .word{
@@ -644,25 +644,43 @@
     }
 
     .section{
-      margin-top:14px;
-      padding:14px;
+      margin-top:10px;
+      padding:12px;
       border-radius:16px;
       background:var(--panel);
       border:1px solid var(--line);
     }
 
+    .section:first-of-type{
+      margin-top:0;
+    }
+
     .section h3{
-      margin:0 0 10px;
+      margin:0 0 8px;
       font-size:15px;
       color:#cfe0ff;
     }
 
     .section .content{
       font-size:15px;
-      line-height:1.7;
+      line-height:1.55;
       color:#f4f7ff;
       word-break:keep-all;
       white-space:pre-wrap;
+    }
+
+    .status-list{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .selection-toggle-btn{
+      margin-left:auto;
+    }
+
+    .selection-panel.is-collapsed .selection-body{
+      display:none;
     }
 
     .selection-panel{
@@ -752,6 +770,9 @@
       flex-wrap:wrap;
       gap:8px;
       min-height:22px;
+      max-height:180px;
+      overflow:auto;
+      padding-right:2px;
     }
 
     .chip{
@@ -1303,7 +1324,7 @@
 
     <main class="main">
       <section class="card viewer">
-        <div id="stage" class="stage">
+        <div id="stage" class="stage" tabindex="0">
           <video id="mainVideo" controls playsinline preload="metadata"></video>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
@@ -1345,7 +1366,7 @@
 
       <div class="mode-group">
         <!-- 버튼 순서를 Q W E G / A S D R 로 재배열 -->
-        <button class="mode-btn active" data-mode="Q" title="표제어 텍스트">Q</button>
+        <button class="mode-btn active" data-mode="Q" title="표제어 / 뜻풀이 전환">Q</button>
         <button class="mode-btn" data-mode="W" title="표제어 영상">W</button>
         <button class="mode-btn" data-mode="E" title="표제어 수어문자">E</button>
         <button class="mode-btn" data-mode="G" title="표제어 수형그림">G</button>
@@ -1559,6 +1580,7 @@
     let firebaseBootstrapRemoteExists = false;
     let presetNameValue = "";
     let selectedPresetName = "";
+    let selectionPanelCollapsed = false;
     let selectionUndoStack = [];
     let selectionRedoStack = [];
     let lastViewedExampleToken = "";
@@ -2591,29 +2613,83 @@
       await idbSet(`${CACHE_KEYS.NOTES}:${syncRoomKey}`, notesByKey);
     }
 
+    function buildGroupNoteKey(groupId){
+      const id = safe(groupId);
+      return id ? `group:${id}` : "";
+    }
+
+    function extractLegacyExampleGroupId(noteKey){
+      const raw = safe(noteKey);
+      if (!raw.startsWith("example:")) return "";
+      const body = raw.slice("example:".length);
+      const pipeIndex = body.indexOf("|");
+      return safe(pipeIndex >= 0 ? body.slice(0, pipeIndex) : body);
+    }
+
+    function mergeNoteText(baseText, extraText){
+      const base = safe(baseText);
+      const extra = safe(extraText);
+      if (!base) return extra;
+      if (!extra) return base;
+      if (base === extra) return base;
+      const parts = [];
+      const seen = new Set();
+      [base, extra].forEach(block => {
+        if (!block) return;
+        if (seen.has(block)) return;
+        seen.add(block);
+        parts.push(block);
+      });
+      return parts.join("\n\n");
+    }
+
+    function migrateLegacyExampleNotes(){
+      if (!notesByKey || typeof notesByKey !== "object") return false;
+      let changed = false;
+      const grouped = new Map();
+
+      Object.entries(notesByKey).forEach(([key, value]) => {
+        const noteText = safe(value);
+        if (!noteText) return;
+        const legacyGroupId = extractLegacyExampleGroupId(key);
+        if (!legacyGroupId) return;
+        const groupKey = buildGroupNoteKey(legacyGroupId);
+        grouped.set(groupKey, mergeNoteText(grouped.get(groupKey) || "", noteText));
+        delete notesByKey[key];
+        changed = true;
+      });
+
+      grouped.forEach((noteText, groupKey) => {
+        const merged = mergeNoteText(notesByKey[groupKey] || "", noteText);
+        if (merged !== safe(notesByKey[groupKey] || "")){
+          notesByKey[groupKey] = merged;
+          changed = true;
+        }
+      });
+
+      return changed;
+    }
+
     async function loadNotesCache(){
       notesByKey = (await idbGet(`${CACHE_KEYS.NOTES}:${syncRoomKey}`)) || (await idbGet(CACHE_KEYS.NOTES)) || {};
+      if (migrateLegacyExampleNotes()){
+        await saveNotesCache();
+      }
       updateNoteButtons();
     }
 
     function getCurrentEntityKey(){
-      if (isExampleMode()){
-        const item = getCurrentPoolItem();
-        if (!item) return "";
-        return `example:${makeExampleShuffleKey(item)}`;
-      }
+      const currentItem = getCurrentPoolItem();
       const group = getCurrentGroup();
-      if (!group) return "";
-      return `group:${group.id}`;
+      const groupId = safe(currentItem?.groupId || group?.id || "");
+      return buildGroupNoteKey(groupId);
     }
 
     function getCurrentEntityLabel(){
-      if (isExampleMode()){
-        const item = getCurrentPoolItem();
-        return item ? `${item.word} · 용례` : "용례";
-      }
+      const currentItem = getCurrentPoolItem();
       const group = getCurrentGroup();
-      return group ? `${group.word} · 표제어` : "표제어";
+      const word = safe(group?.word || currentItem?.word || "");
+      return word ? `${word} · 공통 노트` : "공통 노트";
     }
 
     function updateUndoButton(){
@@ -2677,7 +2753,7 @@
       await applyFilter();
       currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
       currentPoolIndex = clamp(snap.currentPoolIndex || 0, 0, Math.max(0, filteredExamplePool.length - 1));
-      els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+      updateModeButtons(currentMode);
       applyVideoLoopState();
       updatePlaybackButton();
       render(false);
@@ -2711,12 +2787,23 @@
       await applyFilter();
       currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
       currentPoolIndex = clamp(snap.currentPoolIndex || 0, 0, Math.max(0, filteredExamplePool.length - 1));
-      els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+      updateModeButtons(currentMode);
       applyVideoLoopState();
       updatePlaybackButton();
       render(false);
       await saveState();
       showOverlay("다시 실행 완료", 900);
+    }
+
+    function getVisibleModeButton(mode = currentMode){
+      return mode === "Z" ? "Q" : mode;
+    }
+
+    function updateModeButtons(mode = currentMode){
+      const activeMode = getVisibleModeButton(mode);
+      els.modeBtns.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === activeMode);
+      });
     }
 
     function updateNoteButtons(){
@@ -2748,6 +2835,9 @@
       if (!els.noteModal) return;
       els.noteModal.classList.remove("open");
       els.noteModal.setAttribute("aria-hidden", "true");
+      if (document.fullscreenElement && els.stage){
+        setTimeout(() => els.stage.focus?.(), 0);
+      }
     }
 
     async function saveCurrentNote(){
@@ -2949,6 +3039,7 @@ async function saveState(){
       }
       if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
       if (typeof state.selectedPresetName === "string") selectedPresetName = state.selectedPresetName;
+      if (typeof state.selectionPanelCollapsed === "boolean") selectionPanelCollapsed = state.selectionPanelCollapsed;
       if (typeof state.currentVideoTime === "number") currentVideoTime = state.currentVideoTime;
       if (typeof state.abLoopStart === "number" || state.abLoopStart === null) abLoopStart = state.abLoopStart;
       if (typeof state.abLoopEnd === "number" || state.abLoopEnd === null) abLoopEnd = state.abLoopEnd;
@@ -3162,6 +3253,7 @@ async function saveState(){
       selectionPresets = snap.selectionPresets && typeof snap.selectionPresets === 'object' ? JSON.parse(JSON.stringify(snap.selectionPresets)) : {};
       selectedPresetName = safe(snap.selectedPresetName);
       presetNameValue = safe(snap.presetNameValue);
+      selectionPanelCollapsed = !!snap.selectionPanelCollapsed;
       selectionModeActive = !!snap.selectionModeActive && selectedGroupIds.length > 0;
       await saveSelectionPresets();
       await applyFilter({save:false});
@@ -3496,11 +3588,14 @@ function getSearchScope(){
 
     async function triggerMode(mode){
       const prevMode = currentMode;
+      if (mode === "Q"){
+        resetWordAssetState();
+        const nextMode = currentMode === "Q" ? "Z" : "Q";
+        await setMode(nextMode);
+        return;
+      }
+
       if (mode === currentMode){
-        if (mode === "Q"){
-          showDefinitionPopup();
-          return;
-        }
         if (mode === "W" || mode === "E"){
           await cycleCurrentWordAsset(mode);
           return;
@@ -4016,7 +4111,7 @@ function buildHelpText(){
   return [
     "단축키 도움말",
     "",
-    "Q 표제어 텍스트",
+    "Q 표제어 ↔ 뜻풀이",
     "W 표제어 영상 / 반복 시 변이형 순환",
     "E 표제어 수어문자 / 반복 시 변이형 순환",
     "G 표제어 수형그림",
@@ -4192,6 +4287,7 @@ function buildStatePayload(){
     sourceName: currentSourceName,
     presetNameValue,
     selectedPresetName,
+    selectionPanelCollapsed,
     currentVideoTime,
     abLoopStart,
     abLoopEnd,
@@ -4672,7 +4768,7 @@ async function initFirebaseSync(){
           if (!isExampleMode()) currentMode = "D";
         }
       }
-      els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === currentMode));
+      updateModeButtons(currentMode);
     }
 
     function renderSearchSuggestions(){
@@ -4988,7 +5084,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         if (isExampleMode(currentMode) && !filteredExamplePool.length && filteredGroups.length){
           currentMode = "Q";
           els.modeBtns.forEach(btn => {
-            btn.classList.toggle("active", btn.dataset.mode === currentMode);
+            btn.classList.toggle("active", btn.dataset.mode === getVisibleModeButton(currentMode));
           });
           render(false);
         }
@@ -5028,7 +5124,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       currentMode = mode;
       els.modeBtns.forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.mode === mode);
+        btn.classList.toggle("active", btn.dataset.mode === getVisibleModeButton(mode));
       });
 
       if (!prevWasExample && nextIsExample){
@@ -5424,34 +5520,37 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return `
         <section class="section">
           <h3>선택학습</h3>
-          <div class="selection-panel" data-role="selection-wrap">
+          <div class="selection-panel ${selectionPanelCollapsed ? "is-collapsed" : ""}" data-role="selection-wrap">
             <div class="selection-top">
               <button data-role="selection-add-current" class="icon-btn" style="height:40px;">현재추가</button>
               <button data-role="selection-start" class="select-btn ${selectionModeActive ? "active" : ""}" style="height:40px;">${selectionModeActive ? "선택학습 해제" : "선택학습 시작"}</button>
               <button data-role="selection-clear-all" class="icon-btn" style="height:40px;">전체삭제</button>
+              <button data-role="selection-toggle" class="icon-btn selection-toggle-btn" style="height:40px;">${selectionPanelCollapsed ? "보이기" : "숨기기"}</button>
             </div>
 
-            <div class="preset-row">
-              <input class="preset-input" data-role="preset-name" type="text" placeholder="목록 이름" value="${escapeHtml(presetNameValue)}" />
-              <button data-role="preset-save" class="icon-btn" style="height:38px;">목록저장</button>
-            </div>
+            <div class="selection-body">
+              <div class="preset-row">
+                <input class="preset-input" data-role="preset-name" type="text" placeholder="목록 이름" value="${escapeHtml(presetNameValue)}" />
+                <button data-role="preset-save" class="icon-btn" style="height:38px;">목록저장</button>
+              </div>
 
-            <div class="preset-row">
-              <select class="preset-select" data-role="preset-select">
-                <option value="">저장된 목록 선택</option>
-                ${presetNames.map(name => {
-                  return `<option value="${escapeHtml(name)}" ${name === selectedPresetName ? "selected" : ""}>${escapeHtml(name)}</option>`;
-                }).join("")}
-              </select>
-              <button data-role="preset-rename" class="icon-btn" style="height:38px;">이름변경</button>
-              <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
-            </div>
+              <div class="preset-row">
+                <select class="preset-select" data-role="preset-select">
+                  <option value="">저장된 목록 선택</option>
+                  ${presetNames.map(name => {
+                    return `<option value="${escapeHtml(name)}" ${name === selectedPresetName ? "selected" : ""}>${escapeHtml(name)}</option>`;
+                  }).join("")}
+                </select>
+                <button data-role="preset-rename" class="icon-btn" style="height:38px;">이름변경</button>
+                <button data-role="preset-delete" class="icon-btn" style="height:38px;">삭제</button>
+              </div>
 
-            <div class="content">표제어를 넣으면 해당 표제어의 전체 용례를, 용례 상태에서 현재추가를 누르면 선택한 그 용례만 따로 학습합니다.</div>
-            <div class="selected-chips">
-              ${selectedObjects.length ? selectedObjects.map(obj => {
-                return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(obj.label)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
-              }).join("") : `<span class="pill">선택된 항목 없음</span>`}
+              <div class="content">표제어를 넣으면 해당 표제어의 전체 용례를, 용례 상태에서 현재추가를 누르면 선택한 그 용례만 따로 학습합니다.</div>
+              <div class="selected-chips">
+                ${selectedObjects.length ? selectedObjects.map(obj => {
+                  return `<span class="chip" data-chip-remove="${escapeHtml(obj.id)}" role="button" tabindex="0" title="터치/클릭으로 삭제">${escapeHtml(obj.label)}<button type="button" data-remove-id="${escapeHtml(obj.id)}">×</button></span>`;
+                }).join("") : `<span class="pill">선택된 항목 없음</span>`}
+              </div>
             </div>
           </div>
         </section>
@@ -5557,12 +5656,12 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
         <section class="section">
           <h3>자료 현황</h3>
-          <div class="content">
+          <div class="content status-list">
             ${group.wordVideo ? `<div>표제어 영상 있음</div>` : `<div>표제어 영상 없음</div>`}
-            ${group.wordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : `<div style="margin-top:8px;">표제어 수어문자 없음</div>`}
-            ${(group.handShapeImages || []).length ? `<div style="margin-top:8px;">표제어 수형그림 ${(group.handShapeImages || []).length}장</div>` : `<div style="margin-top:8px;">표제어 수형그림 없음</div>`}
-            <div style="margin-top:8px;">변이형 수: ${getEffectiveVariants(group).length}</div>
-            <div style="margin-top:8px;">용례 수: ${group.examples.length}</div>
+            ${group.wordSignImage ? `<div>표제어 수어문자 있음</div>` : `<div>표제어 수어문자 없음</div>`}
+            ${(group.handShapeImages || []).length ? `<div>표제어 수형그림 ${(group.handShapeImages || []).length}장</div>` : `<div>표제어 수형그림 없음</div>`}
+            <div>변이형 수: ${getEffectiveVariants(group).length}</div>
+            <div>용례 수: ${group.examples.length}</div>
           </div>
         </section>
 
@@ -5585,6 +5684,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const selectionAddCurrentBtn = container.querySelector('[data-role="selection-add-current"]');
       const selectionStartBtn = container.querySelector('[data-role="selection-start"]');
       const selectionClearAllBtn = container.querySelector('[data-role="selection-clear-all"]');
+      const selectionToggleBtn = container.querySelector('[data-role="selection-toggle"]');
       const presetNameInput = container.querySelector('[data-role="preset-name"]');
       const presetSelect = container.querySelector('[data-role="preset-select"]');
       const presetSaveBtn = container.querySelector('[data-role="preset-save"]');
@@ -5693,6 +5793,14 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       if (selectionClearAllBtn){
         selectionClearAllBtn.addEventListener("click", clearCurrentSelectionEntries);
+      }
+
+      if (selectionToggleBtn){
+        selectionToggleBtn.addEventListener("click", async () => {
+          selectionPanelCollapsed = !selectionPanelCollapsed;
+          await saveState();
+          renderInfo();
+        });
       }
 
       if (presetNameInput){
@@ -6104,7 +6212,27 @@ ${multiSelectedSearchItems.length}개`, 1000);
     }
 
     function handleGlobalKeydown(e){
+      if (e.defaultPrevented) return;
       const key = e.key.toLowerCase();
+
+      if (e.key === "Escape"){
+        if (els.helpModal?.classList.contains("open")){
+          e.preventDefault();
+          closeHelpModal();
+          return;
+        }
+        if (els.noteModal?.classList.contains("open")){
+          e.preventDefault();
+          closeNoteModal();
+          return;
+        }
+        if (els.mobileSheet?.classList.contains("open")){
+          e.preventDefault();
+          closeMobileSheet();
+          return;
+        }
+      }
+
       if (e.ctrlKey && key === 'z'){ e.preventDefault(); undoSelectionHistory(); return; }
       if (e.ctrlKey && key === 'y'){ e.preventDefault(); redoSelectionHistory(); return; }
       if (e.ctrlKey && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
@@ -6194,11 +6322,6 @@ ${multiSelectedSearchItems.length}개`, 1000);
         return;
       }
 
-      if (e.key === "Escape"){
-        if (els.helpModal?.classList.contains("open")){ closeHelpModal(); return; }
-        if (els.noteModal?.classList.contains("open")){ closeNoteModal(); return; }
-        closeMobileSheet();
-      }
     }
 
     function handleGlobalKeyup(e){
@@ -6460,8 +6583,8 @@ ${multiSelectedSearchItems.length}개`, 1000);
       bindABEndLongPress();
       els.rotateHotspot?.addEventListener("click", (e) => { e.preventDefault(); handleRotateHotspot(); });
 
-      document.addEventListener("keydown", handleGlobalKeydown);
-      document.addEventListener("keyup", handleGlobalKeyup);
+      window.addEventListener("keydown", handleGlobalKeydown, true);
+      window.addEventListener("keyup", handleGlobalKeyup, true);
 
       els.mobileInfoBtn.addEventListener("click", () => openMobileSheet("info"));
       els.mobileSheetClose.addEventListener("click", closeMobileSheet);
