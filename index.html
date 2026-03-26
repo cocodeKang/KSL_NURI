@@ -1335,9 +1335,8 @@
 
       <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
-        <label id="loadFileBtn" for="fileInput" class="icon-btn" title="파일 선택" tabindex="0" role="button">파일</label>
+        <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
-        <button id="exactMatchBtn" class="select-btn" title="부분검색/일치검색 전환">부분검색</button>
         <button id="searchIdBtn" class="select-btn" title="ID 검색 모드" style="display:none !important;">ID</button>
         <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none !important;">선택학습 종료</button>
@@ -1421,10 +1420,6 @@
         <button class="mode-btn" data-mode="D" title="용례 수어문자">D</button>
         <!-- R: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
-        <!-- 모바일/공용 보조 버튼 -->
-        <button id="zoomResetBtn" class="mode-btn" title="확대 초기화">0</button>
-        <button id="zoomFitBtn" class="mode-btn" title="화면 맞춤">F</button>
-        <button id="abResetBtn" class="mode-btn" title="구간 초기화">C</button>
         <!-- 구간 시작/종료 버튼은 데스크톱에서만 표시합니다 -->
         <button id="abStartBtn" class="mode-btn desktop-only" title="구간 시작">[</button>
         <button id="abEndBtn" class="mode-btn desktop-only" title="구간 종료">]</button>
@@ -1759,9 +1754,8 @@
     const FRAME_STEP = 1 / 30;
     const MAX_SELECTION_ITEMS = 50;
 
-    // 초기에 로컬 스토리지로부터 접속 코드 히스토리를 불러옵니다. syncRoomKey가
-    // 정의된 이후 호출하여 현재 방을 포함시킵니다.
-    loadRoomHistory();
+    // 주의: FIREBASE_ROOM_HISTORY_KEY가 아직 초기화되기 전에는 loadRoomHistory()를
+    // 호출하면 TDZ(Temporal Dead Zone) 오류가 발생할 수 있으므로, 선언 이후에 호출합니다.
 
     function fallbackKey(key){
       return `${LOCAL_FALLBACK_PREFIX}${key}`;
@@ -1843,6 +1837,9 @@
       if (roomHistory.length > 30) roomHistory = roomHistory.slice(0, 30);
       saveRoomHistory();
     }
+
+    // FIREBASE_ROOM_HISTORY_KEY와 loadRoomHistory 정의가 끝난 뒤 안전하게 초기화합니다.
+    loadRoomHistory();
 
     /**
      * 드롭다운 목록을 렌더링하고 표시합니다. 목록이 이미 열려 있으면 닫습니다.
@@ -4835,9 +4832,6 @@ async function reconnectFirebaseRoom(){
 
 async function initFirebaseSync(){
   try{
-    if (location.protocol === "file:"){
-      updateFirebaseStatus("로컬 실행 · 업로드 가능", "normal");
-    }
     if (firebaseApp && firebaseReady) return true;
     await ensureFirebaseSdk();
     firebaseApp = firebaseApp || initializeApp(firebaseConfig);
@@ -4858,9 +4852,7 @@ async function initFirebaseSync(){
     firebaseReady = false;
     firebaseUid = "";
     const message = String(err?.message || err || "");
-    const tone = location.protocol === "file:"
-      ? "로컬 파일 실행 중 · 배포 후 연결 권장"
-      : (/auth|login|permission|anonymous/i.test(message) ? "익명 로그인/권한 확인 필요" : "연결 실패");
+    const tone = /auth|login|permission|anonymous/i.test(message) ? "익명 로그인/권한 확인 필요" : "연결 실패";
     updateFirebaseStatus(tone, "error");
     showOverlay(`${tone}
 파일 기능은 계속 사용 가능`, 1500);
@@ -6473,9 +6465,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           await loadFromFileObject(file);
         } catch (err){
           console.error(err);
-          const msg = String(err?.message || err || "").trim();
-          showOverlay(`파일 처리 중 오류\n${msg || "알 수 없는 오류"}`, 2600);
-          els.statusText.textContent = msg ? `파일 오류: ${msg}` : "파일 처리 중 오류가 발생했습니다";
+          showOverlay("파일 처리 중 오류가 발생했습니다", 1800);
         }
       });
     }
@@ -6950,15 +6940,6 @@ ${multiSelectedSearchItems.length}개`, 1000);
           }
         } catch (_){
           els.fileInput.click();
-        }
-      });
-
-
-      els.loadFileBtn.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " "){
-          e.preventDefault();
-          if (typeof els.fileInput.showPicker === "function") els.fileInput.showPicker();
-          else els.fileInput.click();
         }
       });
 
