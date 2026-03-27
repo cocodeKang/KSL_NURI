@@ -1751,6 +1751,8 @@
     let bracketRightHoldTriggered = false;
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
+    let pendingRestoreGroupId = "";
+    let pendingRestoreExampleToken = "";
     const FRAME_STEP = 1 / 30;
     const MAX_SELECTION_ITEMS = 50;
 
@@ -3210,6 +3212,10 @@ async function saveState(){
       if (state.currentMode && MODES[state.currentMode]) currentMode = state.currentMode;
       if (typeof state.currentIndex === "number") currentIndex = state.currentIndex;
       if (typeof state.currentPoolIndex === "number") currentPoolIndex = state.currentPoolIndex;
+      pendingRestoreGroupId = safe(state.currentGroupId || "");
+      pendingRestoreExampleToken = safe(state.currentExampleToken || "");
+      if (typeof state.selectionResumeIndex === "number") selectionResumeIndex = Math.max(0, Number(state.selectionResumeIndex));
+      if (typeof state.selectionResumePoolIndex === "number") selectionResumePoolIndex = Math.max(0, Number(state.selectionResumePoolIndex));
       if (state.playbackMode && PLAYBACK_MODES.includes(state.playbackMode)) playbackMode = state.playbackMode;
       if (Array.isArray(state.selectedGroupIds)){
         selectedGroupIds = state.selectedGroupIds.slice(0, MAX_SELECTION_ITEMS).map(normalizeSelectionToken).filter(Boolean);
@@ -3960,8 +3966,10 @@ function getSearchScope(){
 
     async function applyFilter(options = {}){
       const { save = true } = options;
-      const previousGroupId = safe(getCurrentGroup()?.id || "");
-      const previousExampleToken = isExampleMode() ? makeExampleSelectionToken(getCurrentPoolItem()) : lastViewedExampleToken;
+      const previousGroupId = safe(pendingRestoreGroupId || getCurrentGroup()?.id || "");
+      const previousExampleToken = safe(pendingRestoreExampleToken || (isExampleMode() ? makeExampleSelectionToken(getCurrentPoolItem()) : lastViewedExampleToken));
+      pendingRestoreGroupId = "";
+      pendingRestoreExampleToken = "";
       const q = safe(els.searchInput.value).trim();
       const qId = searchIdMode ? q.replace(/\D+/g, "") : "";
       const qNorm = (!searchIdMode && q) ? normalizeHangulString(q.toLowerCase()).toLowerCase() : "";
@@ -4504,11 +4512,15 @@ function cloneSelectionPresetsForSync(){
 }
 
 function buildStatePayload(){
+  const currentGroup = getCurrentGroup();
+  const currentExample = getCurrentPoolItem();
   return {
     datasetFingerprint: currentDatasetFingerprint,
     currentMode,
     currentIndex,
     currentPoolIndex,
+    currentGroupId: safe(currentGroup?.id || ""),
+    currentExampleToken: currentExample ? makeExampleSelectionToken(currentExample) : "",
     playbackMode,
     categoryValue: els.categorySelect.value,
     searchValue: els.searchInput.value,
@@ -4517,6 +4529,8 @@ function buildStatePayload(){
     searchSelectedPick: selectedSearchPick,
     selectionModeActive,
     selectedGroupIds: getSelectionEntries(),
+    selectionResumeIndex,
+    selectionResumePoolIndex,
     selectionPresets: cloneSelectionPresetsForSync(),
     sourceName: currentSourceName,
     presetNameValue,
@@ -5319,16 +5333,17 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       const entries = getSelectionEntries();
       const hasExampleOnly = entries.length > 0 && entries.every(token => parseSelectionToken(token)?.type === "example");
       selectionModeActive = true;
-      // 이전 선택학습 중단 지점이 있으면 그 위치에서 다시 시작합니다.
+      // 이전 선택학습 중단 지점이 있으면 그 위치에서 다시 시작하고,
+      // 다른 기기에서 이어받은 상태가 있으면 현재 인덱스를 그대로 사용합니다.
       if (selectionResumeIndex !== null && selectionResumeIndex >= 0){
         currentIndex = clamp(selectionResumeIndex, 0, Math.max(0, filteredGroups.length - 1));
       } else {
-        currentIndex = 0;
+        currentIndex = clamp(Number(currentIndex || 0), 0, Math.max(0, filteredGroups.length - 1));
       }
       if (selectionResumePoolIndex !== null && selectionResumePoolIndex >= 0){
         currentPoolIndex = clamp(selectionResumePoolIndex, 0, Math.max(0, filteredExamplePool.length - 1));
       } else {
-        currentPoolIndex = 0;
+        currentPoolIndex = clamp(Number(currentPoolIndex || 0), 0, Math.max(0, filteredExamplePool.length - 1));
       }
       if (hasExampleOnly && !isExampleMode(currentMode)){
         currentMode = "D";
