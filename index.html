@@ -1176,10 +1176,13 @@
       }
 
       #zoomResetBtn,
-      #abStartBtn,
-      #abEndBtn,
       #abResetBtn{
         display:inline-flex !important;
+      }
+
+      #abStartBtn,
+      #abEndBtn{
+        display:none !important;
       }
 
       .mode-btn,
@@ -1193,13 +1196,12 @@
       .mode-btn[data-mode="W"]{ grid-column:2; grid-row:1; }
       .mode-btn[data-mode="E"]{ grid-column:3; grid-row:1; }
       .mode-btn[data-mode="G"]{ grid-column:4; grid-row:1; }
-      #abStartBtn{ grid-column:5; grid-row:1; }
+      .mode-btn[data-mode="Z"]{ grid-column:5; grid-row:1; }
       .mode-btn[data-mode="A"]{ grid-column:1; grid-row:2; }
       .mode-btn[data-mode="S"]{ grid-column:2; grid-row:2; }
       .mode-btn[data-mode="D"]{ grid-column:3; grid-row:2; }
       #shuffleBtn{ grid-column:4; grid-row:2; }
-      #abEndBtn{ grid-column:5; grid-row:2; }
-      .mode-btn[data-mode="Z"]{ grid-column:1; grid-row:3; }
+      .mode-btn[data-mode="X"]{ grid-column:5; grid-row:2; }
       #zoomResetBtn{ grid-column:2; grid-row:3; }
       #zoomFitBtn{ grid-column:3; grid-row:3; }
       #abResetBtn{ grid-column:4; grid-row:3; }
@@ -1714,7 +1716,7 @@
     let firebaseMetaUnsub = null;
     let firebaseConnectionUnsub = null;
     let syncRoomKey = sanitizeRoomKey(localStorage.getItem(FIREBASE_ROOM_STORAGE_KEY) || FIREBASE_DEFAULT_ROOM);
-    let liveSyncEnabled = localStorage.getItem(FIREBASE_LIVE_STORAGE_KEY) === "1";
+    let liveSyncEnabled = localStorage.getItem(FIREBASE_LIVE_STORAGE_KEY) !== "0";
     let remoteDatasetAvailable = false;
     let lastUploadedDatasetHash = "";
     let lastAppliedRemoteDatasetVersion = "";
@@ -2795,10 +2797,11 @@
 
     async function saveSelectionPresets(){
       await idbSet(CACHE_KEYS.PRESETS, selectionPresets);
+      await idbSet(`${CACHE_KEYS.PRESETS}:${syncRoomKey}`, selectionPresets);
     }
 
     async function loadSelectionPresets(){
-      selectionPresets = (await idbGet(CACHE_KEYS.PRESETS)) || {};
+      selectionPresets = (await idbGet(`${CACHE_KEYS.PRESETS}:${syncRoomKey}`)) || (await idbGet(CACHE_KEYS.PRESETS)) || {};
     }
 
     async function saveNotesCache(){
@@ -3231,6 +3234,7 @@ async function saveState(){
           safe(name).slice(0, 80),
           Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS).map(v => normalizeSelectionToken(v)).filter(Boolean) : []
         ]));
+        saveSelectionPresets().catch(() => {});
       }
       if (typeof state.presetNameValue === "string") presetNameValue = state.presetNameValue;
       if (typeof state.selectedPresetName === "string") selectedPresetName = state.selectedPresetName;
@@ -4583,6 +4587,15 @@ async function flushPendingFirebaseStatePush(payload = null){
   }
 }
 
+
+async function flushSelectionSyncNow(){
+  if (!firebaseReady || !firebasePushEnabled || firebaseBootstrapping) return false;
+  const payload = buildStatePayload();
+  scheduleFirebaseStatePush(payload, true);
+  await flushPendingFirebaseStatePush(payload);
+  return true;
+}
+
 async function pushStateToFirebase(payload = null){
   if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return false;
   if (!firebaseBootstrapChecked) return false;
@@ -4815,6 +4828,10 @@ async function reconnectFirebaseRoom(){
   pendingRemoteStateEnvelope = null;
   firebaseBootstrapChecked = false;
   firebaseBootstrapRemoteExists = false;
+
+  await Promise.allSettled([loadSelectionPresets(), loadNotesCache()]);
+  renderInfo();
+  render(false);
 
   remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 2200);
   if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
@@ -5087,6 +5104,7 @@ async function initFirebaseSync(){
       selectionFocusedIndex = -1;
       renderInfo();
       saveState();
+      Promise.resolve().then(() => flushSelectionSyncNow()).catch(() => {});
       Promise.resolve().then(() => persistCurrentSelectionToActivePreset("auto")).catch(() => {});
       return true;
     }
@@ -5262,6 +5280,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       pendingRemoteStateEnvelope = null;
       renderInfo();
       await saveState();
+      await flushSelectionSyncNow();
       showOverlay(`선택학습 목록 불러오기 완료\n${name}`, 1200);
     }
 
@@ -5336,6 +5355,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
         showOverlay(`선택학습 시작
 ${getSelectionEntries().length}개 항목`, 1200);
         saveState();
+        flushSelectionSyncNow().catch(() => {});
       });
     }
 
@@ -5349,6 +5369,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       applyFilter();
       showOverlay("선택학습 종료", 1000);
       saveState();
+      flushSelectionSyncNow().catch(() => {});
     }
 
     async function cyclePlaybackMode(){
@@ -6482,19 +6503,26 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
     function handleSearchKeydown(e){
       const items = getSearchSuggestions();
-      if (!items.length) return;
 
       if (e.key === "ArrowDown"){
+        if (!items.length) return;
         e.preventDefault();
         searchFocusedIndex = Math.min(searchFocusedIndex + 1, items.length - 1);
         requestRenderSearchSuggestions();
         previewSuggestionItem(items[searchFocusedIndex]);
-      } else if (e.key === "ArrowUp"){
+        return;
+      }
+
+      if (e.key === "ArrowUp"){
+        if (!items.length) return;
         e.preventDefault();
         searchFocusedIndex = Math.max(searchFocusedIndex - 1, 0);
         requestRenderSearchSuggestions();
         previewSuggestionItem(items[searchFocusedIndex]);
-      } else if (e.key === "Enter"){
+        return;
+      }
+
+      if (e.key === "Enter"){
         e.preventDefault();
         if (hasActiveMultiSearchSelection()){
           clearSelectedSearchPick();
@@ -6503,11 +6531,23 @@ ${getSelectionEntries().length}개 항목`, 1200);
           applyFilter();
           showOverlay(`다중 선택 적용
 ${multiSelectedSearchItems.length}개`, 1000);
-          return;
+        } else {
+          const item = items[Math.max(searchFocusedIndex, 0)];
+          if (item){
+            applySuggestionPick(item);
+          } else {
+            els.searchSuggestions.classList.remove("open");
+            restoreSearchPreview();
+            applyFilter();
+          }
         }
-        const item = items[Math.max(searchFocusedIndex, 0)];
-        if (item) applySuggestionPick(item);
-      } else if (e.key === "Escape"){
+        requestAnimationFrame(() => {
+          try { els.searchInput.blur(); } catch {}
+        });
+        return;
+      }
+
+      if (e.key === "Escape"){
         els.searchSuggestions.classList.remove("open");
         restoreSearchPreview();
         clearMultiSelectedSearch();
