@@ -1713,6 +1713,7 @@
     let firebaseUid = "";
     let firebaseReady = false;
     let firebaseStateUnsub = null;
+    let firebaseSelectionUnsub = null;
     let firebaseMetaUnsub = null;
     let firebaseConnectionUnsub = null;
     let syncRoomKey = sanitizeRoomKey(localStorage.getItem(FIREBASE_ROOM_STORAGE_KEY) || FIREBASE_DEFAULT_ROOM);
@@ -1722,6 +1723,8 @@
     let lastAppliedRemoteDatasetVersion = "";
     let lastPushedStateSignature = "";
     let lastAppliedRemoteStateSignature = "";
+    let lastPushedSelectionSignature = "";
+    let lastAppliedSelectionSignature = "";
     let pendingFirebaseStateTimer = null;
     let pendingFirebaseDatasetTimer = null;
     let pendingFirebaseStatePromise = null;
@@ -1733,7 +1736,9 @@
     let firebaseOfflineStatusTimer = null;
     let currentDatasetFingerprint = "";
     let pendingRemoteStateEnvelope = null;
+    let pendingRemoteSelectionEnvelope = null;
     let hasRemoteStateInRoom = false;
+    let hasRemoteSelectionInRoom = false;
     let lastRemoteAppliedUpdatedAt = 0;
     let lastVariantHintGroupId = "";
     let lastLocalStateSavedAt = 0;
@@ -3094,6 +3099,7 @@ async function saveState(){
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
   if (!isApplyingRemoteState && firebasePushEnabled && !firebaseBootstrapping && Date.now() >= remotePullCooldownUntil){
     scheduleFirebaseStatePush(payload, !!liveSyncEnabled);
+    Promise.resolve().then(() => flushSelectionStateToFirebase()).catch(err => console.warn("선택학습 목록 저장 실패", err));
   }
 }
 
@@ -4413,6 +4419,10 @@ function roomDocRef(room = syncRoomKey){
   return doc(firebaseDb, "learningSync", room);
 }
 
+function selectionDocRef(room = syncRoomKey){
+  return doc(firebaseDb, "learningSync", room, "shared", "selection");
+}
+
 function makeDataHash(text){
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++){
@@ -4553,6 +4563,140 @@ function buildSyncEnvelope(payload = null){
   };
 }
 
+function buildSelectionSyncPayload(){
+  return {
+    datasetFingerprint: currentDatasetFingerprint || "",
+    sourceName: currentSourceName || "",
+    selectedGroupIds: getSelectionEntries(),
+    selectionPresets: cloneSelectionPresetsForSync(),
+    selectionModeActive: !!selectionModeActive,
+    selectedPresetName: safe(selectedPresetName),
+    presetNameValue: safe(presetNameValue),
+    selectionPanelCollapsed: !!selectionPanelCollapsed,
+    localSavedAt: Date.now()
+  };
+}
+
+function buildSelectionSyncEnvelope(payload = null){
+  const selectionPayload = payload || buildSelectionSyncPayload();
+  return {
+    updatedAtClient: Date.now(),
+    updatedAt: serverTimestamp(),
+    updatedBy: firebaseUid || "",
+    room: syncRoomKey,
+    datasetFingerprint: selectionPayload.datasetFingerprint || currentDatasetFingerprint || "",
+    payload: selectionPayload
+  };
+}
+
+function getSelectionSyncSignature(payload = null){
+  const base = payload || buildSelectionSyncPayload();
+  return JSON.stringify({
+    room: syncRoomKey,
+    fp: safe(base.datasetFingerprint || currentDatasetFingerprint || ""),
+    selectedGroupIds: Array.isArray(base.selectedGroupIds) ? base.selectedGroupIds.slice(0, MAX_SELECTION_ITEMS) : [],
+    selectionPresets: base.selectionPresets || {},
+    selectionModeActive: !!base.selectionModeActive,
+    selectedPresetName: safe(base.selectedPresetName),
+    presetNameValue: safe(base.presetNameValue),
+    selectionPanelCollapsed: !!base.selectionPanelCollapsed
+  });
+}
+
+async function pushSelectionStateToFirebase(payload = null){
+  if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState || firebaseBootstrapping) return false;
+  if (!firebaseBootstrapChecked) return false;
+  const selectionPayload = payload || buildSelectionSyncPayload();
+  const signature = getSelectionSyncSignature(selectionPayload);
+  if (signature === lastPushedSelectionSignature) return false;
+  await setDoc(selectionDocRef(), buildSelectionSyncEnvelope(selectionPayload));
+  lastPushedSelectionSignature = signature;
+  lastAppliedSelectionSignature = signature;
+  hasRemoteSelectionInRoom = true;
+  return true;
+}
+
+async function flushSelectionStateToFirebase(payload = null){
+  const selectionPayload = payload || buildSelectionSyncPayload();
+  const pushed = await pushSelectionStateToFirebase(selectionPayload);
+  if (pushed) updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  return pushed;
+}
+
+async function loadInitialSelectionSnapshot(options = {}){
+  const { silent = false, forceRemote = false } = options;
+  if (!firebaseReady || !firebaseDb) return false;
+  try{
+    const snap = await getDoc(selectionDocRef());
+    hasRemoteSelectionInRoom = !!snap.exists();
+    if (!snap.exists()) return false;
+    const envelope = snap.data();
+    pendingRemoteSelectionEnvelope = envelope;
+    if (rows.length){
+      return applySelectionRemoteEnvelope(envelope, { silent, forceRemote });
+    }
+    return true;
+  } catch (err){
+    console.warn("선택학습 목록 불러오기 실패", err);
+    return false;
+  }
+}
+
+async function applySelectionRemoteEnvelope(envelope, options = {}){
+  const { silent = false, forceRemote = false } = options;
+  const payload = envelope?.payload || envelope;
+  if (!payload) return false;
+  const updatedAtClient = Number(envelope?.updatedAtClient || payload?.localSavedAt || 0);
+  const fingerprint = safe(envelope?.datasetFingerprint || payload?.datasetFingerprint || "");
+
+  if (!rows.length){
+    pendingRemoteSelectionEnvelope = envelope;
+    return true;
+  }
+
+  if (fingerprint && currentDatasetFingerprint && fingerprint !== currentDatasetFingerprint && !forceRemote){
+    pendingRemoteSelectionEnvelope = envelope;
+    return false;
+  }
+
+  const signature = getSelectionSyncSignature(payload);
+  if (!forceRemote && envelope?.updatedBy === firebaseUid && signature === lastPushedSelectionSignature) return false;
+  if (!forceRemote && signature === lastAppliedSelectionSignature) return false;
+
+  selectedGroupIds = Array.isArray(payload.selectedGroupIds)
+    ? payload.selectedGroupIds.map(normalizeSelectionToken).filter(Boolean).slice(0, MAX_SELECTION_ITEMS)
+    : [];
+
+  if (payload.selectionPresets && typeof payload.selectionPresets === "object" && !Array.isArray(payload.selectionPresets)){
+    selectionPresets = Object.fromEntries(Object.entries(payload.selectionPresets).map(([name, ids]) => [
+      safe(name).slice(0, 80),
+      Array.isArray(ids) ? ids.slice(0, MAX_SELECTION_ITEMS).map(v => normalizeSelectionToken(v)).filter(Boolean) : []
+    ]));
+  }
+
+  selectedPresetName = safe(payload.selectedPresetName);
+  presetNameValue = safe(payload.presetNameValue);
+  selectionPanelCollapsed = !!payload.selectionPanelCollapsed;
+  selectionModeActive = !!payload.selectionModeActive && selectedGroupIds.length > 0;
+
+  lastAppliedSelectionSignature = signature;
+  lastPushedSelectionSignature = signature;
+  hasRemoteSelectionInRoom = true;
+  if (updatedAtClient) lastLocalStateSavedAt = Math.max(lastLocalStateSavedAt, updatedAtClient);
+  pendingRemoteSelectionEnvelope = null;
+
+  await saveSelectionPresets();
+  await saveState();
+  renderInfo();
+  if (!silent) showOverlay("선택학습 목록 동기화 완료", 1000);
+  return true;
+}
+
+async function applyPendingRemoteSelectionIfReady(options = {}){
+  if (!pendingRemoteSelectionEnvelope || !rows.length) return false;
+  return applySelectionRemoteEnvelope(pendingRemoteSelectionEnvelope, options);
+}
+
 function scheduleFirebaseStatePush(payload = null, immediate = false){
   if (!firebaseReady || !firebaseUid || !currentDatasetFingerprint || isApplyingRemoteState) return;
   if (!firebaseBootstrapChecked) return;
@@ -4593,6 +4737,7 @@ async function flushSelectionSyncNow(){
   const payload = buildStatePayload();
   scheduleFirebaseStatePush(payload, true);
   await flushPendingFirebaseStatePush(payload);
+  await flushSelectionStateToFirebase();
   return true;
 }
 
@@ -4729,6 +4874,7 @@ async function applyPendingRemoteStateIfReady(options = {}){
 
 function cleanupFirebaseWatchers(){
   if (firebaseStateUnsub){ try { firebaseStateUnsub(); } catch {} firebaseStateUnsub = null; }
+  if (firebaseSelectionUnsub){ try { firebaseSelectionUnsub(); } catch {} firebaseSelectionUnsub = null; }
   if (firebaseMetaUnsub){ try { firebaseMetaUnsub(); } catch {} firebaseMetaUnsub = null; }
   if (firebaseConnectionUnsub){ try { firebaseConnectionUnsub(); } catch {} firebaseConnectionUnsub = null; }
 }
@@ -4763,6 +4909,20 @@ function startFirebaseLiveWatchers(){
     console.error("실시간 리스너 오류", err);
     updateFirebaseStatus("리스너 오류", "error");
   });
+
+  firebaseSelectionUnsub = onSnapshot(selectionDocRef(), async (snap) => {
+    if (!liveSyncEnabled) return;
+    if (!snap.exists()) return;
+    try{
+      const envelope = snap.data();
+      pendingRemoteSelectionEnvelope = envelope;
+      await applySelectionRemoteEnvelope(envelope, { silent: true, forceRemote: true });
+    }catch(err){
+      console.error("선택학습 목록 반영 실패", err);
+    }
+  }, (err) => {
+    console.error("선택학습 리스너 오류", err);
+  });
 }
 
 async function toggleFirebaseLiveSync(force){
@@ -4778,6 +4938,7 @@ async function toggleFirebaseLiveSync(force){
     remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 2200);
     if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
     await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+    await loadInitialSelectionSnapshot({ forceRemote: true, silent: true });
     startFirebaseLiveWatchers();
     firebasePushEnabled = true;
     updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
@@ -4826,8 +4987,12 @@ async function reconnectFirebaseRoom(){
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
   if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
   pendingRemoteStateEnvelope = null;
+  pendingRemoteSelectionEnvelope = null;
   firebaseBootstrapChecked = false;
   firebaseBootstrapRemoteExists = false;
+  hasRemoteSelectionInRoom = false;
+  lastAppliedSelectionSignature = "";
+  lastPushedSelectionSignature = "";
 
   await Promise.allSettled([loadSelectionPresets(), loadNotesCache()]);
   renderInfo();
@@ -4836,6 +5001,7 @@ async function reconnectFirebaseRoom(){
   remotePullCooldownUntil = Math.max(remotePullCooldownUntil, Date.now() + 2200);
   if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
   const remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+  const remoteSelectionLoaded = await loadInitialSelectionSnapshot({ forceRemote: true, silent: true });
 
   if (liveSyncEnabled) startFirebaseLiveWatchers();
 
@@ -5154,6 +5320,7 @@ async function initFirebaseSync(){
       await saveSelectionPresets();
       await saveState();
       await flushPendingFirebaseStatePush(buildStatePayload());
+      await flushSelectionStateToFirebase();
       if (reason === "auto") renderInfo();
       return true;
     }
@@ -5171,6 +5338,7 @@ async function initFirebaseSync(){
       }
       await saveState();
       await flushPendingFirebaseStatePush(buildStatePayload());
+      await flushSelectionStateToFirebase();
       renderInfo();
       showOverlay("현재 선택학습 항목 전체삭제", 1100);
     }
@@ -6354,6 +6522,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       pendingRestoreTime = currentVideoTime > 0 ? currentVideoTime : null;
       await applyPendingRemoteStateIfReady({ silent: true });
+      await applyPendingRemoteSelectionIfReady({ silent: true, forceRemote: true });
       render(getShouldAutoplay());
 
       const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
@@ -7363,10 +7532,12 @@ O 현재 화면 캡처`);
 
       let loaded = false;
       let remoteLoaded = false;
+      let remoteSelectionLoaded = false;
 
       const firebaseStarted = await firebaseInitPromise;
       if (firebaseStarted){
         remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+        remoteSelectionLoaded = await loadInitialSelectionSnapshot({ forceRemote: true, silent: true });
       } else {
         firebaseBootstrapChecked = true;
       }
@@ -7384,6 +7555,12 @@ O 현재 화면 캡처`);
         } else if (hasRemoteStateInRoom){
           remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true }) || remoteLoaded;
         }
+
+        if (pendingRemoteSelectionEnvelope){
+          remoteSelectionLoaded = await applySelectionRemoteEnvelope(pendingRemoteSelectionEnvelope, { silent: true, forceRemote: true }) || remoteSelectionLoaded;
+        } else if (hasRemoteSelectionInRoom){
+          remoteSelectionLoaded = await loadInitialSelectionSnapshot({ forceRemote: true, silent: true }) || remoteSelectionLoaded;
+        }
       }
 
       if (!loaded){
@@ -7394,7 +7571,7 @@ O 현재 화면 캡처`);
 
       firebaseBootstrapping = false;
       firebasePushEnabled = true;
-      if (firebaseStarted && remoteLoaded){
+      if (firebaseStarted && (remoteLoaded || remoteSelectionLoaded)){
         updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
       }
     }
