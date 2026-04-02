@@ -1317,7 +1317,7 @@
         </div>
 
         <button id="searchScopeQuickBtn" class="icon-btn mobile-only quick-btn" title="검색 범위 변경">표제어</button>
-        <button id="categoryQuickBtn" class="icon-btn mobile-only quick-btn" title="카테고리 변경">전체</button>
+        <button id="categoryQuickBtn" class="icon-btn mobile-only quick-btn" title="범주 변경">전체</button>
 
         <select id="searchScopeSelect" class="scope-select" title="검색 범위">
           <option value="word" selected>표제어</option>
@@ -1328,6 +1328,10 @@
 
         <select id="categorySelect" class="category-select" title="카테고리 선택">
           <option value="">전체 카테고리</option>
+        </select>
+
+        <select id="sourceSelect" class="category-select" title="출처 범주 선택">
+          <option value="">전체 범주</option>
         </select>
 
         <div id="countBadge" class="count-badge">0 / 0</div>
@@ -1539,6 +1543,7 @@
       searchSuggestions: document.getElementById("searchSuggestions"),
       searchScopeSelect: document.getElementById("searchScopeSelect"),
       categorySelect: document.getElementById("categorySelect"),
+      sourceSelect: document.getElementById("sourceSelect"),
       clearBtn: document.getElementById("clearBtn"),
       searchIdBtn: document.getElementById("searchIdBtn"),
       countBadge: document.getElementById("countBadge"),
@@ -1662,6 +1667,8 @@
     let groupById = new Map();
     let groupsByCategory = new Map();
     let examplesByCategory = new Map();
+    let groupsBySource = new Map();
+    let examplesBySource = new Map();
     let wordSuggestionIndex = [];
     let exampleSuggestionIndex = [];
 
@@ -2445,6 +2452,7 @@
       const sourceId = pickValue(row, ["sourceId", "ID", "id", "Id"]);
       const expressionRaw = pickValue(row, ["expression", "표제어", "word", "단어", "표현"]);
       const category = pickValue(row, ["category", "의미범주", "카테고리", "semantics"]);
+      const sourceName = pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || "한국수어누리사전";
       const variantLabel = pickValue(row, ["variantLabel", "변이범주"]) || "표제어";
       const { word, definition } = extractWordParts(
         expressionRaw,
@@ -2469,6 +2477,7 @@
 
       return {
         sourceId,
+        sourceName,
         word,
         wordNorm: normalizeHangulString(word).toLowerCase(),
         definition,
@@ -2519,6 +2528,7 @@
           id: makeStableGroupId(row),
           legacyKey: key,
           sourceId: row.sourceId,
+          sourceName: row.sourceName || "한국수어누리사전",
           word: row.word,
           wordNorm: row.wordNorm,
           wordSearchBlob: row.wordNorm,
@@ -2552,6 +2562,7 @@
           group.definitionNorm = row.definitionNorm;
         }
         if (!group.category && row.category) group.category = row.category;
+        if (!group.sourceName && row.sourceName) group.sourceName = row.sourceName;
         group.handShapeImages = [...new Set([...(group.handShapeImages || []), ...(row.handShapeImages || [])])];
         group.handShapeImage = group.handShapeImages[0] || "";
 
@@ -2584,16 +2595,29 @@
           signImage: row.wordSignImage,
           handShapeImages: [...(row.handShapeImages || [])]
         };
-        const mergeKey = [safe(entry.label), safe(entry.word)].join("||");
-        const existing = group.variants.find(item => [safe(item.label), safe(item.word)].join("||") === mergeKey);
+
+        const sameIdentity = (item) => {
+          const itemLabel = safe(item?.label || "");
+          const itemWord = safe(item?.word || group.word || "");
+          const entryLabel = safe(entry.label || "");
+          const entryWord = safe(entry.word || group.word || "");
+          return itemLabel === entryLabel && itemWord === entryWord;
+        };
+
+        const existing = group.variants.find(sameIdentity) || null;
         if (existing){
           if (!existing.video && entry.video) existing.video = entry.video;
           if (!existing.signImage && entry.signImage) existing.signImage = entry.signImage;
-          existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(entry.handShapeImages || [])])];
+          if (!existing.word && entry.word) existing.word = entry.word;
           if (!existing.wordNorm && entry.wordNorm) existing.wordNorm = entry.wordNorm;
+          existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(entry.handShapeImages || [])])];
         } else {
-          group.variants.push(entry);
+          const variantKey = [entry.label, entry.word, entry.video, entry.signImage, (entry.handShapeImages || []).join("|")].join("||");
+          if (!group.variants.some(item => [item.label, item.word, item.video, item.signImage, (item.handShapeImages || []).join("|")].join("||") === variantKey)){
+            group.variants.push(entry);
+          }
         }
+
         if (entry.wordNorm && entry.wordNorm !== group.wordNorm && !group.variantNorms.includes(entry.wordNorm)){
           group.variantNorms.push(entry.wordNorm);
           group.variantWords.push(entry.word);
@@ -2686,6 +2710,7 @@
           pool.push({
             groupId: group.id,
             sourceId: group.sourceId,
+            sourceName: group.sourceName || "한국수어누리사전",
             word: group.word,
             wordNorm,
             category: group.category,
@@ -2712,19 +2737,31 @@
 
       groupsByCategory = new Map();
       examplesByCategory = new Map();
+      groupsBySource = new Map();
+      examplesBySource = new Map();
       groupsByCategory.set("", groups);
       examplesByCategory.set("", examplePool);
+      groupsBySource.set("", groups);
+      examplesBySource.set("", examplePool);
 
       groups.forEach(g => {
         const key = safe(g.category);
         if (!groupsByCategory.has(key)) groupsByCategory.set(key, []);
         groupsByCategory.get(key).push(g);
+
+        const sourceKey = safe(g.sourceName);
+        if (!groupsBySource.has(sourceKey)) groupsBySource.set(sourceKey, []);
+        groupsBySource.get(sourceKey).push(g);
       });
 
       examplePool.forEach(item => {
         const key = safe(item.category);
         if (!examplesByCategory.has(key)) examplesByCategory.set(key, []);
         examplesByCategory.get(key).push(item);
+
+        const sourceKey = safe(item.sourceName);
+        if (!examplesBySource.has(sourceKey)) examplesBySource.set(sourceKey, []);
+        examplesBySource.get(sourceKey).push(item);
       });
 
       wordSuggestionIndex = [];
@@ -2907,6 +2944,7 @@
         currentPoolIndex,
         playbackMode,
         categoryValue: els.categorySelect.value,
+        sourceValue: els.sourceSelect ? els.sourceSelect.value : "",
         searchValue: els.searchInput.value,
         searchScope: els.searchScopeSelect.value,
         searchIdMode,
@@ -2943,6 +2981,7 @@
       searchIdMode = !!snap.searchIdMode;
       syncSearchModeWithScope();
       els.categorySelect.value = snap.categoryValue || "";
+      if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
       currentVideoTime = snap.currentVideoTime || 0;
@@ -2977,6 +3016,7 @@
       searchIdMode = !!snap.searchIdMode;
       syncSearchModeWithScope();
       els.categorySelect.value = snap.categoryValue || "";
+      if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
       currentVideoTime = snap.currentVideoTime || 0;
@@ -3230,6 +3270,7 @@ async function saveState(){
       }
       selectionModeActive = !!state.selectionModeActive;
       if (typeof state.categoryValue === "string") els.categorySelect.value = state.categoryValue;
+      if (els.sourceSelect && typeof state.sourceValue === "string") els.sourceSelect.value = state.sourceValue;
       if (typeof state.searchValue === "string") els.searchInput.value = state.searchValue;
       if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
       if (typeof state.searchIdMode === "boolean") searchIdMode = state.searchIdMode;
@@ -3270,6 +3311,25 @@ async function saveState(){
       els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
       if (values.includes(current)) els.categorySelect.value = current;
+      updateQuickButtons();
+    }
+
+    function updateSourceOptions(){
+      if (!els.sourceSelect) return;
+      const values = [...new Set(groups.map(g => safe(g.sourceName)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
+      const current = safe(els.sourceSelect.value);
+      els.sourceSelect.innerHTML = `<option value="">전체 범주</option>` +
+        values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+
+      if (current && values.includes(current)) {
+        els.sourceSelect.value = current;
+      } else if (values.includes("한국수어누리사전")) {
+        els.sourceSelect.value = "한국수어누리사전";
+      } else if (values.length === 1) {
+        els.sourceSelect.value = values[0];
+      } else {
+        els.sourceSelect.value = "";
+      }
       updateQuickButtons();
     }
 
@@ -3651,9 +3711,9 @@ function getSearchScope(){
         els.searchScopeQuickBtn.textContent = labelMap[getSearchScope()] || "표제어";
       }
       if (els.categoryQuickBtn){
-        const categoryLabel = safe(els.categorySelect.value) || "전체";
-        els.categoryQuickBtn.textContent = categoryLabel.length > 6 ? `${categoryLabel.slice(0, 6)}…` : categoryLabel;
-        els.categoryQuickBtn.title = categoryLabel || "전체 카테고리";
+        const sourceLabel = safe(els.sourceSelect?.value) || "전체";
+        els.categoryQuickBtn.textContent = sourceLabel.length > 6 ? `${sourceLabel.slice(0, 6)}…` : sourceLabel;
+        els.categoryQuickBtn.title = sourceLabel || "전체 범주";
       }
     }
 
@@ -3690,30 +3750,16 @@ function getSearchScope(){
         label: "표제어"
       }, group.word);
 
-      const mergedByKey = new Map();
-      explicit.forEach((entry, idx) => {
-        const label = safe(entry.label || `변이형${idx + 1}`);
-        const word = safe(entry.word || group.word || "");
-        const key = [label, word].join("||");
-        if (!mergedByKey.has(key)){
-          mergedByKey.set(key, {
-            label,
-            word,
-            video: safe(entry.video || entry.url || ""),
-            signImage: safe(entry.signImage || ""),
-            handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
-          });
-          return;
-        }
-        const target = mergedByKey.get(key);
-        if (!target.video && (entry.video || entry.url)) target.video = safe(entry.video || entry.url || "");
-        if (!target.signImage && entry.signImage) target.signImage = safe(entry.signImage || "");
-        target.handShapeImages = [...new Set([...(target.handShapeImages || []), ...((entry.handShapeImages || []).filter(Boolean))])];
-      });
-
       const seen = new Set();
       const merged = [];
-      [...mergedByKey.values()].forEach((normalized) => {
+      explicit.forEach((entry, idx) => {
+        const normalized = {
+          label: safe(entry.label || `변이형${idx + 1}`),
+          word: safe(entry.word || group.word || ""),
+          video: safe(entry.video || entry.url || ""),
+          signImage: safe(entry.signImage || ""),
+          handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
+        };
         const hasMedia = normalized.video || normalized.signImage || normalized.handShapeImages.length;
         if (!hasMedia) return;
         const signature = buildWordAssetSignature(normalized, group.word);
@@ -3773,40 +3819,13 @@ function getSearchScope(){
       };
     }
 
-    function setCurrentWordAssetSlot(group, slot){
-      if (!group) return 0;
-      ensureWordAssetState(group);
-      const totalSlots = Math.max(1, getWordVariantSlotCount(group));
-      const normalizedSlot = clamp(Number.isFinite(Number(slot)) ? Number(slot) : 0, 0, Math.max(0, totalSlots - 1));
-      activeWordAssetState.groupId = group.id || "";
-      activeWordAssetState.index = normalizedSlot;
-      return normalizedSlot;
-    }
-
-    function resolveEquivalentWordAssetSlot(group, fromMode, toMode){
-      if (!group) return 0;
-      const current = getCurrentWordAssetEntry(group, fromMode);
-      const variants = getEffectiveVariants(group);
-      if (!current || current.slot <= 0) return 0;
-      if (current.slot <= variants.length) return current.slot;
-      const entry = current.entry || {};
-      const entryLabel = safe(entry.label || "");
-      const entryWord = safe(entry.word || "");
-      const entryUrl = safe(entry.url || "");
-      const matchedIndex = variants.findIndex((variant) => {
-        const labelMatch = entryLabel && safe(variant.label || "") === entryLabel;
-        const wordMatch = entryWord && safe(variant.word || group.word || "") === entryWord;
-        const mediaMatch = entryUrl && (safe(variant.video || "") === entryUrl || safe(variant.signImage || "") === entryUrl);
-        return mediaMatch || (labelMatch && (!entryWord || wordMatch));
-      });
-      return matchedIndex >= 0 ? matchedIndex + 1 : clamp(current.slot, 0, Math.max(0, getWordVariantSlotCount(group) - 1));
-    }
-
     function describeVariantSlot(group, mode, slot){
-      const totalVariants = getEffectiveVariants(group).length || 0;
+      const totalSlots = Math.max(1, getWordVariantSlotCount(group));
       const typeLabel = mode === "W" ? "영상" : "수어문자";
-      if (slot <= 0 || totalVariants <= 0) return `표제어 ${typeLabel}`;
-      return `변이형 ${slot}/${totalVariants} ${typeLabel}`;
+      if (slot <= 0){
+        return totalSlots > 1 ? `표제어 1/${totalSlots} ${typeLabel}` : `표제어 ${typeLabel}`;
+      }
+      return `변이형 ${slot + 1}/${totalSlots} ${typeLabel}`;
     }
 
     async function cycleCurrentWordAsset(mode){
@@ -3899,21 +3918,21 @@ function getSearchScope(){
 
       // 나머지 모드들은 기본 동작 처리. W/E 상호 전환 시 변이 상태를 유지합니다.
       const preserveVariantSlot = ((currentMode === "W" || currentMode === "E") && (mode === "W" || mode === "E"));
-      const currentGroupForWordAsset = getCurrentGroup();
-      const preferredWordAssetSlot = preserveVariantSlot
-        ? resolveEquivalentWordAssetSlot(currentGroupForWordAsset, currentMode, mode)
-        : 0;
+      const currentGroup = getCurrentGroup();
+      const preservedSlot = preserveVariantSlot ? getWordVariantSlot(currentGroup) : 0;
       if (!preserveVariantSlot){
         resetWordAssetState();
-      } else if (currentGroupForWordAsset){
-        setCurrentWordAssetSlot(currentGroupForWordAsset, preferredWordAssetSlot);
       } else {
-        ensureWordAssetState(currentGroupForWordAsset);
+        ensureWordAssetState(currentGroup);
       }
-      await setMode(mode, {
-        preserveWordAssetState: preserveVariantSlot,
-        preferredWordAssetSlot
-      });
+      await setMode(mode, { preserveWordAssetState: preserveVariantSlot });
+      if (preserveVariantSlot){
+        const nextGroup = getCurrentGroup();
+        if (nextGroup){
+          activeWordAssetState.groupId = nextGroup.id || "";
+          activeWordAssetState.index = clamp(preservedSlot, 0, Math.max(0, getWordVariantSlotCount(nextGroup) - 1));
+        }
+      }
       // W/E 모드로 새롭게 전환할 때 변이형 힌트를 보여줍니다.
       if ((mode === "W" || mode === "E") && prevMode !== mode){
         forceVariantHintPopup();
@@ -4032,6 +4051,7 @@ function getSearchScope(){
       const qId = searchIdMode ? q.replace(/\D+/g, "") : "";
       const qNorm = (!searchIdMode && q) ? normalizeHangulString(q.toLowerCase()).toLowerCase() : "";
       const cat = safe(els.categorySelect.value);
+      const sourceFilter = safe(els.sourceSelect?.value);
       const scope = getSearchScope();
       const selectionSet = selectionModeActive ? getSelectionWordSet() : null;
       const selectionGroupTokenSet = selectionModeActive ? getSelectionGroupTokenSet() : null;
@@ -4048,6 +4068,7 @@ function getSearchScope(){
 
       filteredGroups = [];
       for (const g of groupBase){
+        if (sourceFilter && safe(g.sourceName) !== sourceFilter) continue;
         if (selectionSet && !selectionSet.has(g.id)) continue;
         if (multiGroupSet && multiGroupSet.size){
           if (!multiGroupSet.has(String(g.id))) continue;
@@ -4064,6 +4085,7 @@ function getSearchScope(){
 
       const exampleCandidates = [];
       for (const item of exampleBase){
+        if (sourceFilter && safe(item.sourceName) !== sourceFilter) continue;
         if (selectionModeActive){
           const exToken = makeExampleSelectionToken(item);
           const groupSelected = selectionGroupTokenSet && selectionGroupTokenSet.has(String(item.groupId));
@@ -4341,14 +4363,14 @@ function getSearchScope(){
         else showMainText(slot > 0 ? "변이형 영상이 없습니다." : "표제어 영상이 없습니다.");
       } else if (currentMode === "E"){
         const { entry, slot } = getCurrentWordAssetEntry(group, "E");
-        if (entry?.url) showMainImage(entry.url, "표제어 수어문자");
+        if (entry?.url) showMainImage(entry.url, describeVariantSlot(group, "E", slot));
         else showMainText(slot > 0 ? "변이형 수어문자가 없습니다." : "표제어 수어문자가 없습니다.");
       } else if (currentMode === "G"){
         const currentAsset = getCurrentWordAssetEntry(group, "E");
         const galleryImages = (currentAsset?.slot > 0 && currentAsset?.entry?.handShapeImages?.length)
           ? currentAsset.entry.handShapeImages
           : (group.handShapeImages || []);
-        showMainGallery(galleryImages, "표제어 수형그림");
+        showMainGallery(galleryImages, currentAsset?.slot > 0 ? "변이형 수형그림" : "표제어 수형그림");
       } else if (currentMode === "X"){
         // 부가정보를 표시합니다.
         const info = group.extraInfo || "부가정보가 없습니다.";
@@ -4581,6 +4603,7 @@ function buildStatePayload(){
     currentExampleToken: currentExample ? makeExampleSelectionToken(currentExample) : "",
     playbackMode,
     categoryValue: els.categorySelect.value,
+    sourceValue: els.sourceSelect ? els.sourceSelect.value : "",
     searchValue: els.searchInput.value,
     searchScope: els.searchScopeSelect.value,
     searchIdMode,
@@ -5410,6 +5433,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       // 이전 검색/카테고리 조건 때문에 선택한 표제어 일부만 보이는 문제를 막습니다.
       els.searchInput.value = "";
       els.categorySelect.value = "";
+      if (els.sourceSelect) els.sourceSelect.value = [...(els.sourceSelect.options || [])].some(opt => opt.value === "한국수어누리사전") ? "한국수어누리사전" : "";
       els.searchScopeSelect.value = "word";
       clearSelectedSearchPick();
       updateSearchPlaceholder();
@@ -5456,10 +5480,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     async function setMode(mode, options = {}){
-      const { preserveWordAssetState = false, preferredWordAssetSlot = null } = options;
+      const { preserveWordAssetState = false } = options;
       if (mode !== currentMode) rememberUndoSnapshot();
       if (mode !== currentMode && !preserveWordAssetState) resetWordAssetState();
-      const previousMode = currentMode;
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
       const currentExampleItem = prevWasExample ? getCurrentPoolItem() : null;
@@ -5492,16 +5515,6 @@ ${getSelectionEntries().length}개 항목`, 1200);
           lastExampleTokenByGroup[String(item.groupId)] = token;
           const idx = filteredGroups.findIndex(g => g.id === item.groupId);
           if (idx >= 0) currentIndex = idx;
-        }
-      }
-
-      if (preserveWordAssetState && (previousMode === "W" || previousMode === "E") && (mode === "W" || mode === "E")){
-        const currentGroup = getCurrentGroup();
-        if (currentGroup){
-          const resolvedSlot = preferredWordAssetSlot === null
-            ? resolveEquivalentWordAssetSlot(currentGroup, previousMode, mode)
-            : preferredWordAssetSlot;
-          setCurrentWordAssetSlot(currentGroup, resolvedSlot);
         }
       }
 
@@ -6401,6 +6414,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       currentDatasetFingerprint = buildDatasetFingerprint(rows);
 
       updateCategoryOptions();
+      updateSourceOptions();
 
       const state = await getPreferredInitialState();
       if (state) applyRestoredUIState(state);
@@ -6411,9 +6425,12 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       await applyFilter({ save: false });
-      if (!filteredGroups.length && groups.length && (safe(els.searchInput.value) || safe(els.categorySelect.value) || searchIdMode)){
+      if (!filteredGroups.length && groups.length && (safe(els.searchInput.value) || safe(els.categorySelect.value) || safe(els.sourceSelect?.value) || searchIdMode)){
         els.searchInput.value = "";
         els.categorySelect.value = "";
+        if (els.sourceSelect){
+          els.sourceSelect.value = [...els.sourceSelect.options].some(opt => opt.value === "한국수어누리사전") ? "한국수어누리사전" : "";
+        }
         searchIdMode = false;
         clearSelectedSearchPick();
         updateSearchIdButton();
@@ -6499,14 +6516,14 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
     function openCategorySheet(){
       mobileSheetMode = "category";
-      if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "카테고리 선택";
-      const options = [...els.categorySelect.options].map(opt => ({ value: opt.value, label: opt.textContent || opt.value || "전체 카테고리" }));
+      if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "범주 선택";
+      const options = [...(els.sourceSelect?.options || [])].map(opt => ({ value: opt.value, label: opt.textContent || opt.value || "전체 범주" }));
       els.mobileSheetBody.innerHTML = options.map(opt => `
-        <button class="mobile-list-btn ${opt.value === els.categorySelect.value ? "active" : ""}" data-category-value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</button>
+        <button class="mobile-list-btn ${opt.value === (els.sourceSelect?.value || "") ? "active" : ""}" data-source-value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</button>
       `).join("");
-      [...els.mobileSheetBody.querySelectorAll('[data-category-value]')].forEach(btn => {
+      [...els.mobileSheetBody.querySelectorAll('[data-source-value]')].forEach(btn => {
         btn.addEventListener('click', () => {
-          els.categorySelect.value = btn.dataset.categoryValue || "";
+          if (els.sourceSelect) els.sourceSelect.value = btn.dataset.sourceValue || "";
           updateQuickButtons();
           applyFilter();
           closeMobileSheet();
@@ -6943,13 +6960,15 @@ ${multiSelectedSearchItems.length}개`, 1000);
             openCategorySheet();
             return;
           }
-          const options = [...els.categorySelect.options].map(opt => opt.value);
-          if (typeof els.categorySelect.showPicker === "function"){
-            els.categorySelect.showPicker();
+          const options = [...(els.sourceSelect?.options || [])].map(opt => opt.value);
+          if (els.sourceSelect && typeof els.sourceSelect.showPicker === "function"){
+            els.sourceSelect.showPicker();
             return;
           }
-          const idx = options.indexOf(els.categorySelect.value);
-          els.categorySelect.value = options[(idx + 1) % options.length];
+          const idx = options.indexOf(els.sourceSelect?.value || "");
+          if (els.sourceSelect){
+            els.sourceSelect.value = options[(idx + 1) % options.length];
+          }
           updateQuickButtons();
           applyFilter();
         });
