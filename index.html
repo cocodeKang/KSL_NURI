@@ -2584,8 +2584,14 @@
           signImage: row.wordSignImage,
           handShapeImages: [...(row.handShapeImages || [])]
         };
-        const variantKey = [entry.label, entry.word, entry.video, entry.signImage, (entry.handShapeImages || []).join("|")].join("||");
-        if (!group.variants.some(item => [item.label, item.word, item.video, item.signImage, (item.handShapeImages || []).join("|")].join("||") === variantKey)){
+        const mergeKey = [safe(entry.label), safe(entry.word)].join("||");
+        const existing = group.variants.find(item => [safe(item.label), safe(item.word)].join("||") === mergeKey);
+        if (existing){
+          if (!existing.video && entry.video) existing.video = entry.video;
+          if (!existing.signImage && entry.signImage) existing.signImage = entry.signImage;
+          existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(entry.handShapeImages || [])])];
+          if (!existing.wordNorm && entry.wordNorm) existing.wordNorm = entry.wordNorm;
+        } else {
           group.variants.push(entry);
         }
         if (entry.wordNorm && entry.wordNorm !== group.wordNorm && !group.variantNorms.includes(entry.wordNorm)){
@@ -3684,16 +3690,30 @@ function getSearchScope(){
         label: "표제어"
       }, group.word);
 
+      const mergedByKey = new Map();
+      explicit.forEach((entry, idx) => {
+        const label = safe(entry.label || `변이형${idx + 1}`);
+        const word = safe(entry.word || group.word || "");
+        const key = [label, word].join("||");
+        if (!mergedByKey.has(key)){
+          mergedByKey.set(key, {
+            label,
+            word,
+            video: safe(entry.video || entry.url || ""),
+            signImage: safe(entry.signImage || ""),
+            handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
+          });
+          return;
+        }
+        const target = mergedByKey.get(key);
+        if (!target.video && (entry.video || entry.url)) target.video = safe(entry.video || entry.url || "");
+        if (!target.signImage && entry.signImage) target.signImage = safe(entry.signImage || "");
+        target.handShapeImages = [...new Set([...(target.handShapeImages || []), ...((entry.handShapeImages || []).filter(Boolean))])];
+      });
+
       const seen = new Set();
       const merged = [];
-      explicit.forEach((entry, idx) => {
-        const normalized = {
-          label: safe(entry.label || `변이형${idx + 1}`),
-          word: safe(entry.word || group.word || ""),
-          video: safe(entry.video || entry.url || ""),
-          signImage: safe(entry.signImage || ""),
-          handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
-        };
+      [...mergedByKey.values()].forEach((normalized) => {
         const hasMedia = normalized.video || normalized.signImage || normalized.handShapeImages.length;
         if (!hasMedia) return;
         const signature = buildWordAssetSignature(normalized, group.word);
