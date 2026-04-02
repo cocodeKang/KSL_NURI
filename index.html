@@ -3773,6 +3773,35 @@ function getSearchScope(){
       };
     }
 
+    function setCurrentWordAssetSlot(group, slot){
+      if (!group) return 0;
+      ensureWordAssetState(group);
+      const totalSlots = Math.max(1, getWordVariantSlotCount(group));
+      const normalizedSlot = clamp(Number.isFinite(Number(slot)) ? Number(slot) : 0, 0, Math.max(0, totalSlots - 1));
+      activeWordAssetState.groupId = group.id || "";
+      activeWordAssetState.index = normalizedSlot;
+      return normalizedSlot;
+    }
+
+    function resolveEquivalentWordAssetSlot(group, fromMode, toMode){
+      if (!group) return 0;
+      const current = getCurrentWordAssetEntry(group, fromMode);
+      const variants = getEffectiveVariants(group);
+      if (!current || current.slot <= 0) return 0;
+      if (current.slot <= variants.length) return current.slot;
+      const entry = current.entry || {};
+      const entryLabel = safe(entry.label || "");
+      const entryWord = safe(entry.word || "");
+      const entryUrl = safe(entry.url || "");
+      const matchedIndex = variants.findIndex((variant) => {
+        const labelMatch = entryLabel && safe(variant.label || "") === entryLabel;
+        const wordMatch = entryWord && safe(variant.word || group.word || "") === entryWord;
+        const mediaMatch = entryUrl && (safe(variant.video || "") === entryUrl || safe(variant.signImage || "") === entryUrl);
+        return mediaMatch || (labelMatch && (!entryWord || wordMatch));
+      });
+      return matchedIndex >= 0 ? matchedIndex + 1 : clamp(current.slot, 0, Math.max(0, getWordVariantSlotCount(group) - 1));
+    }
+
     function describeVariantSlot(group, mode, slot){
       const totalVariants = getEffectiveVariants(group).length || 0;
       const typeLabel = mode === "W" ? "영상" : "수어문자";
@@ -3870,12 +3899,21 @@ function getSearchScope(){
 
       // 나머지 모드들은 기본 동작 처리. W/E 상호 전환 시 변이 상태를 유지합니다.
       const preserveVariantSlot = ((currentMode === "W" || currentMode === "E") && (mode === "W" || mode === "E"));
+      const currentGroupForWordAsset = getCurrentGroup();
+      const preferredWordAssetSlot = preserveVariantSlot
+        ? resolveEquivalentWordAssetSlot(currentGroupForWordAsset, currentMode, mode)
+        : 0;
       if (!preserveVariantSlot){
         resetWordAssetState();
+      } else if (currentGroupForWordAsset){
+        setCurrentWordAssetSlot(currentGroupForWordAsset, preferredWordAssetSlot);
       } else {
-        ensureWordAssetState(getCurrentGroup());
+        ensureWordAssetState(currentGroupForWordAsset);
       }
-      await setMode(mode, { preserveWordAssetState: preserveVariantSlot });
+      await setMode(mode, {
+        preserveWordAssetState: preserveVariantSlot,
+        preferredWordAssetSlot
+      });
       // W/E 모드로 새롭게 전환할 때 변이형 힌트를 보여줍니다.
       if ((mode === "W" || mode === "E") && prevMode !== mode){
         forceVariantHintPopup();
@@ -5418,9 +5456,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     async function setMode(mode, options = {}){
-      const { preserveWordAssetState = false } = options;
+      const { preserveWordAssetState = false, preferredWordAssetSlot = null } = options;
       if (mode !== currentMode) rememberUndoSnapshot();
       if (mode !== currentMode && !preserveWordAssetState) resetWordAssetState();
+      const previousMode = currentMode;
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
       const currentExampleItem = prevWasExample ? getCurrentPoolItem() : null;
@@ -5453,6 +5492,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
           lastExampleTokenByGroup[String(item.groupId)] = token;
           const idx = filteredGroups.findIndex(g => g.id === item.groupId);
           if (idx >= 0) currentIndex = idx;
+        }
+      }
+
+      if (preserveWordAssetState && (previousMode === "W" || previousMode === "E") && (mode === "W" || mode === "E")){
+        const currentGroup = getCurrentGroup();
+        if (currentGroup){
+          const resolvedSlot = preferredWordAssetSlot === null
+            ? resolveEquivalentWordAssetSlot(currentGroup, previousMode, mode)
+            : preferredWordAssetSlot;
+          setCurrentWordAssetSlot(currentGroup, resolvedSlot);
         }
       }
 
