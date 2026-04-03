@@ -439,6 +439,7 @@
     }
 
     video,
+    .main-frame,
     .main-image,
     .main-text{
       width:100%;
@@ -450,6 +451,10 @@
     video,
     .main-image{
       object-fit:contain;
+    }
+
+    .main-frame{
+      border:0;
     }
 
     .main-image{
@@ -1366,6 +1371,7 @@
       <section class="card viewer">
         <div id="stage" class="stage" tabindex="0">
           <video id="mainVideo" controls playsinline preload="metadata"></video>
+          <iframe id="mainFrame" class="main-frame" title="외부 영상 플레이어" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="origin-when-cross-origin"></iframe>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
           <div id="mainText" class="main-text"></div>
@@ -1577,6 +1583,7 @@
       searchIdBtn: document.getElementById("searchIdBtn"),
       countBadge: document.getElementById("countBadge"),
       mainVideo: document.getElementById("mainVideo"),
+      mainFrame: document.getElementById("mainFrame"),
       mainImage: document.getElementById("mainImage"),
       mainGallery: document.getElementById("mainGallery"),
       mainText: document.getElementById("mainText"),
@@ -2161,11 +2168,41 @@
     }
 
     function normalizeUrl(url){
-      const v = safe(url);
+      let v = safe(url);
       if (!v) return "";
+
+      // 엑셀에서 텍스트 강제 입력을 위해 붙인 작은따옴표/큰따옴표를 제거합니다.
+      v = v.replace(/^['"]+|['"]+$/g, "");
+
+      // HYPERLINK 함수 형태도 실제 주소만 꺼내 사용합니다.
+      const hyperlinkMatch = v.match(/^=HYPERLINK\(\"([^\"]+)\"(?:,.*)?\)$/i);
+      if (hyperlinkMatch?.[1]) v = hyperlinkMatch[1];
+
+      // HTML 엔티티로 저장된 앰퍼샌드를 원복합니다.
+      v = v.replace(/&amp;/gi, "&");
+
       if (/^https?:\/\//i.test(v)) return v;
+      if (/^www\./i.test(v)) return `https://${v}`;
       if (v.startsWith("/")) return BASE_URL + v;
       return v;
+    }
+
+    function isLikelyImageUrl(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return false;
+      if (/^(data:image\/|blob:)/i.test(raw)) return true;
+      if (/signFile\/img\//i.test(raw)) return true;
+      if (/\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(raw)) return true;
+      return false;
+    }
+
+    function isLikelyDirectVideoUrl(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return false;
+      if (/^(data:video\/|blob:)/i.test(raw)) return true;
+      if (/signFile\/video\//i.test(raw)) return true;
+      if (/\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(\?|#|$)/i.test(raw)) return true;
+      return false;
     }
 
     function parseTimeToSeconds(value){
@@ -2206,7 +2243,59 @@
           if (["embed", "shorts", "live", "v"].includes(parts[0])) return safe(parts[1]);
         }
       } catch (_) {}
-      return "";
+
+      // URL 파싱이 실패하는 경우(작은따옴표, 엑셀 잔여 문자열 등)에도 정규식으로 한 번 더 찾습니다.
+      const fallback = raw.match(/(?:youtube\.com\/(?:watch\?[^\s#]*v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+      return fallback?.[1] ? safe(fallback[1]) : "";
+    }
+
+    function isYoutubeVideoUrl(url){
+      return !!extractYoutubeVideoId(url);
+    }
+
+    function buildYoutubeEmbedUrl(url, options = {}){
+      const videoId = extractYoutubeVideoId(url);
+      if (!videoId) return "";
+      const params = new URLSearchParams();
+      params.set("autoplay", options.autoPlay ? "1" : "0");
+      params.set("controls", "1");
+      params.set("playsinline", "1");
+      params.set("rel", "0");
+      params.set("modestbranding", "1");
+      params.set("fs", "1");
+      const start = Number(options.start);
+      const end = Number(options.end);
+      if (Number.isFinite(start) && start >= 0){
+        params.set("start", String(Math.max(0, Math.floor(start))));
+      }
+      if (Number.isFinite(end) && end >= 0){
+        params.set("end", String(Math.max(0, Math.ceil(end))));
+      }
+      return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+    }
+
+    function clearMainFrame(){
+      if (!els.mainFrame) return;
+      try {
+        els.mainFrame.style.display = "none";
+        const currentSrc = els.mainFrame.getAttribute("src") || "";
+        if (currentSrc && currentSrc !== "about:blank"){
+          els.mainFrame.src = "about:blank";
+        }
+        els.mainFrame.dataset.currentSrc = "";
+      } catch (_) {}
+    }
+
+    function showMainFrame(url){
+      if (!els.mainFrame) return;
+      hideAllMainPanels();
+      els.mainFrame.style.display = "block";
+      const nextSrc = safe(url);
+      const prevSrc = els.mainFrame.dataset.currentSrc || "";
+      if (nextSrc && prevSrc !== nextSrc){
+        els.mainFrame.src = nextSrc;
+        els.mainFrame.dataset.currentSrc = nextSrc;
+      }
     }
 
     function normalizeMediaLookupKey(url){
@@ -4590,7 +4679,7 @@ function getSearchScope(){
         showMainText(group?.definition || "뜻풀이가 없습니다.");
       } else if (currentMode === "W"){
         const previewVideo = group ? getWordAssetEntryBySlot(group, "W", 0)?.url : "";
-        if (previewVideo) showMainVideo(previewVideo, false);
+        if (previewVideo) showMainVideo(previewVideo, false, { start: group?.wordClipStart, end: group?.wordClipEnd });
         else showMainText(labelWord || item.text || "");
       } else if (currentMode === "E"){
         const previewSign = group ? getWordAssetEntryBySlot(group, "E", 0)?.url : "";
@@ -4602,8 +4691,8 @@ function getSearchScope(){
       } else if (currentMode === "A"){
         showMainText(example?.text || item.text || labelWord || "");
       } else if (currentMode === "S"){
-        if (example?.video) showMainVideo(example.video, false);
-        else if (group?.wordVideo) showMainVideo(group.wordVideo, false);
+        if (example?.video) showMainVideo(example.video, false, { start: example?.clipStart, end: example?.clipEnd });
+        else if (group?.wordVideo) showMainVideo(group.wordVideo, false, { start: group?.wordClipStart, end: group?.wordClipEnd });
         else showMainText(example?.text || item.text || labelWord || "");
       } else if (currentMode === "D"){
         if (example?.signImage) showMainImage(example.signImage, "용례 수어문자");
@@ -4769,10 +4858,11 @@ function getSearchScope(){
     }
 
     function setImage(imgEl, url, alt){
-      if (url){
+      const normalized = normalizeUrl(url);
+      if (normalized && isLikelyImageUrl(normalized)){
         imgEl.removeAttribute("crossorigin");
         imgEl.referrerPolicy = "no-referrer-when-downgrade";
-        imgEl.src = url;
+        imgEl.src = normalized;
         imgEl.alt = alt;
         imgEl.style.display = "block";
       } else {
@@ -4820,6 +4910,7 @@ function getSearchScope(){
 
     function hideAllMainPanels(){
       els.mainVideo.style.display = "none";
+      if (els.mainFrame) els.mainFrame.style.display = "none";
       els.mainImage.style.display = "none";
       if (els.mainGallery){
         els.mainGallery.style.display = "none";
@@ -4834,6 +4925,7 @@ function getSearchScope(){
       els.mainVideo.pause();
       els.mainVideo.removeAttribute("src");
       els.mainVideo.load();
+      clearMainFrame();
       // 비디오를 비우는 경우 캐싱된 currentSrc 값도 초기화하여
       // 이후 비디오 모드 전환 시 재설정되도록 합니다.
       els.mainVideo.dataset.currentSrc = "";
@@ -4846,13 +4938,54 @@ function getSearchScope(){
       els.mainVideo.loop = (playbackMode === "LOOP");
     }
 
-    function showMainVideo(url, autoPlay = false){
+    function showMainVideo(url, autoPlay = false, options = {}){
       resetImageZoom();
+      const nextSrc = normalizeUrl(url || "");
+      const clipStart = Number.isFinite(Number(options?.start)) ? Number(options.start) : null;
+      const clipEnd = Number.isFinite(Number(options?.end)) ? Number(options.end) : null;
+
+      if (!nextSrc){
+        clearMainFrame();
+        hideAllMainPanels();
+        els.mainVideo.pause();
+        els.mainVideo.removeAttribute("src");
+        els.mainVideo.load();
+        els.mainVideo.dataset.currentSrc = "";
+        return;
+      }
+
+      const youtubeId = extractYoutubeVideoId(nextSrc);
+      if (youtubeId){
+        try { els.mainVideo.pause(); } catch (_) {}
+        els.mainVideo.removeAttribute("src");
+        els.mainVideo.load();
+        els.mainVideo.dataset.currentSrc = "";
+        const embedUrl = buildYoutubeEmbedUrl(nextSrc, {
+          autoPlay,
+          start: clipStart,
+          end: clipEnd
+        });
+        if (!embedUrl){
+          clearMainFrame();
+          showMainText("유튜브 영상을 불러오지 못했습니다.");
+          return;
+        }
+        showMainFrame(embedUrl);
+        return;
+      }
+
+      if (!isLikelyDirectVideoUrl(nextSrc)){
+        clearMainFrame();
+        hideAllMainPanels();
+        showMainText("직접 재생 가능한 영상 주소가 아닙니다.");
+        return;
+      }
+
+      clearMainFrame();
       hideAllMainPanels();
       els.mainVideo.style.display = "block";
       applyVideoLoopState();
 
-      const nextSrc = url || "";
       const prevSrc = els.mainVideo.dataset.currentSrc || "";
       const srcChanged = prevSrc !== nextSrc;
 
@@ -4872,12 +5005,15 @@ function getSearchScope(){
         els.mainVideo.load();
       }
 
-      if (!nextSrc){
-        return;
-      }
-
       if (srcChanged){
         try { els.mainVideo.currentTime = 0; } catch (_) {}
+      }
+
+      if (Number.isFinite(clipStart)){
+        pendingRestoreTime = clipStart;
+      }
+      if (Number.isFinite(clipStart) && Number.isFinite(clipEnd) && clipEnd > clipStart){
+        pendingClipFocus = { start: clipStart, end: clipEnd };
       }
 
       if (autoPlay){
@@ -4894,17 +5030,23 @@ function getSearchScope(){
       els.mainVideo.pause();
       els.mainVideo.removeAttribute("src");
       els.mainVideo.load();
+      clearMainFrame();
       // 비디오를 비우는 경우 캐싱된 currentSrc 값도 초기화하여
       // 이후 비디오 모드 전환 시 재설정되도록 합니다.
       els.mainVideo.dataset.currentSrc = "";
       hideAllMainPanels();
 
-      if (url){
+      const normalized = normalizeUrl(url);
+      if (normalized && isLikelyImageUrl(normalized)){
         els.mainImage.removeAttribute("crossorigin");
         els.mainImage.referrerPolicy = "no-referrer-when-downgrade";
-        els.mainImage.src = url;
+        els.mainImage.src = normalized;
         els.mainImage.alt = alt;
         els.mainImage.style.display = "block";
+      } else if (normalized && !/^https?:\/\//i.test(normalized) && !normalized.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(normalized)){
+        // 이미지 칸에 일반 텍스트가 잘못 들어간 경우, 404 대신 텍스트로 보여줍니다.
+        showMainText(normalized);
+        return;
       } else {
         els.mainImage.removeAttribute("src");
         els.mainImage.removeAttribute("crossorigin");
@@ -4980,7 +5122,7 @@ function getSearchScope(){
         if (currentMode === "A"){
           showMainText(item.text || "(용례번역문 없음)");
         } else if (currentMode === "S"){
-          showMainVideo(item.video || "", true);
+          showMainVideo(item.video || "", true, { start: item.clipStart, end: item.clipEnd });
         } else if (currentMode === "D"){
           showMainImage(item.signImage || "", "용례 수어문자");
         }
@@ -5006,7 +5148,7 @@ function getSearchScope(){
         showMainText(group.definition || "뜻풀이가 없습니다.");
       } else if (currentMode === "W"){
         const { entry, slot } = getCurrentWordAssetEntry(group, "W");
-        if (entry?.url) showMainVideo(entry.url, true);
+        if (entry?.url) showMainVideo(entry.url, true, { start: group.wordClipStart, end: group.wordClipEnd });
         else showMainText(slot > 0 ? "변이형 영상이 없습니다." : "표제어 영상이 없습니다.");
       } else if (currentMode === "E"){
         const { entry, slot } = getCurrentWordAssetEntry(group, "E");
