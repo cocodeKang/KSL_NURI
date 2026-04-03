@@ -1340,6 +1340,7 @@
       <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
         <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
+        <button id="downloadXlsxBtn" class="icon-btn desktop-only" title="엑셀 다운로드">엑셀</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
         <button id="searchIdBtn" class="select-btn" title="ID 검색 모드" style="display:none !important;">ID</button>
         <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
@@ -2476,6 +2477,7 @@
       const extraInfo = pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]);
 
       return {
+        __rowIndex: Number.isInteger(row.__rowIndex) ? row.__rowIndex : -1,
         sourceId,
         sourceName,
         word,
@@ -2501,7 +2503,8 @@
     function buildSourceUrl(id, rawUrl){
       const url = normalizeUrl(rawUrl);
       if (url) return url;
-      if (id) return `${BASE_URL}/kslserv/sign/signWord.do?signWordId=${id}`;
+      const idText = safe(id);
+      if (/^\d+$/.test(idText)) return `${BASE_URL}/kslserv/sign/signWord.do?signWordId=${idText}`;
       return "";
     }
 
@@ -2524,6 +2527,8 @@
       }
 
       function createGroup(row, key){
+        const initialRowIndex = Number.isInteger(row.__rowIndex) ? row.__rowIndex : -1;
+        const initialIndices = initialRowIndex >= 0 ? [initialRowIndex] : [];
         return {
           id: makeStableGroupId(row),
           legacyKey: key,
@@ -2540,6 +2545,9 @@
           wordSignImage: row.wordSignImage,
           handShapeImages: [...row.handShapeImages],
           handShapeImage: row.handShapeImages[0] || "",
+          primaryRowIndex: initialRowIndex,
+          rowIndices: [...initialIndices],
+          baseRowIndices: [...initialIndices],
           examples: [],
           exampleNorms: [],
           exampleSearchBlob: "",
@@ -2554,6 +2562,7 @@
       }
 
       function mergeGroupMedia(group, row){
+        const rowIndex = Number.isInteger(row.__rowIndex) ? row.__rowIndex : -1;
         if (!group.wordVideo && row.wordVideo) group.wordVideo = row.wordVideo;
         if (!group.wordSignImage && row.wordSignImage) group.wordSignImage = row.wordSignImage;
         if (!group.sourceUrl && row.sourceUrl) group.sourceUrl = row.sourceUrl;
@@ -2565,6 +2574,11 @@
         if (!group.sourceName && row.sourceName) group.sourceName = row.sourceName;
         group.handShapeImages = [...new Set([...(group.handShapeImages || []), ...(row.handShapeImages || [])])];
         group.handShapeImage = group.handShapeImages[0] || "";
+        if (rowIndex >= 0){
+          if (!group.rowIndices.includes(rowIndex)) group.rowIndices.push(rowIndex);
+          if (!group.baseRowIndices.includes(rowIndex)) group.baseRowIndices.push(rowIndex);
+          if (!(Number.isInteger(group.primaryRowIndex) && group.primaryRowIndex >= 0)) group.primaryRowIndex = rowIndex;
+        }
 
       // 입 모양 비디오와 부가정보가 비어있을 경우 채웁니다.
       if (!group.mouthVideo && row.mouthVideo) group.mouthVideo = row.mouthVideo;
@@ -2574,6 +2588,7 @@
       function addExample(group, row){
         if (!(row.exampleText || row.exampleVideo || row.exampleSignImage)) return;
         const textNorm = normalizeHangulString(row.exampleText || "").toLowerCase();
+        const rowIndex = Number.isInteger(row.__rowIndex) ? row.__rowIndex : -1;
         const key = [row.exampleText, row.exampleVideo, row.exampleSignImage].join("||");
         if (group.examples.some(ex => ex._key === key)) return;
         group.examples.push({
@@ -2581,8 +2596,10 @@
           textNorm,
           video: row.exampleVideo,
           signImage: row.exampleSignImage,
+          rowIndex,
           _key: key
         });
+        if (rowIndex >= 0 && !group.rowIndices.includes(rowIndex)) group.rowIndices.push(rowIndex);
         if (textNorm) group.exampleNorms.push(textNorm);
       }
 
@@ -2721,6 +2738,7 @@
             groupHandShapeImage: group.handShapeImage,
             groupDefinition: group.definition,
             exampleIndex: exIdx,
+            rowIndex: Number.isInteger(ex.rowIndex) ? ex.rowIndex : -1,
             text: ex.text || "",
             textNorm,
             searchBlob: [wordNorm, textNorm].filter(Boolean).join("\n"),
@@ -2856,6 +2874,11 @@
       return id ? `group:${id}` : "";
     }
 
+    function buildRowNoteKey(rowIndex){
+      const idx = Number(rowIndex);
+      return Number.isInteger(idx) && idx >= 0 ? `row:${idx}` : "";
+    }
+
     function extractLegacyExampleGroupId(noteKey){
       const raw = safe(noteKey);
       if (!raw.startsWith("example:")) return "";
@@ -2908,6 +2931,60 @@
       return changed;
     }
 
+    function getGroupPrimaryRowIndex(group){
+      const idx = Number(group?.primaryRowIndex);
+      return Number.isInteger(idx) && idx >= 0 ? idx : -1;
+    }
+
+    function getCurrentExampleRowIndex(){
+      const idx = Number(getCurrentPoolItem()?.rowIndex);
+      return Number.isInteger(idx) && idx >= 0 ? idx : -1;
+    }
+
+    function getCurrentEntityRowIndex(){
+      if (isExampleMode()){
+        const exampleRowIndex = getCurrentExampleRowIndex();
+        if (exampleRowIndex >= 0) return exampleRowIndex;
+      }
+      return getGroupPrimaryRowIndex(getCurrentGroup());
+    }
+
+    function migrateLegacyNotesToRowKeys(){
+      if (!notesByKey || typeof notesByKey !== "object") return false;
+      if (!groups.length || !rows.length) return false;
+      let changed = false;
+      const migrated = { ...notesByKey };
+
+      Object.entries(notesByKey).forEach(([key, value]) => {
+        const noteText = safe(value);
+        if (!noteText || key.startsWith("row:")) return;
+
+        let rowIndex = -1;
+        if (key.startsWith("group:")){
+          const groupId = safe(key.slice("group:".length));
+          rowIndex = getGroupPrimaryRowIndex(groupById.get(groupId) || null);
+        } else if (key.startsWith("example:")){
+          const groupId = extractLegacyExampleGroupId(key);
+          const group = groupById.get(groupId) || null;
+          rowIndex = Number(group?.examples?.[0]?.rowIndex ?? -1);
+          if (!(Number.isInteger(rowIndex) && rowIndex >= 0)){
+            rowIndex = getGroupPrimaryRowIndex(group);
+          }
+        }
+
+        if (!(Number.isInteger(rowIndex) && rowIndex >= 0)) return;
+        const rowKey = buildRowNoteKey(rowIndex);
+        migrated[rowKey] = mergeNoteText(migrated[rowKey] || "", noteText);
+        delete migrated[key];
+        changed = true;
+      });
+
+      if (changed){
+        notesByKey = migrated;
+      }
+      return changed;
+    }
+
     async function loadNotesCache(){
       notesByKey = (await idbGet(`${CACHE_KEYS.NOTES}:${syncRoomKey}`)) || (await idbGet(CACHE_KEYS.NOTES)) || {};
       if (migrateLegacyExampleNotes()){
@@ -2917,20 +2994,22 @@
     }
 
     function getCurrentEntityKey(){
-      const currentItem = getCurrentPoolItem();
-      const group = getCurrentGroup();
-      const groupId = safe(currentItem?.groupId || group?.id || "");
-      return buildGroupNoteKey(groupId);
+      return buildRowNoteKey(getCurrentEntityRowIndex());
     }
 
     function getCurrentEntityLabel(){
       const currentItem = getCurrentPoolItem();
       const group = getCurrentGroup();
       const word = safe(group?.word || currentItem?.word || "");
-      return word ? `${word} · 공통 노트` : "공통 노트";
+      if (isExampleMode() && currentItem){
+        const exampleNumber = Number(currentItem.exampleIndex) + 1;
+        return word ? `${word} · 용례 ${exampleNumber}` : `용례 ${exampleNumber}`;
+      }
+      return word || "표제어";
     }
 
     function updateUndoButton(){
+
       if (!els.undoBtn) return;
       const enabled = !!undoSnapshot;
       els.undoBtn.disabled = !enabled;
@@ -3106,6 +3185,269 @@
       renderInfo();
       closeNoteModal();
       showOverlay("노트 삭제", 1000);
+    }
+
+    function getRowObject(rowIndex){
+      return Number.isInteger(rowIndex) && rowIndex >= 0 ? (rows[rowIndex] || null) : null;
+    }
+
+    function setPreferredFieldValue(row, aliases, fallbackKey, value){
+      if (!row || typeof row !== "object") return;
+      const keys = Array.isArray(aliases) ? aliases.filter(Boolean) : [];
+      const existingKey = keys.find(key => Object.prototype.hasOwnProperty.call(row, key));
+      const targetKey = existingKey || fallbackKey || keys[0];
+      if (!targetKey) return;
+      row[targetKey] = value;
+    }
+
+    function getEditableBaseRowIndices(group){
+      if (!group) return [];
+      const indices = Array.isArray(group.baseRowIndices) ? group.baseRowIndices : [];
+      return [...new Set(indices.filter(idx => Number.isInteger(idx) && idx >= 0))];
+    }
+
+    function getCurrentEditableExampleRowIndex(){
+      const currentItem = getCurrentPoolItem();
+      if (currentItem && Number.isInteger(currentItem.rowIndex) && currentItem.rowIndex >= 0){
+        return currentItem.rowIndex;
+      }
+      const group = getCurrentGroup();
+      if (group?.examples?.length){
+        const idx = Number(group.examples[0]?.rowIndex ?? -1);
+        if (Number.isInteger(idx) && idx >= 0) return idx;
+      }
+      return getGroupPrimaryRowIndex(group);
+    }
+
+    async function persistEditedRows(message, focusWord = ""){
+      await finalizeLoadedData(rows, currentSourceName || "수정 데이터", false, true);
+      if (focusWord){
+        els.searchScopeSelect.value = "word";
+        els.searchInput.value = focusWord;
+        clearSelectedSearchPick();
+        clearMultiSelectedSearch();
+        suggestionCacheKey = "";
+        searchIdMode = false;
+        updateSearchIdButton();
+        updateSearchPlaceholder();
+        await applyFilter({ save: false });
+      }
+      render(false);
+      if (message) showOverlay(message, 1100);
+    }
+
+    function promptForEdit(title, initialValue){
+      return window.prompt(title, safe(initialValue));
+    }
+
+    async function editCurrentField(fieldCode){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("편집할 항목이 없습니다", 1000);
+        return;
+      }
+
+      let title = "";
+      let initialValue = "";
+      let rowIndices = [];
+      let applyChange = null;
+
+      if (fieldCode === "Q"){
+        rowIndices = getEditableBaseRowIndices(group);
+        title = `표제어 편집
+${safe(group.word)}`;
+        initialValue = group.word || "";
+        applyChange = (value) => {
+          rowIndices.forEach(idx => {
+            const row = getRowObject(idx);
+            if (!row) return;
+            setPreferredFieldValue(row, ["expression", "표제어", "word", "단어", "표현"], "expression", value);
+          });
+        };
+      } else if (fieldCode === "Z"){
+        rowIndices = getEditableBaseRowIndices(group);
+        title = `뜻풀이 편집
+${safe(group.word)}`;
+        initialValue = group.definition || "";
+        applyChange = (value) => {
+          rowIndices.forEach(idx => {
+            const row = getRowObject(idx);
+            if (!row) return;
+            setPreferredFieldValue(row, ["definition", "뜻풀이", "뜻풀이Z"], "definition", value);
+          });
+        };
+      } else if (fieldCode === "X"){
+        rowIndices = getEditableBaseRowIndices(group);
+        title = `부가정보 편집
+${safe(group.word)}`;
+        initialValue = group.extraInfo || "";
+        applyChange = (value) => {
+          rowIndices.forEach(idx => {
+            const row = getRowObject(idx);
+            if (!row) return;
+            setPreferredFieldValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"], "additionalInfo", value);
+          });
+        };
+      } else if (fieldCode === "A"){
+        const rowIndex = getCurrentEditableExampleRowIndex();
+        const row = getRowObject(rowIndex);
+        if (rowIndex < 0 || !row){
+          showOverlay("편집할 용례가 없습니다", 1000);
+          return;
+        }
+        title = `용례문 편집
+${safe(group.word)}`;
+        initialValue = pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]);
+        applyChange = (value) => {
+          setPreferredFieldValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"], "translation", value);
+        };
+      } else {
+        return;
+      }
+
+      if (!applyChange) return;
+      const nextValue = promptForEdit(title, initialValue);
+      if (nextValue === null) return;
+      const trimmed = fieldCode === "Q" ? safe(nextValue).trim() : safe(nextValue);
+      if (fieldCode === "Q" && !trimmed){
+        showOverlay("표제어는 비워둘 수 없습니다", 1200);
+        return;
+      }
+      rememberUndoSnapshot();
+      applyChange(fieldCode === "Q" ? trimmed : nextValue);
+      await persistEditedRows(`${MODES[fieldCode] || fieldCode} 저장`, fieldCode === "Q" ? trimmed : safe(group.word));
+    }
+
+    function makeManualSourceId(){
+      const stamp = new Date();
+      const parts = [
+        stamp.getFullYear(),
+        String(stamp.getMonth() + 1).padStart(2, "0"),
+        String(stamp.getDate()).padStart(2, "0"),
+        String(stamp.getHours()).padStart(2, "0"),
+        String(stamp.getMinutes()).padStart(2, "0"),
+        String(stamp.getSeconds()).padStart(2, "0"),
+        String(stamp.getMilliseconds()).padStart(3, "0")
+      ];
+      return `LOCAL-${parts.join("")}`;
+    }
+
+    async function addNewHeadwordEntry(){
+      const defaultWord = safe(els.searchInput?.value || "").trim();
+      const word = window.prompt("새 표제어를 입력하세요", defaultWord);
+      if (word === null) return;
+      const cleanWord = safe(word).trim();
+      if (!cleanWord){
+        showOverlay("표제어를 입력해야 합니다", 1100);
+        return;
+      }
+      const definition = window.prompt(`뜻풀이를 입력하세요
+${cleanWord}`, "");
+      if (definition === null) return;
+      const extraInfo = window.prompt(`부가정보를 입력하세요
+${cleanWord}`, "");
+      if (extraInfo === null) return;
+      const exampleText = window.prompt(`용례문을 입력하세요
+${cleanWord}`, "");
+      if (exampleText === null) return;
+
+      const currentGroup = getCurrentGroup();
+      const sourceName = safe(currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
+      const category = safe(currentGroup?.category || els.categorySelect?.value || "");
+      const newRow = {
+        sourceId: makeManualSourceId(),
+        source: sourceName,
+        sourceName,
+        expression: cleanWord,
+        category,
+        sourceUrl: "",
+        headwordVideo: "",
+        signTextImage: "",
+        handShapeImage1: "",
+        handShapeImage2: "",
+        handShapeImage3: "",
+        translation: safe(exampleText),
+        exampleVideo: "",
+        exampleSignTextImage: "",
+        variantLabel: "표제어",
+        definition: safe(definition),
+        mouthVideo: "",
+        additionalInfo: safe(extraInfo),
+        메모: ""
+      };
+      rememberUndoSnapshot();
+      rows.push(newRow);
+      await persistEditedRows("새 표제어 추가", cleanWord);
+    }
+
+    function getExportableKeys(){
+      const preferred = [
+        "sourceUrl", "sourceId", "expression", "category", "headwordVideo", "signTextImage",
+        "handShapeImage1", "handShapeImage2", "handShapeImage3", "translation", "exampleVideo",
+        "exampleSignTextImage", "variantLabel", "definition", "mouthVideo", "additionalInfo",
+        "source", "sourceName", "메모"
+      ];
+      const seen = new Set();
+      const keys = [];
+      preferred.forEach(key => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        keys.push(key);
+      });
+      rows.forEach(row => {
+        Object.keys(row || {}).forEach(key => {
+          if (!key || key.startsWith("__")) return;
+          if (seen.has(key)) return;
+          seen.add(key);
+          keys.push(key);
+        });
+      });
+      if (!seen.has("메모")) keys.push("메모");
+      return keys;
+    }
+
+    function buildExportRows(){
+      const headers = getExportableKeys();
+      const data = rows.map((row, rowIndex) => {
+        const out = {};
+        headers.forEach(key => {
+          if (key === "메모"){
+            out[key] = safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.[key] || "");
+          } else {
+            out[key] = safe(row?.[key] || "");
+          }
+        });
+        return out;
+      });
+      return { headers, data };
+    }
+
+    function makeExportFileName(){
+      const raw = safe(currentSourceName || DEFAULT_FILENAME || "한국수어누리사전.xlsx").trim() || "한국수어누리사전.xlsx";
+      const stripped = raw.replace(/\.[^.]+$/, "");
+      return `${stripped}_편집본.xlsx`;
+    }
+
+    async function downloadExcelFile(){
+      if (window.matchMedia("(max-width: 1180px)").matches){
+        showOverlay("PC 버전에서만 엑셀 다운로드가 가능합니다", 1200);
+        return;
+      }
+      if (!rows.length){
+        showOverlay("다운로드할 데이터가 없습니다", 1200);
+        return;
+      }
+      await ensureXlsxAvailable();
+      if (typeof XLSX === "undefined"){
+        showOverlay("엑셀 라이브러리를 불러오지 못했습니다", 1500);
+        return;
+      }
+      const { headers, data } = buildExportRows();
+      const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
+      XLSX.writeFile(workbook, makeExportFileName());
+      showOverlay("엑셀 다운로드 완료", 1100);
     }
 
     function getFitVerticalZoomScale(){
@@ -4473,6 +4815,11 @@ function buildHelpText(){
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
     "M 노트 열기",
+    "N 새 표제어 추가",
+    "Ctrl+Q 표제어 편집",
+    "Ctrl+Z 뜻풀이 편집",
+    "Ctrl+X 부가정보 편집",
+    "Ctrl+A 용례문 편집",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
@@ -6425,7 +6772,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     async function finalizeLoadedData(dataRows, sourceName, autoLoaded = false, saveCacheToo = false){
-      rows = dataRows;
+      rows = (Array.isArray(dataRows) ? dataRows : []).map((row, idx) => {
+        const next = row && typeof row === "object" ? { ...row } : {};
+        next.__rowIndex = idx;
+        return next;
+      });
       groups = buildGroups(rows);
       // 중복되는 단어를 파악하여 duplicateWords 세트를 구성합니다.
       duplicateWords = new Set();
@@ -6441,6 +6792,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
       rebuildFastIndexes();
       currentSourceName = sourceName;
       currentDatasetFingerprint = buildDatasetFingerprint(rows);
+      if (migrateLegacyNotesToRowKeys()){
+        await saveNotesCache();
+      }
 
       updateCategoryOptions();
       updateSourceOptions();
@@ -6689,10 +7043,13 @@ ${multiSelectedSearchItems.length}개`, 1000);
         }
       }
 
-      if (e.ctrlKey && key === 'z'){ e.preventDefault(); undoSelectionHistory(); return; }
       if (e.ctrlKey && key === 'y'){ e.preventDefault(); redoSelectionHistory(); return; }
       if (e.ctrlKey && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
       if (isTypingContext()) return;
+      if (e.ctrlKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
+      if (e.ctrlKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
+      if (e.ctrlKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
+      if (e.ctrlKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
 
       if (e.code === "Space"){
         e.preventDefault();
@@ -6753,6 +7110,7 @@ ${multiSelectedSearchItems.length}개`, 1000);
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
       if (key === "c"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "m"){ e.preventDefault(); openNoteModal(); return; }
+      if (key === "n"){ e.preventDefault(); addNewHeadwordEntry(); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
       if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
@@ -7096,6 +7454,10 @@ ${multiSelectedSearchItems.length}개`, 1000);
         } catch (_){
           els.fileInput.click();
         }
+      });
+
+      els.downloadXlsxBtn?.addEventListener("click", () => {
+        downloadExcelFile();
       });
 
       els.fileInput.addEventListener("change", async (e) => {
