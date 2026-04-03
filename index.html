@@ -1805,6 +1805,12 @@
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
     let pendingClipFocus = null;
+    let ytPlayer = null;
+    let ytPlayerReady = false;
+    let ytApiPromise = null;
+    let ytPendingConfig = null;
+    let ytActiveClip = null;
+    let ytClipTimer = null;
     let pendingRestoreGroupId = "";
     let pendingRestoreExampleToken = "";
     const FRAME_STEP = 1 / 30;
@@ -2263,6 +2269,8 @@
       params.set("rel", "0");
       params.set("modestbranding", "1");
       params.set("fs", "1");
+      params.set("enablejsapi", "1");
+      if (/^https?:/i.test(location.origin || "")) params.set("origin", location.origin);
       const start = Number(options.start);
       const end = Number(options.end);
       if (Number.isFinite(start) && start >= 0){
@@ -2274,14 +2282,194 @@
       return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
     }
 
+    function clearYoutubeClipWatcher(){
+      if (ytClipTimer){
+        clearInterval(ytClipTimer);
+        ytClipTimer = null;
+      }
+    }
+
+    function startYoutubeClipWatcher(){
+      clearYoutubeClipWatcher();
+      if (!ytPlayer || !ytPlayerReady || !ytActiveClip) return;
+      const start = Number(ytActiveClip.start);
+      const end = Number(ytActiveClip.end);
+      const hasStart = Number.isFinite(start) && start >= 0;
+      const hasEnd = Number.isFinite(end) && end >= 0;
+      if (!hasStart && !hasEnd) return;
+      ytClipTimer = setInterval(() => {
+        if (!ytPlayer || !ytPlayerReady || typeof ytPlayer.getCurrentTime !== "function") return;
+        let current = NaN;
+        try { current = ytPlayer.getCurrentTime(); } catch (_) { return; }
+        if (!Number.isFinite(current)) return;
+
+        if (hasStart && current < Math.max(0, start - 0.6)){
+          try { ytPlayer.seekTo(start, true); } catch (_) {}
+          return;
+        }
+
+        if (hasEnd && current >= Math.max(hasStart ? start : 0, end - 0.15)){
+          if (playbackMode === "LOOP" && hasStart && end > start){
+            try {
+              ytPlayer.seekTo(start, true);
+              ytPlayer.playVideo();
+            } catch (_) {}
+          } else {
+            const holdAt = Math.max(hasStart ? start : 0, end - 0.2);
+            try {
+              ytPlayer.pauseVideo();
+              ytPlayer.seekTo(holdAt, true);
+            } catch (_) {}
+            clearYoutubeClipWatcher();
+          }
+        }
+      }, 120);
+    }
+
+    function ensureYoutubeApi(){
+      if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+      if (ytApiPromise) return ytApiPromise;
+      ytApiPromise = new Promise((resolve, reject) => {
+        const previousReady = window.onYouTubeIframeAPIReady;
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve(window.YT);
+        };
+        window.onYouTubeIframeAPIReady = function(){
+          try { if (typeof previousReady === "function") previousReady(); } catch (_) {}
+          finish();
+        };
+        const existing = Array.from(document.scripts || []).find(script => /youtube\.com\/iframe_api/i.test(script.src || ""));
+        if (!existing){
+          const script = document.createElement("script");
+          script.src = "https://www.youtube.com/iframe_api";
+          script.async = true;
+          script.onerror = () => reject(new Error("유튜브 API를 불러오지 못했습니다."));
+          document.head.appendChild(script);
+        }
+        setTimeout(() => {
+          if (window.YT && window.YT.Player) finish();
+        }, 0);
+        setTimeout(() => {
+          if (window.YT && window.YT.Player) finish();
+          else if (!settled) reject(new Error("유튜브 API 준비 시간 초과"));
+        }, 8000);
+      });
+      return ytApiPromise;
+    }
+
+    async function ensureYoutubePlayer(){
+      if (ytPlayer && ytPlayerReady) return ytPlayer;
+      await ensureYoutubeApi();
+      if (ytPlayer) return ytPlayer;
+      ytPlayer = new YT.Player("mainFrame", {
+        videoId: ytPendingConfig?.videoId || "",
+        playerVars: {
+          autoplay: 0,
+          controls: 1,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          fs: 1,
+          enablejsapi: 1,
+          origin: (/^https?:/i.test(location.origin || "") ? location.origin : undefined)
+        },
+        events: {
+          onReady: () => {
+            ytPlayerReady = true;
+            if (ytPendingConfig) {
+              const pending = ytPendingConfig;
+              setTimeout(() => {
+                if (ytPendingConfig === pending) applyYoutubePlayerConfig(pending);
+              }, 0);
+            }
+          },
+          onStateChange: (event) => {
+            const state = event?.data;
+            if (!window.YT || !YT.PlayerState) return;
+            if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING || state === YT.PlayerState.CUED){
+              startYoutubeClipWatcher();
+            }
+          }
+        }
+      });
+      return ytPlayer;
+    }
+
+    function applyYoutubePlayerConfig(config){
+      ytPendingConfig = config || null;
+      if (!config || !ytPlayer || !ytPlayerReady) return;
+      clearYoutubeClipWatcher();
+      const start = Number.isFinite(Number(config.start)) ? Math.max(0, Number(config.start)) : 0;
+      const end = Number.isFinite(Number(config.end)) ? Math.max(0, Number(config.end)) : null;
+      const payload = {
+        videoId: config.videoId || "",
+        startSeconds: start
+      };
+      if (Number.isFinite(end) && end > start){
+        payload.endSeconds = end;
+      }
+      ytActiveClip = { videoId: config.videoId || "", start, end, autoPlay: !!config.autoPlay };
+      try {
+        if (config.autoPlay) ytPlayer.loadVideoById(payload);
+        else ytPlayer.cueVideoById(payload);
+      } catch (err) {
+        console.warn("유튜브 플레이어 구간 적용 실패", err);
+        const fallbackUrl = buildYoutubeEmbedUrl(`https://www.youtube.com/watch?v=${encodeURIComponent(config.videoId || "")}`, { autoPlay: config.autoPlay, start, end });
+        if (fallbackUrl) showMainFrame(fallbackUrl);
+        return;
+      }
+      if (!config.autoPlay){
+        setTimeout(() => {
+          try {
+            ytPlayer.seekTo(start, true);
+            ytPlayer.pauseVideo();
+          } catch (_) {}
+          startYoutubeClipWatcher();
+        }, 350);
+      } else {
+        setTimeout(() => startYoutubeClipWatcher(), 350);
+      }
+    }
+
+    async function showYoutubeVideo(url, autoPlay = false, options = {}){
+      const videoId = extractYoutubeVideoId(url);
+      if (!videoId){
+        showMainText("유튜브 영상을 불러오지 못했습니다.");
+        return;
+      }
+      hideAllMainPanels();
+      if (els.mainFrame) els.mainFrame.style.display = "block";
+      const start = Number.isFinite(Number(options?.start)) ? Number(options.start) : null;
+      const end = Number.isFinite(Number(options?.end)) ? Number(options.end) : null;
+      const config = { videoId, autoPlay: !!autoPlay, start, end };
+      ytPendingConfig = config;
+      try {
+        await ensureYoutubePlayer();
+        applyYoutubePlayerConfig(config);
+      } catch (err) {
+        console.warn("유튜브 API 사용 실패, 일반 iframe으로 대체합니다.", err);
+        const embedUrl = buildYoutubeEmbedUrl(url, { autoPlay, start, end });
+        if (!embedUrl){
+          showMainText("유튜브 영상을 불러오지 못했습니다.");
+          return;
+        }
+        showMainFrame(embedUrl);
+      }
+    }
+
     function clearMainFrame(){
       if (!els.mainFrame) return;
+      clearYoutubeClipWatcher();
+      ytActiveClip = null;
       try {
-        els.mainFrame.style.display = "none";
-        const currentSrc = els.mainFrame.getAttribute("src") || "";
-        if (currentSrc && currentSrc !== "about:blank"){
-          els.mainFrame.src = "about:blank";
+        if (ytPlayer && ytPlayerReady){
+          try { ytPlayer.pauseVideo(); } catch (_) {}
+          try { ytPlayer.stopVideo(); } catch (_) {}
         }
+        els.mainFrame.style.display = "none";
         els.mainFrame.dataset.currentSrc = "";
       } catch (_) {}
     }
@@ -4960,17 +5148,7 @@ function getSearchScope(){
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = "";
-        const embedUrl = buildYoutubeEmbedUrl(nextSrc, {
-          autoPlay,
-          start: clipStart,
-          end: clipEnd
-        });
-        if (!embedUrl){
-          clearMainFrame();
-          showMainText("유튜브 영상을 불러오지 못했습니다.");
-          return;
-        }
-        showMainFrame(embedUrl);
+        showYoutubeVideo(nextSrc, autoPlay, { start: clipStart, end: clipEnd });
         return;
       }
 
