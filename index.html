@@ -1340,7 +1340,7 @@
       <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
         <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
-        <button id="downloadXlsxBtn" class="icon-btn desktop-only" title="엑셀 다운로드">엑셀</button>
+        <button id="downloadXlsxBtn" type="button" class="icon-btn desktop-only" title="엑셀 다운로드">엑셀</button>
         <button id="rangeLookupBtn" class="icon-btn desktop-only" title="유튜브 구간으로 찾기">구간</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
         <button id="searchIdBtn" class="select-btn" title="ID 검색 모드" style="display:none !important;">ID</button>
@@ -1600,6 +1600,7 @@
       modeBtns: [...document.querySelectorAll(".mode-btn[data-mode]")],
       fileInput: document.getElementById("fileInput"),
       loadFileBtn: document.getElementById("loadFileBtn"),
+      downloadXlsxBtn: document.getElementById("downloadXlsxBtn"),
       rangeLookupBtn: document.getElementById("rangeLookupBtn"),
       dropHint: document.getElementById("dropHint"),
       // 여러 개의 재생 버튼을 지원하도록 배열로 수집
@@ -7901,7 +7902,8 @@ ${match.label}${timeText}`, 1500);
         }
       });
 
-      els.downloadXlsxBtn?.addEventListener("click", async () => {
+      (els.downloadXlsxBtn || document.getElementById("downloadXlsxBtn"))?.addEventListener("click", async (e) => {
+        e.preventDefault();
         await downloadExcelFile();
       });
 
