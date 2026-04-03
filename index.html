@@ -3636,36 +3636,29 @@ ${cleanWord}`, "");
     }
 
     function getExportableKeys(){
-      const fixed = getFixedExportSchema().map(item => item.header);
-      const seen = new Set(fixed);
-      const extra = [];
-      rows.forEach(row => {
-        Object.keys(row || {}).forEach(key => {
-          if (!key || key.startsWith("__")) return;
-          if (seen.has(key)) return;
-          seen.add(key);
-          extra.push(key);
-        });
-      });
-      return [...fixed, ...extra];
+      return getFixedExportSchema().map(item => item.header);
+    }
+
+    function normalizeExcelCellValue(value){
+      if (value === null || value === undefined) return undefined;
+      if (typeof value === "string"){
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+      }
+      return value;
     }
 
     function buildExportRows(){
       const schema = getFixedExportSchema();
-      const fixedHeaders = schema.map(item => item.header);
-      const headers = getExportableKeys();
-      const extraHeaders = headers.filter(key => !fixedHeaders.includes(key));
+      const headers = schema.map(item => item.header);
       const data = rows.map((row, rowIndex) => {
         const out = {};
         schema.forEach(item => {
-          out[item.header] = safe(item.value(row, rowIndex));
-        });
-        extraHeaders.forEach(key => {
-          out[key] = safe(row?.[key] || "");
+          out[item.header] = normalizeExcelCellValue(item.value(row, rowIndex));
         });
         return out;
       });
-      return { headers: [...fixedHeaders, ...extraHeaders], data };
+      return { headers, data };
     }
 
     function makeExportFileName(){
@@ -3716,7 +3709,11 @@ ${cleanWord}`, "");
           return false;
         }
         const { headers, data } = buildExportRows();
-        const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+        const aoa = [
+          headers,
+          ...data.map(row => headers.map(header => normalizeExcelCellValue(row?.[header])))
+        ];
+        const worksheet = XLSX.utils.aoa_to_sheet(aoa);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
         triggerExcelBlobDownload(workbook, makeExportFileName());
