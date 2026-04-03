@@ -2212,10 +2212,37 @@
     }
 
     function parseTimeToSeconds(value){
-      const raw = safe(value).trim();
+      if (value === null || value === undefined || value === "") return null;
+
+      if (typeof value === "number" && Number.isFinite(value)){
+        if (value >= 0 && value < 1) return value * 86400;
+        return value;
+      }
+
+      let raw = String(value).trim();
       if (!raw) return null;
+
+      raw = raw
+        .replace(/^'+/, "")
+        .replace(/[​-‍﻿]/g, "")
+        .replace(/[~〜]/g, "-")
+        .trim();
+
+      if (!raw) return null;
+
+      const excelSerialMatch = raw.match(/^0\.\d{6,}$/);
+      if (excelSerialMatch){
+        const serial = Number(raw);
+        if (Number.isFinite(serial)) return serial * 86400;
+      }
+
       if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
-      const normalized = raw.replace(/시/g, ":").replace(/분/g, ":").replace(/초/g, "").replace(/\s+/g, "");
+
+      const normalized = raw
+        .replace(/시/g, ":")
+        .replace(/분/g, ":")
+        .replace(/초/g, "")
+        .replace(/\s+/g, "");
       const parts = normalized.split(":").filter(Boolean);
       if (!parts.length || parts.some(part => !/^\d+(?:\.\d+)?$/.test(part))) return null;
       let total = 0;
@@ -2223,6 +2250,27 @@
         total = total * 60 + Number(part);
       }
       return Number.isFinite(total) ? total : null;
+    }
+
+    function formatClipValueForExport(value){
+      if (value === null || value === undefined || value === "") return "";
+      const raw = typeof value === "string" ? value.trim() : value;
+      const seconds = parseTimeToSeconds(raw);
+      if (!Number.isFinite(seconds)) return safe(value).trim();
+      const wholeHours = Math.floor(seconds / 3600);
+      const wholeMinutes = Math.floor((seconds % 3600) / 60);
+      const sec = seconds - (wholeHours * 3600) - (wholeMinutes * 60);
+      const secWhole = Math.floor(sec);
+      const secFraction = sec - secWhole;
+      const secTextBase = String(secWhole).padStart(2, "0");
+      let secText = secTextBase;
+      if (secFraction > 0.0005){
+        secText = (secWhole + secFraction).toFixed(1).padStart(4, "0").replace(/\.0$/, "");
+      }
+      if (wholeHours > 0){
+        return `${wholeHours}:${String(wholeMinutes).padStart(2, "0")}:${secText}`;
+      }
+      return `${String(wholeMinutes).padStart(2, "0")}:${secText}`;
     }
 
     function formatSecondsForUi(value){
@@ -3956,10 +4004,10 @@ ${cleanWord}`, "");
         { header: "입 모양", value: row => safe(row?.mouthVideo || row?.["입 모양"] || "") },
         { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
         { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
-        { header: "구간시작_표제어", value: row => safe(row?.headwordClipStart || row?.구간시작_표제어 || "") },
-        { header: "구간종료_표제어", value: row => safe(row?.headwordClipEnd || row?.구간종료_표제어 || "") },
-        { header: "구간시작_용례", value: row => safe(row?.exampleClipStart || row?.구간시작_용례 || "") },
-        { header: "구간종료_용례", value: row => safe(row?.exampleClipEnd || row?.구간종료_용례 || "") }
+        { header: "구간시작_표제어", value: row => formatClipValueForExport(row?.wordClipStartRaw || row?.headwordClipStart || row?.구간시작_표제어 || "") },
+        { header: "구간종료_표제어", value: row => formatClipValueForExport(row?.wordClipEndRaw || row?.headwordClipEnd || row?.구간종료_표제어 || "") },
+        { header: "구간시작_용례", value: row => formatClipValueForExport(row?.exampleClipStartRaw || row?.exampleClipStart || row?.구간시작_용례 || "") },
+        { header: "구간종료_용례", value: row => formatClipValueForExport(row?.exampleClipEndRaw || row?.exampleClipEnd || row?.구간종료_용례 || "") }
       ];
     }
 
@@ -4042,6 +4090,17 @@ ${cleanWord}`, "");
           ...data.map(row => headers.map(header => normalizeExcelCellValue(row?.[header])))
         ];
         const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+        const clipHeaders = new Set(["구간시작_표제어", "구간종료_표제어", "구간시작_용례", "구간종료_용례"]);
+        headers.forEach((header, colIndex) => {
+          if (!clipHeaders.has(header)) return;
+          for (let rowIndex = 1; rowIndex < aoa.length; rowIndex += 1){
+            const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+            const cell = worksheet[addr];
+            if (!cell) continue;
+            cell.t = "s";
+            cell.z = "@";
+          }
+        });
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
         triggerExcelBlobDownload(workbook, makeExportFileName());
