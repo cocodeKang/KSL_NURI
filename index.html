@@ -1341,6 +1341,7 @@
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
         <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
         <button id="downloadXlsxBtn" class="icon-btn desktop-only" title="엑셀 다운로드">엑셀</button>
+        <button id="rangeLookupBtn" class="icon-btn desktop-only" title="유튜브 구간으로 찾기">구간</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
         <button id="searchIdBtn" class="select-btn" title="ID 검색 모드" style="display:none !important;">ID</button>
         <button id="selectionModeBtn" class="select-btn" title="표제어 선택학습">선택학습</button>
@@ -1474,6 +1475,33 @@
     </div>
   </div>
 
+
+  <div id="rangeLookupModal" class="note-modal" aria-hidden="true">
+    <div class="note-dialog">
+      <div class="note-head">
+        <strong>유튜브 구간으로 단어 찾기</strong>
+        <button id="rangeLookupCloseBtn" class="icon-btn" type="button">닫기</button>
+      </div>
+      <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
+        <select id="rangeLookupScope" class="preset-select" style="width:100%;">
+          <option value="auto">자동 선택</option>
+          <option value="word">표제어 구간</option>
+          <option value="example">용례 구간</option>
+        </select>
+        <input id="rangeLookupUrl" class="preset-input" type="text" placeholder="유튜브 링크를 붙여넣으세요" />
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <input id="rangeLookupStart" class="preset-input" type="text" placeholder="시작 0:14" />
+          <input id="rangeLookupEnd" class="preset-input" type="text" placeholder="종료 0:21" />
+        </div>
+        <div style="font-size:13px;color:var(--sub);line-height:1.6;">시간은 <code>14</code>, <code>0:14</code>, <code>1:02:03</code> 형식 모두 가능합니다.</div>
+      </div>
+      <div class="note-actions">
+        <button id="rangeLookupFillBtn" class="icon-btn" type="button">현재값</button>
+        <button id="rangeLookupSearchBtn" class="select-btn" type="button">불러오기</button>
+      </div>
+    </div>
+  </div>
+
 <script type="module">
   let initializeApp = null;
   let getAuth = null;
@@ -1572,6 +1600,7 @@
       modeBtns: [...document.querySelectorAll(".mode-btn[data-mode]")],
       fileInput: document.getElementById("fileInput"),
       loadFileBtn: document.getElementById("loadFileBtn"),
+      rangeLookupBtn: document.getElementById("rangeLookupBtn"),
       dropHint: document.getElementById("dropHint"),
       // 여러 개의 재생 버튼을 지원하도록 배열로 수집
       playbackBtns: Array.from(document.querySelectorAll(".playback-btn")),
@@ -1602,6 +1631,14 @@
       noteSaveBtn: document.getElementById("noteSaveBtn"),
       noteDeleteBtn: document.getElementById("noteDeleteBtn"),
       noteCloseBtn: document.getElementById("noteCloseBtn"),
+      rangeLookupModal: document.getElementById("rangeLookupModal"),
+      rangeLookupUrl: document.getElementById("rangeLookupUrl"),
+      rangeLookupStart: document.getElementById("rangeLookupStart"),
+      rangeLookupEnd: document.getElementById("rangeLookupEnd"),
+      rangeLookupScope: document.getElementById("rangeLookupScope"),
+      rangeLookupSearchBtn: document.getElementById("rangeLookupSearchBtn"),
+      rangeLookupCloseBtn: document.getElementById("rangeLookupCloseBtn"),
+      rangeLookupFillBtn: document.getElementById("rangeLookupFillBtn"),
       zoomFitBtn: document.getElementById("zoomFitBtn"),
       zoomResetBtn: document.getElementById("zoomResetBtn"),
       abStartBtn: document.getElementById("abStartBtn"),
@@ -1759,6 +1796,7 @@
     let bracketRightHoldTriggered = false;
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
+    let pendingClipFocus = null;
     let pendingRestoreGroupId = "";
     let pendingRestoreExampleToken = "";
     const FRAME_STEP = 1 / 30;
@@ -2129,6 +2167,114 @@
       return v;
     }
 
+    function parseTimeToSeconds(value){
+      const raw = safe(value).trim();
+      if (!raw) return null;
+      if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+      const normalized = raw.replace(/시/g, ":").replace(/분/g, ":").replace(/초/g, "").replace(/\s+/g, "");
+      const parts = normalized.split(":").filter(Boolean);
+      if (!parts.length || parts.some(part => !/^\d+(?:\.\d+)?$/.test(part))) return null;
+      let total = 0;
+      for (const part of parts){
+        total = total * 60 + Number(part);
+      }
+      return Number.isFinite(total) ? total : null;
+    }
+
+    function formatSecondsForUi(value){
+      const seconds = Number(value);
+      if (!Number.isFinite(seconds) || seconds < 0) return "";
+      const whole = Math.floor(seconds);
+      const h = Math.floor(whole / 3600);
+      const m = Math.floor((whole % 3600) / 60);
+      const s = whole % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+
+    function extractYoutubeVideoId(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return "";
+      try {
+        const u = new URL(raw, location.href);
+        const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+        if (host === "youtu.be") return safe(u.pathname.split("/").filter(Boolean)[0]);
+        if (host.endsWith("youtube.com")){
+          if (u.searchParams.get("v")) return safe(u.searchParams.get("v"));
+          const parts = u.pathname.split("/").filter(Boolean);
+          if (["embed", "shorts", "live", "v"].includes(parts[0])) return safe(parts[1]);
+        }
+      } catch (_) {}
+      return "";
+    }
+
+    function normalizeMediaLookupKey(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return "";
+      const ytId = extractYoutubeVideoId(raw);
+      if (ytId) return `yt:${ytId}`;
+      try {
+        const u = new URL(raw, location.href);
+        ["t", "start", "end", "time_continue", "si", "feature", "pp"].forEach(key => u.searchParams.delete(key));
+        u.hash = "";
+        return `url:${u.toString()}`;
+      } catch (_) {
+        return `url:${raw}`;
+      }
+    }
+
+    function getRowClipFieldValue(row, aliases){
+      return pickValue(row, aliases);
+    }
+
+    function getRowClipInfo(row){
+      const wordStartRaw = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]);
+      const wordEndRaw = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]);
+      const exampleStartRaw = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]);
+      const exampleEndRaw = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]);
+      return {
+        wordStartRaw,
+        wordEndRaw,
+        exampleStartRaw,
+        exampleEndRaw,
+        wordStart: parseTimeToSeconds(wordStartRaw),
+        wordEnd: parseTimeToSeconds(wordEndRaw),
+        exampleStart: parseTimeToSeconds(exampleStartRaw),
+        exampleEnd: parseTimeToSeconds(exampleEndRaw)
+      };
+    }
+
+    function isRangeMatch(inputStart, inputEnd, rowStart, rowEnd){
+      const hasInputStart = Number.isFinite(inputStart);
+      const hasInputEnd = Number.isFinite(inputEnd);
+      const hasRowStart = Number.isFinite(rowStart);
+      const hasRowEnd = Number.isFinite(rowEnd);
+      if (!hasInputStart && !hasInputEnd) return true;
+      if (!hasRowStart && !hasRowEnd) return false;
+      const effectiveInputStart = hasInputStart ? inputStart : inputEnd;
+      const effectiveInputEnd = hasInputEnd ? inputEnd : inputStart;
+      const effectiveRowStart = hasRowStart ? rowStart : rowEnd;
+      const effectiveRowEnd = hasRowEnd ? rowEnd : rowStart;
+      if (!Number.isFinite(effectiveInputStart) || !Number.isFinite(effectiveInputEnd) || !Number.isFinite(effectiveRowStart) || !Number.isFinite(effectiveRowEnd)) return false;
+      const left = Math.max(Math.min(effectiveInputStart, effectiveInputEnd), Math.min(effectiveRowStart, effectiveRowEnd));
+      const right = Math.min(Math.max(effectiveInputStart, effectiveInputEnd), Math.max(effectiveRowStart, effectiveRowEnd));
+      return right >= left;
+    }
+
+    function calcRangeDistance(inputStart, inputEnd, rowStart, rowEnd){
+      const hasInputStart = Number.isFinite(inputStart);
+      const hasInputEnd = Number.isFinite(inputEnd);
+      const hasRowStart = Number.isFinite(rowStart);
+      const hasRowEnd = Number.isFinite(rowEnd);
+      if (!hasInputStart && !hasInputEnd) return 0;
+      const a = hasInputStart ? inputStart : inputEnd;
+      const b = hasInputEnd ? inputEnd : inputStart;
+      const c = hasRowStart ? rowStart : rowEnd;
+      const d = hasRowEnd ? rowEnd : rowStart;
+      if (![a,b,c,d].every(Number.isFinite)) return Number.MAX_SAFE_INTEGER;
+      return Math.abs(a - c) + Math.abs(b - d);
+    }
+
     function escapeHtml(str){
       return String(str ?? "")
         .replace(/&/g, "&amp;")
@@ -2236,6 +2382,12 @@
       "원문페이지": "sourceUrl",
       "pageUrl": "sourceUrl",
       "sourceUrl": "sourceUrl",
+
+      "출처": "source",
+      "source": "source",
+      "sourceName": "source",
+      "자료출처": "source",
+
       "url": "sourceUrl",
 
       "ID": "sourceId",
@@ -2309,6 +2461,27 @@
       "뜻풀이": "definition",
       "뜻풀이Z": "definition",
       "definition": "definition",
+
+      "입 모양": "mouthVideo",
+      "입모양": "mouthVideo",
+      "mouthVideo": "mouthVideo",
+      "mouth": "mouthVideo",
+
+      "부가정보": "additionalInfo",
+      "부가 정보": "additionalInfo",
+      "additionalInfo": "additionalInfo",
+      "info": "additionalInfo",
+
+      "메모": "메모",
+
+      "구간시작_표제어": "headwordClipStart",
+      "구간종료_표제어": "headwordClipEnd",
+      "구간시작_용례": "exampleClipStart",
+      "구간종료_용례": "exampleClipEnd",
+      "headwordClipStart": "headwordClipStart",
+      "headwordClipEnd": "headwordClipEnd",
+      "exampleClipStart": "exampleClipStart",
+      "exampleClipEnd": "exampleClipEnd",
 
       "expressionIndex": "expressionIndex",
       "exampleOrder": "exampleOrder",
@@ -2472,9 +2645,10 @@
         .filter(Boolean)
         .filter((value, index, arr) => arr.indexOf(value) === index);
 
-      // 추가 열: 입 모양과 부가정보를 추출합니다. 기존 컬럼명이 한글인 경우를 우선적으로 처리합니다.
+      // 추가 열: 입 모양과 부가정보, 유튜브 구간정보를 추출합니다.
       const mouthVideo = normalizeUrl(pickValue(row, ["mouthVideo", "입 모양", "입모양", "mouth", "입"]));
       const extraInfo = pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]);
+      const clipInfo = getRowClipInfo(row);
 
       return {
         __rowIndex: Number.isInteger(row.__rowIndex) ? row.__rowIndex : -1,
@@ -2495,6 +2669,15 @@
         // 입 모양과 부가정보를 추가합니다.
         mouthVideo,
         extraInfo,
+        memo: pickValue(row, ["메모", "memo", "notes"]),
+        wordClipStartRaw: clipInfo.wordStartRaw,
+        wordClipEndRaw: clipInfo.wordEndRaw,
+        exampleClipStartRaw: clipInfo.exampleStartRaw,
+        exampleClipEndRaw: clipInfo.exampleEndRaw,
+        wordClipStart: clipInfo.wordStart,
+        wordClipEnd: clipInfo.wordEnd,
+        exampleClipStart: clipInfo.exampleStart,
+        exampleClipEnd: clipInfo.exampleEnd,
         variantLabel,
         isVariant: variantLabel && variantLabel !== "표제어"
       };
@@ -2557,7 +2740,11 @@
           variantNorms: [],
           // 입 모양 비디오와 부가정보를 그룹에 저장합니다.
           mouthVideo: row.mouthVideo || "",
-          extraInfo: row.extraInfo || ""
+          extraInfo: row.extraInfo || "",
+          wordClipStartRaw: row.wordClipStartRaw || "",
+          wordClipEndRaw: row.wordClipEndRaw || "",
+          wordClipStart: row.wordClipStart,
+          wordClipEnd: row.wordClipEnd
         };
       }
 
@@ -2583,6 +2770,10 @@
       // 입 모양 비디오와 부가정보가 비어있을 경우 채웁니다.
       if (!group.mouthVideo && row.mouthVideo) group.mouthVideo = row.mouthVideo;
       if (!group.extraInfo && row.extraInfo) group.extraInfo = row.extraInfo;
+      if (!safe(group.wordClipStartRaw) && safe(row.wordClipStartRaw)) group.wordClipStartRaw = row.wordClipStartRaw;
+      if (!safe(group.wordClipEndRaw) && safe(row.wordClipEndRaw)) group.wordClipEndRaw = row.wordClipEndRaw;
+      if (!Number.isFinite(group.wordClipStart) && Number.isFinite(row.wordClipStart)) group.wordClipStart = row.wordClipStart;
+      if (!Number.isFinite(group.wordClipEnd) && Number.isFinite(row.wordClipEnd)) group.wordClipEnd = row.wordClipEnd;
       }
 
       function addExample(group, row){
@@ -2597,6 +2788,10 @@
           video: row.exampleVideo,
           signImage: row.exampleSignImage,
           rowIndex,
+          clipStartRaw: row.exampleClipStartRaw || "",
+          clipEndRaw: row.exampleClipEndRaw || "",
+          clipStart: row.exampleClipStart,
+          clipEnd: row.exampleClipEnd,
           _key: key
         });
         if (rowIndex >= 0 && !group.rowIndices.includes(rowIndex)) group.rowIndices.push(rowIndex);
@@ -2743,7 +2938,11 @@
             textNorm,
             searchBlob: [wordNorm, textNorm].filter(Boolean).join("\n"),
             video: ex.video || "",
-            signImage: ex.signImage || ""
+            signImage: ex.signImage || "",
+            clipStartRaw: ex.clipStartRaw || "",
+            clipEndRaw: ex.clipEndRaw || "",
+            clipStart: ex.clipStart,
+            clipEnd: ex.clipEnd
           });
         });
       });
@@ -3166,8 +3365,10 @@
       const key = getCurrentEntityKey();
       if (!key) return;
       const value = safe(els.noteTextarea?.value || "");
+      const rowIndex = getCurrentEntityRowIndex();
       if (value) notesByKey[key] = value;
       else delete notesByKey[key];
+      if (rowIndex >= 0) setInlineMemoForRowIndex(rowIndex, value);
       await saveNotesCache();
       updateNoteButtons();
       renderInfo();
@@ -3178,7 +3379,9 @@
     async function deleteCurrentNote(){
       const key = getCurrentEntityKey();
       if (!key) return;
+      const rowIndex = getCurrentEntityRowIndex();
       delete notesByKey[key];
+      if (rowIndex >= 0) setInlineMemoForRowIndex(rowIndex, "");
       if (els.noteTextarea) els.noteTextarea.value = "";
       await saveNotesCache();
       updateNoteButtons();
@@ -3189,6 +3392,26 @@
 
     function getRowObject(rowIndex){
       return Number.isInteger(rowIndex) && rowIndex >= 0 ? (rows[rowIndex] || null) : null;
+    }
+
+    function setInlineMemoForRowIndex(rowIndex, value){
+      const row = getRowObject(rowIndex);
+      if (!row) return;
+      row["메모"] = safe(value);
+    }
+
+    function syncRowsMemoIntoNotes(){
+      let changed = false;
+      rows.forEach((row, rowIndex) => {
+        const key = buildRowNoteKey(rowIndex);
+        if (!key) return;
+        const inlineMemo = safe(row?.["메모"] || row?.memo || row?.notes || "");
+        if (!inlineMemo) return;
+        if (safe(notesByKey[key] || "") === inlineMemo) return;
+        notesByKey[key] = inlineMemo;
+        changed = true;
+      });
+      return changed;
     }
 
     function setPreferredFieldValue(row, aliases, fallbackKey, value){
@@ -3373,53 +3596,75 @@ ${cleanWord}`, "");
         definition: safe(definition),
         mouthVideo: "",
         additionalInfo: safe(extraInfo),
-        메모: ""
+        메모: "",
+        headwordClipStart: "",
+        headwordClipEnd: "",
+        exampleClipStart: "",
+        exampleClipEnd: ""
       };
       rememberUndoSnapshot();
       rows.push(newRow);
       await persistEditedRows("새 표제어 추가", cleanWord);
     }
 
-    function getExportableKeys(){
-      const preferred = [
-        "sourceUrl", "sourceId", "expression", "category", "headwordVideo", "signTextImage",
-        "handShapeImage1", "handShapeImage2", "handShapeImage3", "translation", "exampleVideo",
-        "exampleSignTextImage", "variantLabel", "definition", "mouthVideo", "additionalInfo",
-        "source", "sourceName", "메모"
+    function getFixedExportSchema(){
+      return [
+        { header: "원문", value: row => safe(row?.sourceUrl || row?.원문 || "") },
+        { header: "출처", value: row => safe(row?.source || row?.sourceName || row?.출처 || "한국수어누리사전") },
+        { header: "ID", value: row => safe(row?.sourceId || row?.ID || "") },
+        { header: "표제어", value: row => safe(row?.expression || row?.표제어 || "") },
+        { header: "의미범주", value: row => safe(row?.category || row?.의미범주 || "") },
+        { header: "표제어영상", value: row => safe(row?.headwordVideo || row?.표제어영상 || "") },
+        { header: "표제어수어문자", value: row => safe(row?.signTextImage || row?.표제어수어문자 || "") },
+        { header: "표제어수형그림1", value: row => safe(row?.handShapeImage1 || row?.표제어수형그림1 || "") },
+        { header: "용례번역문", value: row => safe(row?.translation || row?.용례번역문 || "") },
+        { header: "용례영상", value: row => safe(row?.exampleVideo || row?.용례영상 || "") },
+        { header: "용례수어문자", value: row => safe(row?.exampleSignTextImage || row?.용례수어문자 || "") },
+        { header: "표제어수형그림2", value: row => safe(row?.handShapeImage2 || row?.표제어수형그림2 || "") },
+        { header: "표제어수형그림3", value: row => safe(row?.handShapeImage3 || row?.표제어수형그림3 || "") },
+        { header: "변이범주", value: row => safe(row?.variantLabel || row?.변이범주 || "") },
+        { header: "뜻풀이", value: row => safe(row?.definition || row?.뜻풀이 || "") },
+        { header: "입 모양", value: row => safe(row?.mouthVideo || row?.["입 모양"] || "") },
+        { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
+        { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
+        { header: "구간시작_표제어", value: row => safe(row?.headwordClipStart || row?.구간시작_표제어 || "") },
+        { header: "구간종료_표제어", value: row => safe(row?.headwordClipEnd || row?.구간종료_표제어 || "") },
+        { header: "구간시작_용례", value: row => safe(row?.exampleClipStart || row?.구간시작_용례 || "") },
+        { header: "구간종료_용례", value: row => safe(row?.exampleClipEnd || row?.구간종료_용례 || "") }
       ];
-      const seen = new Set();
-      const keys = [];
-      preferred.forEach(key => {
-        if (seen.has(key)) return;
-        seen.add(key);
-        keys.push(key);
-      });
+    }
+
+    function getExportableKeys(){
+      const fixed = getFixedExportSchema().map(item => item.header);
+      const seen = new Set(fixed);
+      const extra = [];
       rows.forEach(row => {
         Object.keys(row || {}).forEach(key => {
           if (!key || key.startsWith("__")) return;
           if (seen.has(key)) return;
           seen.add(key);
-          keys.push(key);
+          extra.push(key);
         });
       });
-      if (!seen.has("메모")) keys.push("메모");
-      return keys;
+      return [...fixed, ...extra];
     }
 
     function buildExportRows(){
+      const schema = getFixedExportSchema();
+      const fixedHeaders = schema.map(item => item.header);
       const headers = getExportableKeys();
+      const extraHeaders = headers.filter(key => !fixedHeaders.includes(key));
       const data = rows.map((row, rowIndex) => {
         const out = {};
-        headers.forEach(key => {
-          if (key === "메모"){
-            out[key] = safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.[key] || "");
-          } else {
-            out[key] = safe(row?.[key] || "");
-          }
+        schema.forEach(item => {
+          out[item.header] = safe(item.value(row, rowIndex));
+        });
+        extraHeaders.forEach(key => {
+          out[key] = safe(row?.[key] || "");
         });
         return out;
       });
-      return { headers, data };
+      return { headers: [...fixedHeaders, ...extraHeaders], data };
     }
 
     function makeExportFileName(){
@@ -6777,6 +7022,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         next.__rowIndex = idx;
         return next;
       });
+      syncRowsMemoIntoNotes();
       groups = buildGroups(rows);
       // 중복되는 단어를 파악하여 duplicateWords 세트를 구성합니다.
       duplicateWords = new Set();
@@ -7021,6 +7267,154 @@ ${multiSelectedSearchItems.length}개`, 1000);
       }
     }
 
+
+    function openRangeLookupModal(){
+      if (window.matchMedia("(max-width: 1180px)").matches){
+        showOverlay("PC 버전에서만 사용할 수 있습니다", 1200);
+        return;
+      }
+      if (!els.rangeLookupModal) return;
+      els.rangeLookupModal.classList.add("open");
+      els.rangeLookupModal.setAttribute("aria-hidden", "false");
+      setTimeout(() => els.rangeLookupUrl?.focus(), 20);
+    }
+
+    function closeRangeLookupModal(){
+      if (!els.rangeLookupModal) return;
+      els.rangeLookupModal.classList.remove("open");
+      els.rangeLookupModal.setAttribute("aria-hidden", "true");
+    }
+
+    function fillRangeLookupWithCurrentValues(){
+      const group = getCurrentGroup();
+      const item = getCurrentPoolItem();
+      const mode = isExampleMode() ? "example" : "word";
+      const currentRow = getRowObject(getCurrentEntityRowIndex());
+      const url = safe(currentRow?.sourceUrl || currentRow?.원문 || getCurrentSourceUrl() || "");
+      const start = mode === "example" ? safe(item?.clipStartRaw || getRowObject(getCurrentEntityRowIndex())?.exampleClipStart || "") : safe(group?.wordClipStartRaw || getRowObject(getCurrentEntityRowIndex())?.headwordClipStart || "");
+      const end = mode === "example" ? safe(item?.clipEndRaw || getRowObject(getCurrentEntityRowIndex())?.exampleClipEnd || "") : safe(group?.wordClipEndRaw || getRowObject(getCurrentEntityRowIndex())?.headwordClipEnd || "");
+      if (els.rangeLookupScope) els.rangeLookupScope.value = mode;
+      if (els.rangeLookupUrl) els.rangeLookupUrl.value = url;
+      if (els.rangeLookupStart) els.rangeLookupStart.value = start;
+      if (els.rangeLookupEnd) els.rangeLookupEnd.value = end;
+    }
+
+    function findRowByVideoRange(url, startValue, endValue, scope = "auto"){
+      const lookupKey = normalizeMediaLookupKey(url);
+      if (!lookupKey) return null;
+      const inputStart = parseTimeToSeconds(startValue);
+      const inputEnd = parseTimeToSeconds(endValue);
+      const candidates = [];
+
+      rows.forEach((row, rowIndex) => {
+        const clip = getRowClipInfo(row);
+        const sourceLookupKey = normalizeMediaLookupKey(pickValue(row, ["sourceUrl", "원문", "원문페이지", "pageUrl", "url"]));
+        const wordVideoKey = normalizeMediaLookupKey(pickValue(row, ["headwordVideo", "표제어영상", "표제어 영상", "wordVideo", "영상"]));
+        const exampleVideoKey = normalizeMediaLookupKey(pickValue(row, ["exampleVideo", "용례영상", "용례 영상"]));
+        const baseKey = sourceLookupKey || wordVideoKey || exampleVideoKey;
+
+        if (scope !== "example" && baseKey && baseKey === lookupKey){
+          if (isRangeMatch(inputStart, inputEnd, clip.wordStart, clip.wordEnd)){
+            candidates.push({ rowIndex, mode: "W", score: calcRangeDistance(inputStart, inputEnd, clip.wordStart, clip.wordEnd), clipStart: clip.wordStart, clipEnd: clip.wordEnd, label: "표제어" });
+          }
+        }
+        if (scope !== "word" && baseKey && baseKey === lookupKey){
+          if (isRangeMatch(inputStart, inputEnd, clip.exampleStart, clip.exampleEnd)){
+            candidates.push({ rowIndex, mode: "S", score: calcRangeDistance(inputStart, inputEnd, clip.exampleStart, clip.exampleEnd), clipStart: clip.exampleStart, clipEnd: clip.exampleEnd, label: "용례" });
+          }
+        }
+      });
+
+      candidates.sort((a, b) => (a.score - b.score) || (a.rowIndex - b.rowIndex));
+      return candidates[0] || null;
+    }
+
+    async function focusMatchedRow(match){
+      if (!match) return false;
+      const row = getRowObject(match.rowIndex);
+      if (!row) return false;
+      const normalized = normalizeDataRow(row);
+      if (!normalized) return false;
+      const targetGroup = groups.find(group => Array.isArray(group.rowIndices) && group.rowIndices.includes(match.rowIndex)) || null;
+      selectionModeActive = false;
+      selectedGroupIds = [];
+      els.searchInput.value = "";
+      els.categorySelect.value = "";
+      if (els.sourceSelect) els.sourceSelect.value = "";
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      suggestionCacheKey = "";
+      searchIdMode = false;
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      await applyFilter({ save:false });
+      const groupId = String(targetGroup?.id || "");
+      if (!groupId) return false;
+      const groupIdx = filteredGroups.findIndex(group => String(group.id) === groupId);
+      if (groupIdx < 0) return false;
+      currentIndex = groupIdx;
+      if (match.mode === "S"){
+        const exIdx = filteredExamplePool.findIndex(item => String(item.groupId) === groupId && Number(item.rowIndex) === Number(match.rowIndex));
+        if (exIdx >= 0) currentPoolIndex = exIdx;
+        else {
+          const fallbackIdx = filteredExamplePool.findIndex(item => String(item.groupId) === groupId);
+          if (fallbackIdx >= 0) currentPoolIndex = fallbackIdx;
+        }
+      }
+      currentMode = match.mode;
+      if (Number.isFinite(match.clipStart) && Number.isFinite(match.clipEnd) && match.clipEnd > match.clipStart){
+        abLoopStart = match.clipStart;
+        abLoopEnd = match.clipEnd;
+        currentVideoTime = match.clipStart;
+        pendingRestoreTime = match.clipStart;
+        pendingClipFocus = { start: match.clipStart, end: match.clipEnd };
+      } else {
+        pendingClipFocus = null;
+      }
+      render(getShouldAutoplay());
+      await saveState();
+      const timeText = Number.isFinite(match.clipStart) && Number.isFinite(match.clipEnd)
+        ? `
+${formatSecondsForUi(match.clipStart)} ~ ${formatSecondsForUi(match.clipEnd)}`
+        : "";
+      showOverlay(`${normalized.word} 불러옴
+${match.label}${timeText}`, 1500);
+      closeRangeLookupModal();
+      return true;
+    }
+
+    async function submitRangeLookup(){
+      if (!rows.length){
+        showOverlay("먼저 엑셀 파일을 불러와 주세요", 1300);
+        return;
+      }
+      const url = safe(els.rangeLookupUrl?.value || "").trim();
+      const startValue = safe(els.rangeLookupStart?.value || "").trim();
+      const endValue = safe(els.rangeLookupEnd?.value || "").trim();
+      const scope = safe(els.rangeLookupScope?.value || "auto") || "auto";
+      if (!url){
+        showOverlay("유튜브 링크를 입력해 주세요", 1200);
+        els.rangeLookupUrl?.focus();
+        return;
+      }
+      if (startValue && parseTimeToSeconds(startValue) === null){
+        showOverlay("시작 시간 형식이 올바르지 않습니다", 1300);
+        els.rangeLookupStart?.focus();
+        return;
+      }
+      if (endValue && parseTimeToSeconds(endValue) === null){
+        showOverlay("종료 시간 형식이 올바르지 않습니다", 1300);
+        els.rangeLookupEnd?.focus();
+        return;
+      }
+      const match = findRowByVideoRange(url, startValue, endValue, scope);
+      if (!match){
+        showOverlay("일치하는 구간을 찾지 못했습니다", 1400);
+        return;
+      }
+      await focusMatchedRow(match);
+    }
+
     function handleGlobalKeydown(e){
       if (e.defaultPrevented) return;
       const key = e.key.toLowerCase();
@@ -7034,6 +7428,11 @@ ${multiSelectedSearchItems.length}개`, 1000);
         if (els.noteModal?.classList.contains("open")){
           e.preventDefault();
           closeNoteModal();
+          return;
+        }
+        if (els.rangeLookupModal?.classList.contains("open")){
+          e.preventDefault();
+          closeRangeLookupModal();
           return;
         }
         if (els.mobileSheet?.classList.contains("open")){
@@ -7418,6 +7817,19 @@ ${multiSelectedSearchItems.length}개`, 1000);
       els.noteDeleteBtn?.addEventListener("click", () => { deleteCurrentNote(); });
       els.noteCloseBtn?.addEventListener("click", closeNoteModal);
       els.noteModal?.addEventListener("click", (e) => { if (e.target === els.noteModal) closeNoteModal(); });
+      els.rangeLookupBtn?.addEventListener("click", openRangeLookupModal);
+      els.rangeLookupCloseBtn?.addEventListener("click", closeRangeLookupModal);
+      els.rangeLookupModal?.addEventListener("click", (e) => { if (e.target === els.rangeLookupModal) closeRangeLookupModal(); });
+      els.rangeLookupFillBtn?.addEventListener("click", fillRangeLookupWithCurrentValues);
+      els.rangeLookupSearchBtn?.addEventListener("click", () => { submitRangeLookup(); });
+      [els.rangeLookupUrl, els.rangeLookupStart, els.rangeLookupEnd].forEach(input => {
+        input?.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey){
+            e.preventDefault();
+            submitRangeLookup();
+          }
+        });
+      });
       els.noteTextarea?.addEventListener("keydown", (e) => {
         if (e.key !== "Enter" || e.isComposing) return;
         if (e.shiftKey) return;
@@ -7750,6 +8162,13 @@ ${multiSelectedSearchItems.length}개`, 1000);
         if (pendingRestoreTime !== null && isFinite(els.mainVideo.duration)){
           els.mainVideo.currentTime = Math.min(pendingRestoreTime, Math.max(0, els.mainVideo.duration - 0.1));
           pendingRestoreTime = null;
+        }
+        if (pendingClipFocus && isFinite(els.mainVideo.duration)){
+          const clipStart = Number(pendingClipFocus.start);
+          if (Number.isFinite(clipStart)){
+            try { els.mainVideo.currentTime = Math.min(clipStart, Math.max(0, els.mainVideo.duration - 0.1)); } catch (_) {}
+          }
+          pendingClipFocus = null;
         }
       });
 
