@@ -3841,7 +3841,14 @@ function getSearchScope(){
         return;
       }
       activeWordAssetState.index = (activeWordAssetState.index + 1) % totalSlots;
-      render(getShouldAutoplay());
+      currentVideoTime = 0;
+      // W/E 변이형 전환은 전체 render() 대신 현재 스테이지만 즉시 다시 그려서
+      // 팝업 문구와 실제 영상/이미지 갱신이 한 박자 어긋나지 않게 합니다.
+      renderMainStage(getShouldAutoplay());
+      renderInfo();
+      renderStatus();
+      updatePlaybackButton();
+      maybeShowVariantHint();
       await saveState();
       showOverlay(describeVariantSlot(group, mode, activeWordAssetState.index), 900);
     }
@@ -4227,19 +4234,41 @@ function getSearchScope(){
       els.mainVideo.style.display = "block";
       applyVideoLoopState();
 
-      if (els.mainVideo.dataset.currentSrc !== (url || "")){
+      const nextSrc = url || "";
+      const prevSrc = els.mainVideo.dataset.currentSrc || "";
+      const srcChanged = prevSrc !== nextSrc;
+
+      if (srcChanged){
+        try { els.mainVideo.pause(); } catch (_) {}
+        // 이전 프레임이 잠깐 남아 표제어 영상처럼 보이는 현상을 줄이기 위해
+        // src를 한 번 비운 뒤 새 주소를 다시 로드합니다.
         els.mainVideo.removeAttribute("crossorigin");
-        els.mainVideo.dataset.currentSrc = url || "";
-        if (url){
-          els.mainVideo.src = url;
+        els.mainVideo.removeAttribute("src");
+        els.mainVideo.load();
+        els.mainVideo.dataset.currentSrc = nextSrc;
+        if (nextSrc){
+          els.mainVideo.src = nextSrc;
         } else {
           els.mainVideo.removeAttribute("src");
         }
         els.mainVideo.load();
       }
 
-      if (url && autoPlay){
-        els.mainVideo.play().catch(() => {});
+      if (!nextSrc){
+        return;
+      }
+
+      if (srcChanged){
+        try { els.mainVideo.currentTime = 0; } catch (_) {}
+      }
+
+      if (autoPlay){
+        const playVideo = () => els.mainVideo.play().catch(() => {});
+        if (srcChanged && els.mainVideo.readyState < 1){
+          els.mainVideo.addEventListener("loadedmetadata", playVideo, { once:true });
+        } else {
+          playVideo();
+        }
       }
     }
 
