@@ -3673,26 +3673,59 @@ ${cleanWord}`, "");
       return `${stripped}_편집본.xlsx`;
     }
 
+    function triggerExcelBlobDownload(workbook, fileName){
+      const safeName = safe(fileName || makeExportFileName()).trim() || "한국수어누리사전_편집본.xlsx";
+      const wbout = XLSX.write(workbook, { bookType:"xlsx", type:"array" });
+      const blob = new Blob([
+        wbout
+      ], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+      if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === "function"){
+        window.navigator.msSaveOrOpenBlob(blob, safeName);
+        return true;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = safeName;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try{ a.remove(); }catch(_){ }
+        try{ URL.revokeObjectURL(url); }catch(_){ }
+      }, 1000);
+      return true;
+    }
+
     async function downloadExcelFile(){
       if (window.matchMedia("(max-width: 1180px)").matches){
         showOverlay("PC 버전에서만 엑셀 다운로드가 가능합니다", 1200);
-        return;
+        return false;
       }
       if (!rows.length){
         showOverlay("다운로드할 데이터가 없습니다", 1200);
-        return;
+        return false;
       }
-      await ensureXlsxAvailable();
-      if (typeof XLSX === "undefined"){
-        showOverlay("엑셀 라이브러리를 불러오지 못했습니다", 1500);
-        return;
+      try{
+        await ensureXlsxAvailable();
+        if (typeof XLSX === "undefined"){
+          showOverlay("엑셀 라이브러리를 불러오지 못했습니다", 1500);
+          return false;
+        }
+        const { headers, data } = buildExportRows();
+        const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
+        triggerExcelBlobDownload(workbook, makeExportFileName());
+        showOverlay("엑셀 다운로드 완료", 1100);
+        return true;
+      } catch (err){
+        console.error(err);
+        showOverlay(`엑셀 다운로드 실패: ${err?.message || err}`, 2200);
+        return false;
       }
-      const { headers, data } = buildExportRows();
-      const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
-      XLSX.writeFile(workbook, makeExportFileName());
-      showOverlay("엑셀 다운로드 완료", 1100);
     }
 
     function getFitVerticalZoomScale(){
@@ -7868,8 +7901,8 @@ ${match.label}${timeText}`, 1500);
         }
       });
 
-      els.downloadXlsxBtn?.addEventListener("click", () => {
-        downloadExcelFile();
+      els.downloadXlsxBtn?.addEventListener("click", async () => {
+        await downloadExcelFile();
       });
 
       els.fileInput.addEventListener("change", async (e) => {
