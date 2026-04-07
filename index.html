@@ -1371,6 +1371,7 @@
       <section class="card viewer">
         <div id="stage" class="stage" tabindex="0">
           <video id="mainVideo" controls playsinline preload="metadata"></video>
+          <div id="youtubePlayerWrap" class="main-frame" title="유튜브 플레이어" aria-label="유튜브 플레이어" style="display:none;"><div id="youtubePlayer"></div></div>
           <iframe id="mainFrame" class="main-frame" title="외부 영상 플레이어" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="origin-when-cross-origin"></iframe>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
@@ -1583,6 +1584,8 @@
       searchIdBtn: document.getElementById("searchIdBtn"),
       countBadge: document.getElementById("countBadge"),
       mainVideo: document.getElementById("mainVideo"),
+      youtubePlayerWrap: document.getElementById("youtubePlayerWrap"),
+      youtubePlayer: document.getElementById("youtubePlayer"),
       mainFrame: document.getElementById("mainFrame"),
       mainImage: document.getElementById("mainImage"),
       mainGallery: document.getElementById("mainGallery"),
@@ -1810,6 +1813,8 @@
     let ytApiPromise = null;
     let ytPendingConfig = null;
     let ytActiveClip = null;
+    let ytPreviewStopAt = null;
+    let ytCurrentVideoId = "";
     let ytClipTimer = null;
     let pendingRestoreGroupId = "";
     let pendingRestoreExampleToken = "";
@@ -2285,9 +2290,36 @@
     }
 
     function shouldUseYoutubeApi(){
-      // v14: 안정성을 위해 YouTube Iframe API 대신 일반 iframe 임베드만 사용합니다.
-      // Firestore 캐시 경고와 무관하게, 예문 영상이 검은 화면으로 멈추는 환경을 우회하기 위한 패치입니다.
-      return false;
+      // v16: 원본 파일 구조는 유지하되, 유튜브 구간 재생은 range editor의 Iframe API 방식을 우선 사용합니다.
+      return true;
+    }
+
+    function ensureYoutubePlayerHost(){
+      if (!els.stage) return null;
+      let wrap = els.youtubePlayerWrap || document.getElementById("youtubePlayerWrap");
+      let host = els.youtubePlayer || document.getElementById("youtubePlayer");
+      if (!wrap){
+        wrap = document.createElement("div");
+        wrap.id = "youtubePlayerWrap";
+        wrap.className = "main-frame";
+        wrap.style.display = "none";
+        wrap.setAttribute("title", "유튜브 플레이어");
+        wrap.setAttribute("aria-label", "유튜브 플레이어");
+        host = document.createElement("div");
+        host.id = "youtubePlayer";
+        wrap.appendChild(host);
+        const anchor = els.mainFrame || els.mainImage || els.mainVideo;
+        if (anchor && anchor.parentNode === els.stage) els.stage.insertBefore(wrap, anchor);
+        else els.stage.appendChild(wrap);
+      } else if (!host){
+        host = document.createElement("div");
+        host.id = "youtubePlayer";
+        wrap.innerHTML = "";
+        wrap.appendChild(host);
+      }
+      els.youtubePlayerWrap = wrap;
+      els.youtubePlayer = host;
+      return host;
     }
 
     function clearYoutubeClipWatcher(){
@@ -2299,35 +2331,32 @@
 
     function startYoutubeClipWatcher(){
       clearYoutubeClipWatcher();
-      if (!ytPlayer || !ytPlayerReady || !ytActiveClip) return;
-      const start = Number(ytActiveClip.start);
-      const end = Number(ytActiveClip.end);
-      const hasStart = Number.isFinite(start) && start >= 0;
-      const hasEnd = Number.isFinite(end) && end >= 0;
-      if (!hasStart && !hasEnd) return;
+      if (!ytPlayer || !ytPlayerReady || typeof ytPlayer.getCurrentTime !== "function") return;
       ytClipTimer = setInterval(() => {
         if (!ytPlayer || !ytPlayerReady || typeof ytPlayer.getCurrentTime !== "function") return;
         let current = NaN;
-        try { current = ytPlayer.getCurrentTime(); } catch (_) { return; }
+        try { current = Number(ytPlayer.getCurrentTime() || 0); } catch (_) { return; }
         if (!Number.isFinite(current)) return;
 
-        if (hasStart && current < Math.max(0, start - 0.6)){
-          try { ytPlayer.seekTo(start, true); } catch (_) {}
-          return;
-        }
+        const clipStart = Number.isFinite(Number(ytActiveClip?.start)) ? Number(ytActiveClip.start) : null;
+        const clipEnd = Number.isFinite(Number(ytPreviewStopAt)) ? Number(ytPreviewStopAt) : null;
 
-        if (hasEnd && current >= Math.max(hasStart ? start : 0, end - 0.15)){
-          if (playbackMode === "LOOP" && hasStart && end > start){
+        if (clipEnd != null && current >= clipEnd){
+          if (playbackMode === "LOOP" && clipStart != null && clipEnd > clipStart){
             try {
-              ytPlayer.seekTo(start, true);
+              ytPlayer.seekTo(clipStart, true);
               ytPlayer.playVideo();
             } catch (_) {}
+          } else if (playbackMode === "CONT"){
+            ytPreviewStopAt = null;
+            clearYoutubeClipWatcher();
+            goNext(true).catch(() => {});
           } else {
-            const holdAt = Math.max(hasStart ? start : 0, end - 0.2);
             try {
               ytPlayer.pauseVideo();
-              ytPlayer.seekTo(holdAt, true);
+              if (clipStart != null && clipEnd > clipStart) ytPlayer.seekTo(Math.max(clipStart, clipEnd - 0.15), true);
             } catch (_) {}
+            ytPreviewStopAt = null;
             clearYoutubeClipWatcher();
           }
         }
@@ -2372,6 +2401,8 @@
       if (ytPlayer && ytPlayerReady) return ytPlayer;
       await ensureYoutubeApi();
       if (ytPlayer && ytPlayerReady) return ytPlayer;
+      const host = ensureYoutubePlayerHost();
+      if (!host) throw new Error("유튜브 플레이어 영역을 만들지 못했습니다.");
       return await new Promise((resolve, reject) => {
         let resolved = false;
         const finishResolve = () => {
@@ -2386,20 +2417,22 @@
         };
         const readyTimeout = setTimeout(() => finishReject(new Error("유튜브 플레이어 준비 시간 초과")), 5000);
         const playerOptions = {
-          videoId: ytPendingConfig?.videoId || "",
+          width: "100%",
+          height: "100%",
+          videoId: "",
           playerVars: {
             autoplay: 0,
             controls: 1,
-            playsinline: 1,
             rel: 0,
             modestbranding: 1,
-            fs: 1,
-            enablejsapi: 1
+            playsinline: 1
           },
           events: {
             onReady: () => {
               clearTimeout(readyTimeout);
               ytPlayerReady = true;
+              const iframe = (els.youtubePlayerWrap || document.getElementById("youtubePlayerWrap"))?.querySelector("iframe");
+              if (iframe) iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
               if (ytPendingConfig) {
                 const pending = ytPendingConfig;
                 setTimeout(() => {
@@ -2412,18 +2445,12 @@
               clearTimeout(readyTimeout);
               finishReject(new Error(`유튜브 플레이어 오류: ${event?.data ?? "unknown"}`));
             },
-            onStateChange: (event) => {
-              const state = event?.data;
-              if (!window.YT || !YT.PlayerState) return;
-              if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING || state === YT.PlayerState.CUED){
-                startYoutubeClipWatcher();
-              }
-            }
+            onStateChange: () => {}
           }
         };
         try {
           if (!ytPlayer){
-            ytPlayer = new YT.Player("mainFrame", playerOptions);
+            ytPlayer = new YT.Player(host.id || "youtubePlayer", playerOptions);
           } else if (ytPlayerReady){
             clearTimeout(readyTimeout);
             finishResolve();
@@ -2441,34 +2468,46 @@
       clearYoutubeClipWatcher();
       const start = Number.isFinite(Number(config.start)) ? Math.max(0, Number(config.start)) : 0;
       const end = Number.isFinite(Number(config.end)) ? Math.max(0, Number(config.end)) : null;
-      const payload = {
-        videoId: config.videoId || "",
-        startSeconds: start
-      };
-      if (Number.isFinite(end) && end > start){
-        payload.endSeconds = end;
-      }
-      ytActiveClip = { videoId: config.videoId || "", start, end, autoPlay: !!config.autoPlay };
+      const videoId = safe(config.videoId || "");
+      if (!videoId) return;
+
+      ytActiveClip = { videoId, start, end, autoPlay: !!config.autoPlay };
+      ytPreviewStopAt = Number.isFinite(end) && end > start ? end : null;
+
+      const shouldReload = ytCurrentVideoId !== videoId;
+      ytCurrentVideoId = videoId;
+
       try {
-        if (config.autoPlay) ytPlayer.loadVideoById(payload);
-        else ytPlayer.cueVideoById(payload);
+        if (shouldReload){
+          if (config.autoPlay) ytPlayer.loadVideoById(videoId, start);
+          else ytPlayer.cueVideoById(videoId, start);
+        } else if (Number.isFinite(start)) {
+          ytPlayer.seekTo(start, true);
+          if (config.autoPlay) ytPlayer.playVideo();
+          else ytPlayer.pauseVideo();
+        }
       } catch (err) {
-        console.warn("유튜브 플레이어 구간 적용 실패", err);
-        const fallbackUrl = buildYoutubeEmbedUrl(`https://www.youtube.com/watch?v=${encodeURIComponent(config.videoId || "")}`, { autoPlay: config.autoPlay, start, end });
-        if (fallbackUrl) showMainFrame(fallbackUrl);
-        return;
+        try {
+          const payload = { videoId, startSeconds: start };
+          if (config.autoPlay) ytPlayer.loadVideoById(payload);
+          else ytPlayer.cueVideoById(payload);
+        } catch (innerErr) {
+          console.warn("유튜브 플레이어 구간 적용 실패", innerErr);
+          const fallbackUrl = buildYoutubeEmbedUrl(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, { autoPlay: config.autoPlay, start, end });
+          if (fallbackUrl) showMainFrame(fallbackUrl);
+          return;
+        }
       }
-      if (!config.autoPlay){
-        setTimeout(() => {
-          try {
-            ytPlayer.seekTo(start, true);
-            ytPlayer.pauseVideo();
-          } catch (_) {}
-          startYoutubeClipWatcher();
-        }, 350);
-      } else {
-        setTimeout(() => startYoutubeClipWatcher(), 350);
-      }
+
+      setTimeout(() => {
+        if (!ytPlayer || !ytPlayerReady) return;
+        try {
+          if (Number.isFinite(start)) ytPlayer.seekTo(start, true);
+          if (config.autoPlay) ytPlayer.playVideo();
+          else ytPlayer.pauseVideo();
+        } catch (_) {}
+        startYoutubeClipWatcher();
+      }, 120);
     }
 
     async function showYoutubeVideo(url, autoPlay = false, options = {}){
@@ -2488,19 +2527,18 @@
         showMainFrame(embedUrl);
         return;
       }
+      const host = ensureYoutubePlayerHost();
       hideAllMainPanels();
-      if (els.mainFrame) els.mainFrame.style.display = "block";
+      if (els.mainFrame){
+        try { els.mainFrame.src = "about:blank"; } catch (_) {}
+        els.mainFrame.dataset.currentSrc = "";
+      }
+      if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "block";
       const config = { videoId, autoPlay: !!autoPlay, start, end };
       ytPendingConfig = config;
       try {
         await ensureYoutubePlayer();
         applyYoutubePlayerConfig(config);
-        setTimeout(() => {
-          if (!ytPlayerReady && embedUrl){
-            console.warn("유튜브 API 준비 지연, 일반 iframe으로 대체합니다.");
-            showMainFrame(embedUrl);
-          }
-        }, 2500);
       } catch (err) {
         console.warn("유튜브 API 사용 실패, 일반 iframe으로 대체합니다.", err);
         if (!embedUrl){
@@ -2512,16 +2550,22 @@
     }
 
     function clearMainFrame(){
-      if (!els.mainFrame) return;
       clearYoutubeClipWatcher();
       ytActiveClip = null;
+      ytPreviewStopAt = null;
       try {
         if (ytPlayer && ytPlayerReady){
           try { ytPlayer.pauseVideo(); } catch (_) {}
           try { ytPlayer.stopVideo(); } catch (_) {}
         }
-        els.mainFrame.style.display = "none";
-        els.mainFrame.dataset.currentSrc = "";
+      } catch (_) {}
+      try {
+        if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
+        if (els.mainFrame){
+          els.mainFrame.style.display = "none";
+          try { els.mainFrame.src = "about:blank"; } catch (_) {}
+          els.mainFrame.dataset.currentSrc = "";
+        }
       } catch (_) {}
     }
 
@@ -2569,15 +2613,21 @@
     }
 
     function getRowClipInfo(row){
-      const wordStartRaw = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]);
-      const wordEndRaw = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]);
-      const exampleStartRaw = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]);
-      const exampleEndRaw = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]);
+      const genericStartRaw = getRowClipFieldValue(row, ["clipStart", "구간시작"]);
+      const genericEndRaw = getRowClipFieldValue(row, ["clipEnd", "구간종료"]);
+      const wordStartRaw = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]) || genericStartRaw;
+      const wordEndRaw = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]) || genericEndRaw;
+      const exampleStartRaw = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]) || genericStartRaw;
+      const exampleEndRaw = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]) || genericEndRaw;
       return {
+        genericStartRaw,
+        genericEndRaw,
         wordStartRaw,
         wordEndRaw,
         exampleStartRaw,
         exampleEndRaw,
+        genericStart: parseTimeToSeconds(genericStartRaw),
+        genericEnd: parseTimeToSeconds(genericEndRaw),
         wordStart: parseTimeToSeconds(wordStartRaw),
         wordEnd: parseTimeToSeconds(wordEndRaw),
         exampleStart: parseTimeToSeconds(exampleStartRaw),
@@ -2815,6 +2865,10 @@
 
       "메모": "메모",
 
+      "구간시작": "clipStart",
+      "구간종료": "clipEnd",
+      "clipStart": "clipStart",
+      "clipEnd": "clipEnd",
       "구간시작_표제어": "headwordClipStart",
       "구간종료_표제어": "headwordClipEnd",
       "구간시작_용례": "exampleClipStart",
@@ -3011,10 +3065,14 @@
         mouthVideo,
         extraInfo,
         memo: pickValue(row, ["메모", "memo", "notes"]),
+        clipStartRaw: clipInfo.genericStartRaw,
+        clipEndRaw: clipInfo.genericEndRaw,
         wordClipStartRaw: clipInfo.wordStartRaw,
         wordClipEndRaw: clipInfo.wordEndRaw,
         exampleClipStartRaw: clipInfo.exampleStartRaw,
         exampleClipEndRaw: clipInfo.exampleEndRaw,
+        clipStart: clipInfo.genericStart,
+        clipEnd: clipInfo.genericEnd,
         wordClipStart: clipInfo.wordStart,
         wordClipEnd: clipInfo.wordEnd,
         exampleClipStart: clipInfo.exampleStart,
@@ -3948,6 +4006,14 @@ ${cleanWord}`, "");
       await persistEditedRows("새 표제어 추가", cleanWord);
     }
 
+    function getPreferredExportClipValue(row, type){
+      const key = type === "start" ? "구간시작" : "구간종료";
+      const generic = safe(row?.[type === "start" ? "clipStart" : "clipEnd"] || row?.[key] || "");
+      const example = safe(row?.[type === "start" ? "exampleClipStart" : "exampleClipEnd"] || row?.[type === "start" ? "구간시작_용례" : "구간종료_용례"] || "");
+      const headword = safe(row?.[type === "start" ? "headwordClipStart" : "headwordClipEnd"] || row?.[type === "start" ? "구간시작_표제어" : "구간종료_표제어"] || "");
+      return generic || example || headword || "";
+    }
+
     function getFixedExportSchema(){
       return [
         { header: "원문", value: row => safe(row?.sourceUrl || row?.원문 || "") },
@@ -3968,10 +4034,8 @@ ${cleanWord}`, "");
         { header: "입 모양", value: row => safe(row?.mouthVideo || row?.["입 모양"] || "") },
         { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
         { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
-        { header: "구간시작_표제어", value: row => safe(row?.headwordClipStart || row?.구간시작_표제어 || "") },
-        { header: "구간종료_표제어", value: row => safe(row?.headwordClipEnd || row?.구간종료_표제어 || "") },
-        { header: "구간시작_용례", value: row => safe(row?.exampleClipStart || row?.구간시작_용례 || "") },
-        { header: "구간종료_용례", value: row => safe(row?.exampleClipEnd || row?.구간종료_용례 || "") }
+        { header: "구간시작", value: row => getPreferredExportClipValue(row, "start") },
+        { header: "구간종료", value: row => getPreferredExportClipValue(row, "end") }
       ];
     }
 
@@ -5161,6 +5225,7 @@ function getSearchScope(){
 
     function hideAllMainPanels(){
       els.mainVideo.style.display = "none";
+      if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
       if (els.mainFrame) els.mainFrame.style.display = "none";
       els.mainImage.style.display = "none";
       if (els.mainGallery){
