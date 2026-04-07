@@ -1816,6 +1816,7 @@
     let ytPreviewStopAt = null;
     let ytCurrentVideoId = "";
     let ytClipTimer = null;
+    let ytWarmupRequested = false;
     let pendingRestoreGroupId = "";
     let pendingRestoreExampleToken = "";
     const FRAME_STEP = 1 / 30;
@@ -2395,13 +2396,27 @@
         try { current = Number(ytPlayer.getCurrentTime() || 0); } catch (_) { return; }
         if (!Number.isFinite(current)) return;
 
+        currentVideoTime = current;
+
+        const abStart = Number.isFinite(Number(abLoopStart)) ? Number(abLoopStart) : null;
+        const abEnd = Number.isFinite(Number(abLoopEnd)) ? Number(abLoopEnd) : null;
+        if (abStart != null && abEnd != null && abEnd > abStart && current >= (abEnd - 0.02)){
+          try {
+            ytPlayer.seekTo(abStart, true);
+            currentVideoTime = abStart;
+            ytPlayer.playVideo();
+          } catch (_) {}
+          return;
+        }
+
         const clipStart = Number.isFinite(Number(ytActiveClip?.start)) ? Number(ytActiveClip.start) : null;
         const clipEnd = Number.isFinite(Number(ytPreviewStopAt)) ? Number(ytPreviewStopAt) : null;
 
-        if (clipEnd != null && current >= clipEnd){
+        if (clipEnd != null && current >= (clipEnd - 0.02)){
           if (playbackMode === "LOOP" && clipStart != null && clipEnd > clipStart){
             try {
               ytPlayer.seekTo(clipStart, true);
+              currentVideoTime = clipStart;
               ytPlayer.playVideo();
             } catch (_) {}
           } else if (playbackMode === "CONT"){
@@ -2411,13 +2426,51 @@
           } else {
             try {
               ytPlayer.pauseVideo();
-              if (clipStart != null && clipEnd > clipStart) ytPlayer.seekTo(Math.max(clipStart, clipEnd - 0.15), true);
+              if (clipStart != null && clipEnd > clipStart){
+                const stopAt = Math.max(clipStart, clipEnd - 0.15);
+                ytPlayer.seekTo(stopAt, true);
+                currentVideoTime = stopAt;
+              }
             } catch (_) {}
             ytPreviewStopAt = null;
             clearYoutubeClipWatcher();
           }
         }
-      }, 120);
+      }, 100);
+    }
+
+
+    function preconnectYoutubeHosts(){
+      const hosts = [
+        "https://www.youtube.com",
+        "https://www.youtube-nocookie.com",
+        "https://i.ytimg.com",
+        "https://googleads.g.doubleclick.net",
+        "https://fonts.gstatic.com"
+      ];
+      const head = document.head || document.documentElement;
+      hosts.forEach((href) => {
+        if (!head || head.querySelector(`link[data-yt-preconnect="${href}"]`)) return;
+        const link = document.createElement("link");
+        link.rel = "preconnect";
+        link.href = href;
+        link.crossOrigin = "";
+        link.dataset.ytPreconnect = href;
+        head.appendChild(link);
+      });
+    }
+
+    function warmYoutubePlayerSoon(){
+      if (ytWarmupRequested) return;
+      ytWarmupRequested = true;
+      const run = () => {
+        ensureYoutubePlayer().catch(() => {});
+      };
+      if (typeof window.requestIdleCallback === "function"){
+        window.requestIdleCallback(run, { timeout: 1500 });
+      } else {
+        setTimeout(run, 250);
+      }
     }
 
     function ensureYoutubeApi(){
@@ -2483,7 +2536,11 @@
             controls: 1,
             rel: 0,
             modestbranding: 1,
-            playsinline: 1
+            playsinline: 1,
+            enablejsapi: 1,
+            origin: location.origin,
+            fs: 1,
+            iv_load_policy: 3
           },
           events: {
             onReady: () => {
@@ -2503,7 +2560,12 @@
               clearTimeout(readyTimeout);
               finishReject(new Error(`유튜브 플레이어 오류: ${event?.data ?? "unknown"}`));
             },
-            onStateChange: () => {}
+            onStateChange: () => {
+              try {
+                const now = Number(ytPlayer?.getCurrentTime?.() || 0);
+                if (Number.isFinite(now)) currentVideoTime = now;
+              } catch (_) {}
+            }
           }
         };
         try {
@@ -2531,14 +2593,17 @@
 
       ytActiveClip = { videoId, start, end, autoPlay: !!config.autoPlay };
       ytPreviewStopAt = Number.isFinite(end) && end > start ? end : null;
+      currentVideoTime = start;
 
       const shouldReload = ytCurrentVideoId !== videoId;
       ytCurrentVideoId = videoId;
+      const payload = { videoId, startSeconds: start };
+      if (Number.isFinite(end) && end > start) payload.endSeconds = end;
 
       try {
         if (shouldReload){
-          if (config.autoPlay) ytPlayer.loadVideoById(videoId, start);
-          else ytPlayer.cueVideoById(videoId, start);
+          if (config.autoPlay) ytPlayer.loadVideoById(payload);
+          else ytPlayer.cueVideoById(payload);
         } else if (Number.isFinite(start)) {
           ytPlayer.seekTo(start, true);
           if (config.autoPlay) ytPlayer.playVideo();
@@ -2546,7 +2611,6 @@
         }
       } catch (err) {
         try {
-          const payload = { videoId, startSeconds: start };
           if (config.autoPlay) ytPlayer.loadVideoById(payload);
           else ytPlayer.cueVideoById(payload);
         } catch (innerErr) {
@@ -2561,11 +2625,12 @@
         if (!ytPlayer || !ytPlayerReady) return;
         try {
           if (Number.isFinite(start)) ytPlayer.seekTo(start, true);
+          currentVideoTime = start;
           if (config.autoPlay) ytPlayer.playVideo();
           else ytPlayer.pauseVideo();
         } catch (_) {}
         startYoutubeClipWatcher();
-      }, 120);
+      }, shouldReload ? 40 : 0);
     }
 
     async function showYoutubeVideo(url, autoPlay = false, options = {}){
@@ -6822,40 +6887,183 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
     }
 
+
+    function isYoutubePlayerVisible(){
+      const wrap = els.youtubePlayerWrap || document.getElementById("youtubePlayerWrap");
+      return !!wrap && wrap.style.display !== "none";
+    }
+
+    function canControlYoutubePlayer(){
+      return isYoutubePlayerVisible() && !!ytPlayer && ytPlayerReady;
+    }
+
+    function getYoutubeCurrentTimeSafe(){
+      if (!canControlYoutubePlayer() || typeof ytPlayer.getCurrentTime !== "function") return null;
+      try {
+        const value = Number(ytPlayer.getCurrentTime() || 0);
+        return Number.isFinite(value) && value >= 0 ? value : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getYoutubeDurationSafe(){
+      if (!canControlYoutubePlayer() || typeof ytPlayer.getDuration !== "function") return null;
+      try {
+        const value = Number(ytPlayer.getDuration() || 0);
+        return Number.isFinite(value) && value > 0 ? value : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getActiveMediaTime(){
+      const ytTime = getYoutubeCurrentTimeSafe();
+      if (ytTime != null){
+        currentVideoTime = ytTime;
+        return ytTime;
+      }
+      if (els.mainVideo?.src && Number.isFinite(els.mainVideo.currentTime)){
+        return Number(els.mainVideo.currentTime);
+      }
+      return null;
+    }
+
+    function getActiveMediaDuration(){
+      const ytDuration = getYoutubeDurationSafe();
+      if (ytDuration != null) return ytDuration;
+      const clipEnd = Number.isFinite(Number(ytActiveClip?.end)) ? Number(ytActiveClip.end) : null;
+      if (clipEnd != null && clipEnd > 0) return clipEnd;
+      const duration = Number(els.mainVideo?.duration);
+      if (Number.isFinite(duration) && duration > 0) return duration;
+      return null;
+    }
+
+    function seekActiveMediaTo(seconds){
+      const target = Number(seconds);
+      if (!Number.isFinite(target)) return false;
+      if (canControlYoutubePlayer()){
+        try {
+          const duration = getYoutubeDurationSafe();
+          const maxTime = duration != null ? Math.max(0, duration - 0.05) : Math.max(0, target);
+          const next = Math.max(0, Math.min(target, maxTime));
+          ytPlayer.seekTo(next, true);
+          currentVideoTime = next;
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      if (els.mainVideo?.src){
+        try {
+          const duration = Number(els.mainVideo.duration);
+          const maxTime = Number.isFinite(duration) && duration > 0 ? Math.max(0, duration - 0.05) : Math.max(0, target);
+          const next = Math.max(0, Math.min(target, maxTime));
+          els.mainVideo.currentTime = next;
+          currentVideoTime = next;
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      return false;
+    }
+
+    function playActiveMedia(){
+      if (canControlYoutubePlayer()){
+        try {
+          ytPlayer.playVideo();
+          startYoutubeClipWatcher();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      if (els.mainVideo?.src){
+        els.mainVideo.play().catch(() => {});
+        return true;
+      }
+      return false;
+    }
+
+    function pauseActiveMedia(){
+      if (canControlYoutubePlayer()){
+        try {
+          ytPlayer.pauseVideo();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      if (els.mainVideo?.src){
+        els.mainVideo.pause();
+        return true;
+      }
+      return false;
+    }
+
+    function isActiveMediaPlaying(){
+      if (canControlYoutubePlayer()){
+        try {
+          const state = Number(ytPlayer.getPlayerState?.());
+          const YTState = window.YT?.PlayerState || {};
+          return state === YTState.PLAYING || state === YTState.BUFFERING;
+        } catch (_) {
+          return false;
+        }
+      }
+      return !!(els.mainVideo?.src && !els.mainVideo.paused);
+    }
+
     function togglePlayPause(){
       if (!isVideoMode()) return;
-      if (!els.mainVideo.src) return;
-
-      if (els.mainVideo.paused){
-        els.mainVideo.play().catch(() => {});
+      if (isActiveMediaPlaying()){
+        pauseActiveMedia();
       } else {
-        els.mainVideo.pause();
+        playActiveMedia();
       }
     }
 
     function seekToPercent(n){
       if (!isVideoMode()) return;
-      const v = els.mainVideo;
-      if (!v.duration || !isFinite(v.duration)) return;
+      const duration = getActiveMediaDuration();
+      if (!duration || !isFinite(duration)) return;
       const pct = Math.max(0, Math.min(9, n)) / 10;
-      v.currentTime = v.duration * pct;
-      currentVideoTime = v.currentTime;
+      if (!seekActiveMediaTo(duration * pct)) return;
       saveState();
       showOverlay(`${Math.round(pct * 100)}% 이동`, 700);
     }
 
     function stepFrame(dir){
       if (!isVideoMode()) return;
-      const v = els.mainVideo;
-      if (!isFinite(v.currentTime)) return;
-      v.pause();
-      v.currentTime = Math.max(0, v.currentTime + FRAME_STEP * dir);
-      currentVideoTime = v.currentTime;
+      const now = getActiveMediaTime();
+      if (!Number.isFinite(now)) return;
+      pauseActiveMedia();
+      if (!seekActiveMediaTo(Math.max(0, now + FRAME_STEP * dir))) return;
       saveState();
     }
 
     function changePlaybackRate(dir){
       if (!isVideoMode()) return;
+      if (canControlYoutubePlayer()){
+        try {
+          const current = Number(ytPlayer.getPlaybackRate?.() || 1) || 1;
+          const available = (ytPlayer.getAvailablePlaybackRates?.() || [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+          let next = current;
+          if (available.length){
+            if (dir > 0){
+              next = available.find(rate => rate > current + 0.001) ?? available[available.length - 1];
+            } else {
+              next = [...available].reverse().find(rate => rate < current - 0.001) ?? available[0];
+            }
+          } else {
+            next = Math.max(0.25, Math.min(2, Math.round((current + dir * 0.25) * 100) / 100));
+          }
+          ytPlayer.setPlaybackRate?.(next);
+          showOverlay(`재생속도 ${next}x`, 700);
+        } catch (_) {}
+        return;
+      }
       const v = els.mainVideo;
       const next = Math.max(0.25, Math.min(3, Math.round((v.playbackRate + dir * 0.25) * 100) / 100));
       v.playbackRate = next;
@@ -6864,7 +7072,12 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
     function setABStart(){
       if (!isVideoMode()) return;
-      abLoopStart = els.mainVideo.currentTime;
+      const current = getActiveMediaTime();
+      if (!Number.isFinite(current)){
+        showOverlay("현재 재생 위치를 읽지 못했습니다", 1200);
+        return;
+      }
+      abLoopStart = current;
       if (abLoopEnd !== null && abLoopEnd <= abLoopStart){
         abLoopEnd = null;
       }
@@ -6878,7 +7091,12 @@ ${getSelectionEntries().length}개 항목`, 1200);
         showOverlay("먼저 [ 로 구간 시작을 지정해 주세요", 1200);
         return;
       }
-      abLoopEnd = els.mainVideo.currentTime;
+      const current = getActiveMediaTime();
+      if (!Number.isFinite(current)){
+        showOverlay("현재 재생 위치를 읽지 못했습니다", 1200);
+        return;
+      }
+      abLoopEnd = current;
       if (abLoopEnd <= abLoopStart){
         showOverlay("구간 종료는 시작보다 뒤여야 합니다", 1200);
         abLoopEnd = null;
@@ -8807,8 +9025,10 @@ O 현재 화면 캡처`);
 
     async function boot(){
       installMediaDiagnostics();
+      preconnectYoutubeHosts();
       ensureYoutubeApi().catch(() => {});
       bindEvents();
+      warmYoutubePlayerSoon();
       initEmptyState();
       firebaseBootstrapping = true;
       firebasePushEnabled = false;
