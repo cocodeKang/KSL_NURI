@@ -5531,16 +5531,43 @@ function getSearchScope(){
       setImage(els.handShapeImg, group.handShapeImage, "수형그림");
     }
 
-    function updateCount(){
-      if (isExampleMode()){
-        const total = filteredExamplePool.length;
-        const now = total ? currentPoolIndex + 1 : 0;
-        els.countBadge.textContent = `${now} / ${total}`;
-      } else {
-        const total = filteredGroups.length;
-        const now = total ? currentIndex + 1 : 0;
-        els.countBadge.textContent = `${now} / ${total}`;
+    function getCountBadgeState(){
+      const wordTotal = filteredGroups.length;
+      if (!isExampleMode()){
+        const wordNow = wordTotal ? currentIndex + 1 : 0;
+        return {
+          now: wordNow,
+          total: wordTotal,
+          title: `표제어 ${wordNow} / ${wordTotal}`
+        };
       }
+
+      const currentItem = getCurrentPoolItem();
+      let wordIndex = -1;
+      if (currentItem){
+        wordIndex = filteredGroups.findIndex(group => String(group.id) === String(currentItem.groupId));
+      }
+      if (wordIndex < 0){
+        const fallbackGroup = getCurrentGroup();
+        if (fallbackGroup){
+          wordIndex = filteredGroups.findIndex(group => String(group.id) === String(fallbackGroup.id));
+        }
+      }
+
+      const wordNow = wordIndex >= 0 ? wordIndex + 1 : (wordTotal ? Math.min(currentIndex + 1, wordTotal) : 0);
+      const exampleTotal = filteredExamplePool.length;
+      const exampleNow = exampleTotal ? currentPoolIndex + 1 : 0;
+      return {
+        now: wordNow,
+        total: wordTotal,
+        title: `표제어 ${wordNow} / ${wordTotal} · 용례 ${exampleNow} / ${exampleTotal}`
+      };
+    }
+
+    function updateCount(){
+      const state = getCountBadgeState();
+      els.countBadge.textContent = `${state.now} / ${state.total}`;
+      els.countBadge.title = state.title || '';
       updateQuickButtons();
     }
 
