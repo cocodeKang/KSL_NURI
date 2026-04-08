@@ -103,7 +103,7 @@
       box-shadow:0 18px 40px rgba(0,0,0,.32);
       overflow:auto;
       display:none;
-      max-height:min(62vh, 520px);
+      max-height:min(31vh, 260px);
       z-index:9999;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
@@ -5123,7 +5123,7 @@ function getSearchScope(){
         showMainText(group?.definition || "뜻풀이가 없습니다.");
       } else if (currentMode === "W"){
         const previewVideo = group ? getWordAssetEntryBySlot(group, "W", 0)?.url : "";
-        if (previewVideo) showMainVideo(previewVideo, false, { start: group?.wordClipStart, end: group?.wordClipEnd, fallbackAlt: describeVariantSlot(group, "W", 0).replace("영상", "이미지") });
+        if (previewVideo) showMainVideo(previewVideo, true, { start: group?.wordClipStart, end: group?.wordClipEnd, fallbackAlt: describeVariantSlot(group, "W", 0).replace("영상", "이미지") });
         else showMainText(labelWord || item.text || "");
       } else if (currentMode === "E"){
         const previewSign = group ? getWordAssetEntryBySlot(group, "E", 0)?.url : "";
@@ -5135,8 +5135,8 @@ function getSearchScope(){
       } else if (currentMode === "A"){
         showMainText(example?.text || item.text || labelWord || "");
       } else if (currentMode === "S"){
-        if (example?.video) showMainVideo(example.video, false, { start: example?.clipStart, end: example?.clipEnd, fallbackAlt: "용례 이미지" });
-        else if (group?.wordVideo) showMainVideo(group.wordVideo, false, { start: group?.wordClipStart, end: group?.wordClipEnd, fallbackAlt: "표제어 이미지" });
+        if (example?.video) showMainVideo(example.video, true, { start: example?.clipStart, end: example?.clipEnd, fallbackAlt: "용례 이미지" });
+        else if (group?.wordVideo) showMainVideo(group.wordVideo, true, { start: group?.wordClipStart, end: group?.wordClipEnd, fallbackAlt: "표제어 이미지" });
         else showMainText(example?.text || item.text || labelWord || "");
       } else if (currentMode === "D"){
         if (example?.signImage) showMainImage(example.signImage, "용례 수어문자");
@@ -6242,6 +6242,7 @@ async function initFirebaseSync(){
         const cap = isMobileViewport() ? 40 : 80;
         const cacheKey = `id|${qId}|${cap}`;
         if (cacheKey === suggestionCacheKey) return suggestionCacheItems;
+        const seenIdWord = new Set();
         const items = groups
           .filter(g => String(g.sourceId || "").includes(qId))
           .map(g => ({
@@ -6257,6 +6258,12 @@ async function initFirebaseSync(){
             variantLabel: "",
             score: String(g.sourceId || "").startsWith(qId) ? 0 : 50
           }))
+          .filter(item => {
+            const dedupeKey = `${item.sourceId || item.id}::${item.word}`;
+            if (seenIdWord.has(dedupeKey)) return false;
+            seenIdWord.add(dedupeKey);
+            return true;
+          })
           .sort(compareSuggestionItems)
           .slice(0, cap);
         suggestionCacheKey = cacheKey;
@@ -6271,15 +6278,15 @@ async function initFirebaseSync(){
 
       const buildMatches = (indexList, type) => {
         const list = [];
-        const seen = type === "example" ? new Set() : null;
+        const seen = new Set();
         for (const item of indexList){
           const norm = item.norm || "";
           if (!norm || !norm.includes(qNorm)) continue;
-          if (seen){
-            const dupKey = `${item.id}::${item.text}`;
-            if (seen.has(dupKey)) continue;
-            seen.add(dupKey);
-          }
+          const dupKey = type === "example"
+            ? `${item.sourceId || item.id}::${item.text}`
+            : `${item.sourceId || item.id}::${item.word}`;
+          if (seen.has(dupKey)) continue;
+          seen.add(dupKey);
           list.push({
             type: item.type,
             text: item.text,
@@ -6388,13 +6395,17 @@ async function initFirebaseSync(){
               ? escapeHtml(`${item.word}${duplicateWords.has(item.word) ? ` (ID:${item.sourceId || item.id})` : ""}`)
               : escapeHtml(item.text));
         const wordDisplay = duplicateWords.has(item.word) ? `${item.word} (ID:${item.sourceId || item.id})` : item.word;
+        const isMultiSelected = multiSelectedSearchKeys.has(getSuggestionMultiKey(item));
+        const itemClasses = ["suggestion-item"];
+        if (idx === searchFocusedIndex) itemClasses.push("active");
+        if (isMultiSelected) itemClasses.push("selected");
         const subLabel = searchIdMode
           ? `<span class="suggestion-sub">표제어: ${escapeHtml(item.word)}</span>`
           : (item.type === "example"
             ? `<span class="suggestion-sub">표제어: ${escapeHtml(wordDisplay)}</span>`
             : ``);
         return `
-          <div class="suggestion-item ${idx === searchFocusedIndex ? "active" : ""}" data-idx="${idx}">
+          <div class="${itemClasses.join(" ")}" data-idx="${idx}">
             ${displayText}
             ${subLabel}
           </div>
@@ -8435,9 +8446,10 @@ ${match.label}${timeText}`, 1500);
         const idx = Number(itemEl.dataset.idx || -1);
         const item = renderedSuggestionItems[idx];
         if (!item) return;
+        const focusedChanged = searchFocusedIndex !== idx;
         searchFocusedIndex = idx;
         previewSuggestionItem(item);
-        requestRenderSearchSuggestions();
+        if (focusedChanged) requestRenderSearchSuggestions();
       });
 
       els.searchSuggestions.addEventListener("touchstart", () => {
@@ -8460,9 +8472,12 @@ ${match.label}${timeText}`, 1500);
         const item = getSuggestionItemFromEvent(e);
         if (!item) return;
         if (e && (e.ctrlKey || e.metaKey)){
+          clearSelectedSearchPick();
           toggleMultiSelectedSearchItem(item);
           requestRenderSearchSuggestions();
           previewSuggestionItem(item);
+          applyFilter({ save:false });
+          scheduleSearchStatePersist(120);
           return;
         }
         clearMultiSelectedSearch();
@@ -8480,7 +8495,7 @@ ${match.label}${timeText}`, 1500);
         const item = getSuggestionItemFromEvent(e);
         if (!item) return;
         e.preventDefault();
-        applySuggestionPick(item);
+        handleSuggestionTap(e);
       });
 
       els.searchScopeSelect.addEventListener("change", () => {
