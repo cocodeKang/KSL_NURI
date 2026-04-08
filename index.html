@@ -2216,6 +2216,12 @@
       return fallback?.[1] ? safe(fallback[1]) : "";
     }
 
+    function buildGoogleDrivePreviewUrl(url){
+      const driveId = extractGoogleDriveFileId(url);
+      if (!driveId) return "";
+      return `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/preview`;
+    }
+
     function normalizeImageUrl(url){
       const raw = normalizeUrl(url);
       if (!raw) return "";
@@ -5410,6 +5416,15 @@ function getSearchScope(){
       }
 
       if (!isLikelyDirectVideoUrl(nextSrc)){
+        const drivePreviewUrl = buildGoogleDrivePreviewUrl(nextSrc);
+        if (drivePreviewUrl){
+          try { els.mainVideo.pause(); } catch (_) {}
+          els.mainVideo.removeAttribute("src");
+          els.mainVideo.load();
+          els.mainVideo.dataset.currentSrc = "";
+          showMainFrame(drivePreviewUrl);
+          return;
+        }
         if (imageSrc && isLikelyImageUrl(imageSrc)){
           showMainImage(imageSrc, safe(options?.fallbackAlt || "학습 이미지"));
           return;
