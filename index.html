@@ -1495,6 +1495,39 @@
     </div>
   </div>
 
+  <div id="editModal" class="note-modal" aria-hidden="true">
+    <div class="note-dialog">
+      <div class="note-head">
+        <strong id="editModalTitle">내용 편집</strong>
+        <button id="editCloseBtn" class="icon-btn" type="button">닫기</button>
+      </div>
+      <textarea id="editTextarea" class="note-textarea" placeholder="내용을 입력하세요."></textarea>
+      <div class="note-actions">
+        <button id="editCancelBtn" class="icon-btn" type="button">취소</button>
+        <button id="editSaveBtn" class="select-btn" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="addEntryModal" class="note-modal" aria-hidden="true">
+    <div class="note-dialog">
+      <div class="note-head">
+        <strong id="addEntryModalTitle">새 표제어 추가</strong>
+        <button id="addEntryCloseBtn" class="icon-btn" type="button">닫기</button>
+      </div>
+      <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
+        <input id="addEntryWord" class="preset-input" type="text" placeholder="표제어" />
+        <textarea id="addEntryDefinition" class="note-textarea" placeholder="뜻풀이" style="min-height:110px;"></textarea>
+        <textarea id="addEntryExample" class="note-textarea" placeholder="용례문" style="min-height:110px;"></textarea>
+        <textarea id="addEntryMemo" class="note-textarea" placeholder="메모" style="min-height:110px;"></textarea>
+        <textarea id="addEntryExtraInfo" class="note-textarea" placeholder="부가정보" style="min-height:110px;"></textarea>
+      </div>
+      <div class="note-actions">
+        <button id="addEntryCancelBtn" class="icon-btn" type="button">취소</button>
+        <button id="addEntrySaveBtn" class="select-btn" type="button">추가</button>
+      </div>
+    </div>
+  </div>
 
   <div id="rangeLookupModal" class="note-modal" aria-hidden="true">
     <div class="note-dialog">
@@ -1660,6 +1693,22 @@
       noteSaveBtn: document.getElementById("noteSaveBtn"),
       noteDeleteBtn: document.getElementById("noteDeleteBtn"),
       noteCloseBtn: document.getElementById("noteCloseBtn"),
+      editModal: document.getElementById("editModal"),
+      editModalTitle: document.getElementById("editModalTitle"),
+      editTextarea: document.getElementById("editTextarea"),
+      editSaveBtn: document.getElementById("editSaveBtn"),
+      editCancelBtn: document.getElementById("editCancelBtn"),
+      editCloseBtn: document.getElementById("editCloseBtn"),
+      addEntryModal: document.getElementById("addEntryModal"),
+      addEntryModalTitle: document.getElementById("addEntryModalTitle"),
+      addEntryWord: document.getElementById("addEntryWord"),
+      addEntryDefinition: document.getElementById("addEntryDefinition"),
+      addEntryExample: document.getElementById("addEntryExample"),
+      addEntryMemo: document.getElementById("addEntryMemo"),
+      addEntryExtraInfo: document.getElementById("addEntryExtraInfo"),
+      addEntrySaveBtn: document.getElementById("addEntrySaveBtn"),
+      addEntryCancelBtn: document.getElementById("addEntryCancelBtn"),
+      addEntryCloseBtn: document.getElementById("addEntryCloseBtn"),
       rangeLookupModal: document.getElementById("rangeLookupModal"),
       rangeLookupUrl: document.getElementById("rangeLookupUrl"),
       rangeLookupStart: document.getElementById("rangeLookupStart"),
@@ -1744,6 +1793,7 @@
     let touchStartY = 0;
     let stageTouchNavEligible = true;
     let mobileSheetMode = "info";
+    let currentEditSession = null;
     const imageZoom = {
       scale: 1,
       x: 0,
@@ -4029,94 +4079,154 @@
       return window.prompt(title, safe(initialValue));
     }
 
-    async function editCurrentField(fieldCode){
+
+    function closeEditModal(){
+      currentEditSession = null;
+      if (!els.editModal) return;
+      els.editModal.classList.remove("open");
+      els.editModal.setAttribute("aria-hidden", "true");
+      if (document.fullscreenElement && els.stage){
+        setTimeout(() => els.stage.focus?.(), 0);
+      }
+    }
+
+    function getEditFieldConfig(fieldCode){
       const group = getCurrentGroup();
-      if (!group){
+      if (!group) return null;
+
+      if (fieldCode === "Q"){
+        const rowIndices = getEditableBaseRowIndices(group);
+        return {
+          fieldCode,
+          title: `표제어 편집 · ${safe(group.word)}`,
+          initialValue: group.word || "",
+          emptyMessage: "표제어는 비워둘 수 없습니다",
+          applyChange: (value) => {
+            rowIndices.forEach(idx => {
+              const row = getRowObject(idx);
+              if (!row) return;
+              setPreferredFieldValue(row, ["expression", "표제어", "word", "단어", "표현"], "expression", value);
+            });
+          },
+          successMessage: "표제어 저장",
+          focusWord: safe(group.word)
+        };
+      }
+
+      if (fieldCode === "Z"){
+        const rowIndices = getEditableBaseRowIndices(group);
+        return {
+          fieldCode,
+          title: `뜻풀이 편집 · ${safe(group.word)}`,
+          initialValue: group.definition || "",
+          applyChange: (value) => {
+            rowIndices.forEach(idx => {
+              const row = getRowObject(idx);
+              if (!row) return;
+              setPreferredFieldValue(row, ["definition", "뜻풀이", "뜻풀이Z"], "definition", value);
+            });
+          },
+          successMessage: "뜻풀이 저장",
+          focusWord: safe(group.word)
+        };
+      }
+
+      if (fieldCode === "X"){
+        const rowIndices = getEditableBaseRowIndices(group);
+        return {
+          fieldCode,
+          title: `부가정보 편집 · ${safe(group.word)}`,
+          initialValue: group.extraInfo || "",
+          applyChange: (value) => {
+            rowIndices.forEach(idx => {
+              const row = getRowObject(idx);
+              if (!row) return;
+              setPreferredFieldValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"], "additionalInfo", value);
+            });
+          },
+          successMessage: "부가정보 저장",
+          focusWord: safe(group.word)
+        };
+      }
+
+      if (fieldCode === "A"){
+        const rowIndex = getCurrentEditableExampleRowIndex();
+        const row = getRowObject(rowIndex);
+        if (rowIndex < 0 || !row) return { errorMessage: "편집할 용례가 없습니다" };
+        return {
+          fieldCode,
+          title: `용례문 편집 · ${safe(group.word)}`,
+          initialValue: pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]),
+          applyChange: (value) => {
+            setPreferredFieldValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"], "translation", value);
+          },
+          successMessage: "용례문 저장",
+          focusWord: safe(group.word)
+        };
+      }
+
+      if (fieldCode === "C"){
+        const rowIndices = getEditableBaseRowIndices(group);
+        return {
+          fieldCode,
+          title: `부가그림 링크 편집 · ${safe(group.word)}`,
+          initialValue: group.additionalImage || "",
+          applyChange: (value) => {
+            rowIndices.forEach(idx => {
+              const row = getRowObject(idx);
+              if (!row) return;
+              setPreferredFieldValue(row, ["additionalImage", "부가그림", "부가 그림", "extraImage", "supplementalImage"], "additionalImage", value);
+            });
+          },
+          successMessage: "부가그림 저장",
+          focusWord: safe(group.word)
+        };
+      }
+
+      return null;
+    }
+
+    function openEditModal(fieldCode){
+      const config = getEditFieldConfig(fieldCode);
+      if (!config){
         showOverlay("편집할 항목이 없습니다", 1000);
         return;
       }
-
-      let title = "";
-      let initialValue = "";
-      let rowIndices = [];
-      let applyChange = null;
-
-      if (fieldCode === "Q"){
-        rowIndices = getEditableBaseRowIndices(group);
-        title = `표제어 편집
-${safe(group.word)}`;
-        initialValue = group.word || "";
-        applyChange = (value) => {
-          rowIndices.forEach(idx => {
-            const row = getRowObject(idx);
-            if (!row) return;
-            setPreferredFieldValue(row, ["expression", "표제어", "word", "단어", "표현"], "expression", value);
-          });
-        };
-      } else if (fieldCode === "Z"){
-        rowIndices = getEditableBaseRowIndices(group);
-        title = `뜻풀이 편집
-${safe(group.word)}`;
-        initialValue = group.definition || "";
-        applyChange = (value) => {
-          rowIndices.forEach(idx => {
-            const row = getRowObject(idx);
-            if (!row) return;
-            setPreferredFieldValue(row, ["definition", "뜻풀이", "뜻풀이Z"], "definition", value);
-          });
-        };
-      } else if (fieldCode === "X"){
-        rowIndices = getEditableBaseRowIndices(group);
-        title = `부가정보 편집
-${safe(group.word)}`;
-        initialValue = group.extraInfo || "";
-        applyChange = (value) => {
-          rowIndices.forEach(idx => {
-            const row = getRowObject(idx);
-            if (!row) return;
-            setPreferredFieldValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"], "additionalInfo", value);
-          });
-        };
-      } else if (fieldCode === "A"){
-        const rowIndex = getCurrentEditableExampleRowIndex();
-        const row = getRowObject(rowIndex);
-        if (rowIndex < 0 || !row){
-          showOverlay("편집할 용례가 없습니다", 1000);
-          return;
-        }
-        title = `용례문 편집
-${safe(group.word)}`;
-        initialValue = pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]);
-        applyChange = (value) => {
-          setPreferredFieldValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"], "translation", value);
-        };
-      } else if (fieldCode === "C"){
-        rowIndices = getEditableBaseRowIndices(group);
-        title = `부가그림 링크 편집
-${safe(group.word)}`;
-        initialValue = group.additionalImage || "";
-        applyChange = (value) => {
-          rowIndices.forEach(idx => {
-            const row = getRowObject(idx);
-            if (!row) return;
-            setPreferredFieldValue(row, ["additionalImage", "부가그림", "부가 그림", "extraImage", "supplementalImage"], "additionalImage", value);
-          });
-        };
-      } else {
+      if (config.errorMessage){
+        showOverlay(config.errorMessage, 1000);
         return;
       }
+      currentEditSession = config;
+      if (els.editModalTitle) els.editModalTitle.textContent = config.title || "내용 편집";
+      if (els.editTextarea) els.editTextarea.value = safe(config.initialValue || "");
+      els.editModal?.classList.add("open");
+      els.editModal?.setAttribute("aria-hidden", "false");
+      setTimeout(() => els.editTextarea?.focus(), 20);
+    }
 
-      if (!applyChange) return;
-      const nextValue = promptForEdit(title, initialValue);
-      if (nextValue === null) return;
-      const trimmed = fieldCode === "Q" ? safe(nextValue).trim() : safe(nextValue);
-      if (fieldCode === "Q" && !trimmed){
-        showOverlay("표제어는 비워둘 수 없습니다", 1200);
+    async function saveEditModal(){
+      if (!currentEditSession) return;
+      const rawValue = safe(els.editTextarea?.value || "");
+      const nextValue = currentEditSession.fieldCode === "Q" ? rawValue.trim() : rawValue;
+      if (currentEditSession.fieldCode === "Q" && !nextValue){
+        showOverlay(currentEditSession.emptyMessage || "값을 입력해 주세요", 1200);
         return;
       }
       rememberUndoSnapshot();
-      applyChange(fieldCode === "Q" ? trimmed : nextValue);
-      await persistEditedRows(`${MODES[fieldCode] || fieldCode} 저장`, fieldCode === "Q" ? trimmed : safe(group.word));
+      currentEditSession.applyChange(nextValue);
+      const focusWord = currentEditSession.fieldCode === "Q" ? nextValue : safe(currentEditSession.focusWord || "");
+      const successMessage = currentEditSession.successMessage || "저장";
+      closeEditModal();
+      await persistEditedRows(successMessage, focusWord);
+    }
+
+    async function editCurrentField(fieldCode){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay(fieldCode === "A" ? "편집할 용례가 없습니다" : "편집할 항목이 없습니다", 1000);
+        return;
+      }
+      openEditModal(fieldCode);
     }
 
     function makeManualSourceId(){
@@ -4133,24 +4243,39 @@ ${safe(group.word)}`;
       return `LOCAL-${parts.join("")}`;
     }
 
-    async function addNewHeadwordEntry(){
+
+    function closeAddEntryModal(){
+      if (!els.addEntryModal) return;
+      els.addEntryModal.classList.remove("open");
+      els.addEntryModal.setAttribute("aria-hidden", "true");
+      if (document.fullscreenElement && els.stage){
+        setTimeout(() => els.stage.focus?.(), 0);
+      }
+    }
+
+    function openAddEntryModal(){
       const defaultWord = safe(els.searchInput?.value || "").trim();
-      const word = window.prompt("새 표제어를 입력하세요", defaultWord);
-      if (word === null) return;
-      const cleanWord = safe(word).trim();
+      if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = "새 표제어 추가";
+      if (els.addEntryWord) els.addEntryWord.value = defaultWord;
+      if (els.addEntryDefinition) els.addEntryDefinition.value = "";
+      if (els.addEntryExample) els.addEntryExample.value = "";
+      if (els.addEntryMemo) els.addEntryMemo.value = "";
+      if (els.addEntryExtraInfo) els.addEntryExtraInfo.value = "";
+      els.addEntryModal?.classList.add("open");
+      els.addEntryModal?.setAttribute("aria-hidden", "false");
+      setTimeout(() => els.addEntryWord?.focus(), 20);
+    }
+
+    async function saveAddEntryModal(){
+      const cleanWord = safe(els.addEntryWord?.value || "").trim();
       if (!cleanWord){
         showOverlay("표제어를 입력해야 합니다", 1100);
         return;
       }
-      const definition = window.prompt(`뜻풀이를 입력하세요
-${cleanWord}`, "");
-      if (definition === null) return;
-      const extraInfo = window.prompt(`부가정보를 입력하세요
-${cleanWord}`, "");
-      if (extraInfo === null) return;
-      const exampleText = window.prompt(`용례문을 입력하세요
-${cleanWord}`, "");
-      if (exampleText === null) return;
+      const definition = safe(els.addEntryDefinition?.value || "");
+      const exampleText = safe(els.addEntryExample?.value || "");
+      const memo = safe(els.addEntryMemo?.value || "");
+      const extraInfo = safe(els.addEntryExtraInfo?.value || "");
 
       const currentGroup = getCurrentGroup();
       const sourceName = safe(currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
@@ -4167,15 +4292,15 @@ ${cleanWord}`, "");
         handShapeImage1: "",
         handShapeImage2: "",
         handShapeImage3: "",
-        translation: safe(exampleText),
+        translation: exampleText,
         exampleVideo: "",
         exampleSignTextImage: "",
         variantLabel: "표제어",
-        definition: safe(definition),
+        definition,
         mouthVideo: "",
-        additionalInfo: safe(extraInfo),
+        additionalInfo: extraInfo,
         additionalImage: "",
-        메모: "",
+        메모: memo,
         headwordClipStart: "",
         headwordClipEnd: "",
         exampleClipStart: "",
@@ -4183,7 +4308,21 @@ ${cleanWord}`, "");
       };
       rememberUndoSnapshot();
       rows.push(newRow);
+      closeAddEntryModal();
       await persistEditedRows("새 표제어 추가", cleanWord);
+      const newRowIndex = rows.length - 1;
+      const key = buildRowNoteKey(newRowIndex);
+      if (key){
+        if (memo) notesByKey[key] = memo;
+        else delete notesByKey[key];
+      }
+      await saveNotesCache();
+      updateNoteButtons();
+      renderInfo();
+    }
+
+    async function addNewHeadwordEntry(){
+      openAddEntryModal();
     }
 
     function getPreferredExportClipValue(row, type){
@@ -5172,17 +5311,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
     function getHoldShortcutConfig(key){
       const normalized = String(key || "").toLowerCase();
+      const isTouchLikeViewport = isMobileViewport();
       const map = {
-        q: { shortAction: () => showHeadwordPopup(), longAction: () => editCurrentField("Q") },
-        a: { shortAction: () => showExamplePopup(), longAction: () => editCurrentField("A") },
-        z: { shortAction: () => showDefinitionPopup(), longAction: () => editCurrentField("Z") },
-        x: { shortAction: () => showExtraInfoPopup(), longAction: () => editCurrentField("X") },
-        m: { shortAction: () => showNotePopup(), longAction: () => openNoteModal({ focusEditor: true }) },
+        q: { shortAction: () => triggerMode("Q"), longAction: isTouchLikeViewport ? () => editCurrentField("Q") : null },
+        a: { shortAction: () => triggerMode("A"), longAction: isTouchLikeViewport ? () => editCurrentField("A") : null },
+        z: { shortAction: () => triggerMode("Z"), longAction: isTouchLikeViewport ? () => editCurrentField("Z") : null },
+        x: { shortAction: () => triggerMode("X"), longAction: isTouchLikeViewport ? () => editCurrentField("X") : null },
+        m: { shortAction: () => openNoteModal({ focusEditor:false }), longAction: isTouchLikeViewport ? () => openNoteModal({ focusEditor: true }) : null },
         n: { shortAction: () => addNewHeadwordEntry(), longAction: null },
         t: { shortAction: () => addCurrentGroupToSelection(), longAction: null },
         y: {
           shortAction: () => startSelectionMode(),
-          longAction: () => {
+          longAction: isTouchLikeViewport ? () => {
             selectionResumeIndex = 0;
             selectionResumePoolIndex = 0;
             if (!selectionModeActive){
@@ -5192,7 +5332,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
               currentPoolIndex = 0;
               render(false);
             }
-          }
+          } : null
         }
       };
       return map[normalized] || null;
@@ -5203,6 +5343,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const shortAction = typeof options.shortAction === "function" ? options.shortAction : null;
       const longAction = typeof options.longAction === "function" ? options.longAction : null;
       const holdMs = Number.isFinite(Number(options.holdMs)) ? Number(options.holdMs) : 650;
+      const mouseLongAction = options.mouseLongAction !== false;
       let holdTimer = null;
       let holdTriggered = false;
 
@@ -5218,7 +5359,8 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         e.preventDefault();
         holdTriggered = false;
         clearTimer();
-        if (longAction){
+        const canUseLongAction = !!longAction && (mouseLongAction || e.pointerType !== "mouse");
+        if (canUseLongAction){
           holdTimer = setTimeout(() => {
             holdTimer = null;
             holdTriggered = true;
@@ -7658,8 +7800,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return buildInfoLineHtml("원문", linkHtml, { compact:true });
     }
 
-    function buildInfoHtml(){
-      const selectionInfo = buildSelectionPanelHtml();
+    function buildInfoHtml(options = {}){
+      const { hideSelectionPanel = false, hideNoteSection = false } = options;
+      const selectionInfo = hideSelectionPanel ? "" : buildSelectionPanelHtml();
       const sourceUrl = getCurrentSourceUrl();
 
       if (isExampleMode()){
@@ -7702,10 +7845,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
             </div>
           </section>
 
+          ${hideNoteSection ? "" : `
           <section class="section">
             <h3>노트</h3>
             <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
-          </section>
+          </section>`}
         `;
       }
 
@@ -7756,10 +7900,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
           <div class="content">${getEffectiveVariants(group).length ? getEffectiveVariants(group).map(v => `${escapeHtml(v.label || "변이형")} · ${escapeHtml(v.word || group.word)}`).join("<br>") : "변이형 없음"}</div>
         </section>
 
+        ${hideNoteSection ? "" : `
         <section class="section">
           <h3>노트</h3>
           <div class="content">${escapeHtml(notesByKey[getCurrentEntityKey()] || "기록된 노트 없음")}</div>
-        </section>
+        </section>`}
       `;
     }
 
@@ -7977,7 +8122,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       if (mobileSheetMode === "info"){
         if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "학습 정보";
-        els.mobileSheetBody.innerHTML = html;
+        const mobileHtml = buildInfoHtml({ hideSelectionPanel:true, hideNoteSection:true });
+        els.mobileSheetBody.innerHTML = mobileHtml;
         bindDynamicInfoEvents(els.mobileSheetBody);
       }
 
@@ -8190,7 +8336,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
     function renderInfoSheet(){
       mobileSheetMode = "info";
       if (els.mobileSheetTitle) els.mobileSheetTitle.textContent = "학습 정보";
-      const html = buildInfoHtml();
+      const html = buildInfoHtml({ hideSelectionPanel:true, hideNoteSection:true });
       els.mobileSheetBody.innerHTML = html;
       bindDynamicInfoEvents(els.mobileSheetBody);
     }
@@ -8482,6 +8628,16 @@ ${match.label}${timeText}`, 1500);
           closeNoteModal();
           return;
         }
+        if (els.editModal?.classList.contains("open")){
+          e.preventDefault();
+          closeEditModal();
+          return;
+        }
+        if (els.addEntryModal?.classList.contains("open")){
+          e.preventDefault();
+          closeAddEntryModal();
+          return;
+        }
         if (els.rangeLookupModal?.classList.contains("open")){
           e.preventDefault();
           closeRangeLookupModal();
@@ -8500,7 +8656,9 @@ ${match.label}${timeText}`, 1500);
       if (e.ctrlKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
       if (e.ctrlKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
       if (e.ctrlKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
+      if (e.ctrlKey && key === 'm'){ e.preventDefault(); openNoteModal({ focusEditor:true }); return; }
       if (e.ctrlKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
+      if (e.ctrlKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
 
       if (e.code === "Space"){
         e.preventDefault();
@@ -8815,36 +8973,41 @@ ${match.label}${timeText}`, 1500);
         const mode = btn.dataset.mode;
         if (mode === "Q"){
           bindHoldableButton(btn, {
-            shortAction: () => showHeadwordPopup(),
-            longAction: () => editCurrentField("Q")
+            shortAction: () => triggerMode("Q"),
+            longAction: () => editCurrentField("Q"),
+            mouseLongAction: false
           });
           return;
         }
         if (mode === "A"){
           bindHoldableButton(btn, {
-            shortAction: () => showExamplePopup(),
-            longAction: () => editCurrentField("A")
+            shortAction: () => triggerMode("A"),
+            longAction: () => editCurrentField("A"),
+            mouseLongAction: false
           });
           return;
         }
         if (mode === "Z"){
           bindHoldableButton(btn, {
-            shortAction: () => showDefinitionPopup(),
-            longAction: () => editCurrentField("Z")
+            shortAction: () => triggerMode("Z"),
+            longAction: () => editCurrentField("Z"),
+            mouseLongAction: false
           });
           return;
         }
         if (mode === "X"){
           bindHoldableButton(btn, {
-            shortAction: () => showExtraInfoPopup(),
-            longAction: () => editCurrentField("X")
+            shortAction: () => triggerMode("X"),
+            longAction: () => editCurrentField("X"),
+            mouseLongAction: false
           });
           return;
         }
         if (mode === "C"){
           bindHoldableButton(btn, {
             shortAction: () => triggerMode("C"),
-            longAction: () => editCurrentField("C")
+            longAction: () => editCurrentField("C"),
+            mouseLongAction: false
           });
           return;
         }
@@ -8873,11 +9036,22 @@ ${match.label}${timeText}`, 1500);
       if (els.homeBtn) els.homeBtn.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
       if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
       if (els.undoBtn) els.undoBtn.addEventListener("click", () => { undoLastAction(); });
-      (els.noteBtns || []).forEach(btn => btn.addEventListener("click", openNoteModal));
+      (els.noteBtns || []).forEach(btn => btn.addEventListener("click", () => openNoteModal({ focusEditor:false })));
       els.noteSaveBtn?.addEventListener("click", () => { saveCurrentNote(); });
       els.noteDeleteBtn?.addEventListener("click", () => { deleteCurrentNote(); });
       els.noteCloseBtn?.addEventListener("click", closeNoteModal);
       els.noteModal?.addEventListener("click", (e) => { if (e.target === els.noteModal) closeNoteModal(); });
+
+      els.editSaveBtn?.addEventListener("click", () => { saveEditModal(); });
+      els.editCancelBtn?.addEventListener("click", closeEditModal);
+      els.editCloseBtn?.addEventListener("click", closeEditModal);
+      els.editModal?.addEventListener("click", (e) => { if (e.target === els.editModal) closeEditModal(); });
+
+      els.addEntrySaveBtn?.addEventListener("click", () => { saveAddEntryModal(); });
+      els.addEntryCancelBtn?.addEventListener("click", closeAddEntryModal);
+      els.addEntryCloseBtn?.addEventListener("click", closeAddEntryModal);
+      els.addEntryModal?.addEventListener("click", (e) => { if (e.target === els.addEntryModal) closeAddEntryModal(); });
+
       els.rangeLookupBtn?.addEventListener("click", openRangeLookupModal);
       els.rangeLookupCloseBtn?.addEventListener("click", closeRangeLookupModal);
       els.rangeLookupModal?.addEventListener("click", (e) => { if (e.target === els.rangeLookupModal) closeRangeLookupModal(); });
@@ -8896,6 +9070,26 @@ ${match.label}${timeText}`, 1500);
         if (e.shiftKey) return;
         e.preventDefault();
         saveCurrentNote();
+      });
+      els.editTextarea?.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.isComposing) return;
+        if (e.shiftKey) return;
+        e.preventDefault();
+        saveEditModal();
+      });
+      [els.addEntryWord, els.addEntryDefinition, els.addEntryExample, els.addEntryMemo, els.addEntryExtraInfo].forEach(input => {
+        input?.addEventListener("keydown", (e) => {
+          if (e.isComposing) return;
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+            e.preventDefault();
+            saveAddEntryModal();
+            return;
+          }
+          if (e.target === els.addEntryWord && e.key === "Enter"){
+            e.preventDefault();
+            saveAddEntryModal();
+          }
+        });
       });
       els.helpCloseBtn?.addEventListener("click", closeHelpModal);
       els.helpModal?.addEventListener("click", (e) => { if (e.target === els.helpModal) closeHelpModal(); });
@@ -8961,23 +9155,28 @@ ${match.label}${timeText}`, 1500);
 
       bindHoldableButton(els.selectionModeBtn, {
         shortAction: () => startSelectionMode(),
-        longAction: restartSelectionStudy
+        longAction: restartSelectionStudy,
+        mouseLongAction: false
       });
       bindHoldableButton(els.selectionModeBtnFooter, {
         shortAction: () => startSelectionMode(),
-        longAction: restartSelectionStudy
+        longAction: restartSelectionStudy,
+        mouseLongAction: false
       });
       bindHoldableButton(els.selectionAddBtnFooter, {
         shortAction: () => addCurrentGroupToSelection(),
-        longAction: null
+        longAction: null,
+        mouseLongAction: false
       });
       bindHoldableButton(els.notePopupBtnFooter, {
-        shortAction: () => showNotePopup(),
-        longAction: () => openNoteModal({ focusEditor: true })
+        shortAction: () => openNoteModal({ focusEditor:false }),
+        longAction: () => openNoteModal({ focusEditor: true }),
+        mouseLongAction: false
       });
       bindHoldableButton(els.addHeadwordBtnFooter, {
         shortAction: () => addNewHeadwordEntry(),
-        longAction: null
+        longAction: null,
+        mouseLongAction: false
       });
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
