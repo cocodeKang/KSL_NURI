@@ -1199,17 +1199,18 @@
       .mode-btn[data-mode="Z"]{ grid-column:5; grid-row:1; }
       .mode-btn[data-mode="X"]{ grid-column:6; grid-row:1; }
 
-      .mode-btn[data-mode="A"]{ grid-column:1; grid-row:2; }
-      .mode-btn[data-mode="S"]{ grid-column:2; grid-row:2; }
-      .mode-btn[data-mode="D"]{ grid-column:3; grid-row:2; }
-      #selectionAddBtnFooter{ grid-column:4; grid-row:2; }
-      #notePopupBtnFooter{ grid-column:5; grid-row:2; }
-      #addHeadwordBtnFooter{ grid-column:6; grid-row:2; }
+      .mode-btn[data-mode="C"]{ grid-column:1; grid-row:2; }
+      .mode-btn[data-mode="A"]{ grid-column:2; grid-row:2; }
+      .mode-btn[data-mode="S"]{ grid-column:3; grid-row:2; }
+      .mode-btn[data-mode="D"]{ grid-column:4; grid-row:2; }
+      #selectionAddBtnFooter{ grid-column:5; grid-row:2; }
+      #notePopupBtnFooter{ grid-column:6; grid-row:2; }
 
-      #selectionModeBtnFooter{ grid-column:1; grid-row:3; }
-      #shuffleBtn{ grid-column:2; grid-row:3; }
-      #abStartBtn{ grid-column:3; grid-row:3; }
-      #abEndBtn{ grid-column:4; grid-row:3; }
+      #addHeadwordBtnFooter{ grid-column:1; grid-row:3; }
+      #selectionModeBtnFooter{ grid-column:2; grid-row:3; }
+      #shuffleBtn{ grid-column:3; grid-row:3; }
+      #abStartBtn{ grid-column:4; grid-row:3; }
+      #abEndBtn{ grid-column:5; grid-row:3; }
 
       .icon-btn,.playback-btn,.select-btn,.link-btn{
         height:38px;
@@ -1427,6 +1428,8 @@
         <button class="mode-btn" data-mode="Z" title="뜻풀이">Z</button>
         <!-- X: 부가정보 -->
         <button class="mode-btn" data-mode="X" title="부가정보">X</button>
+        <!-- C: 부가그림 -->
+        <button class="mode-btn" data-mode="C" title="부가그림">C</button>
         <!-- A: 용례 번역문 텍스트 -->
         <button class="mode-btn" data-mode="A" title="용례 번역문 텍스트">A</button>
         <!-- S: 용례 영상 / 모바일에서 다시 누르면 구간 반복 기능 -->
@@ -1573,7 +1576,8 @@
       S: "용례 영상",
       D: "용례 수어문자",
       Z: "뜻풀이",
-      X: "부가정보"
+      X: "부가정보",
+      C: "부가그림"
     };
 
     const PLAYBACK_MODES = ["MANUAL", "AUTO", "LOOP", "CONT"];
@@ -3013,6 +3017,13 @@
       "additionalInfo": "additionalInfo",
       "info": "additionalInfo",
 
+      "부가그림": "additionalImage",
+      "부가 그림": "additionalImage",
+      "부가그림C": "additionalImage",
+      "additionalImage": "additionalImage",
+      "extraImage": "additionalImage",
+      "supplementalImage": "additionalImage",
+
       "메모": "메모",
 
       "구간시작": "clipStart",
@@ -3190,9 +3201,10 @@
         .filter(Boolean)
         .filter((value, index, arr) => arr.indexOf(value) === index);
 
-      // 추가 열: 입 모양과 부가정보, 유튜브 구간정보를 추출합니다.
+      // 추가 열: 입 모양, 부가정보, 부가그림, 유튜브 구간정보를 추출합니다.
       const mouthVideo = normalizeUrl(pickValue(row, ["mouthVideo", "입 모양", "입모양", "mouth", "입"]));
       const extraInfo = pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]);
+      const additionalImage = normalizeUrl(pickValue(row, ["additionalImage", "부가그림", "부가 그림", "extraImage", "supplementalImage"]));
       const clipInfo = getRowClipInfo(row);
 
       return {
@@ -3211,9 +3223,10 @@
         exampleText: pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]),
         exampleVideo: normalizeUrl(pickValue(row, ["exampleVideo", "용례영상", "용례 영상"])),
         exampleSignImage: normalizeUrl(pickValue(row, ["exampleSignTextImage", "용례수어문자", "용례 수어문자", "exampleSignImage"])),
-        // 입 모양과 부가정보를 추가합니다.
+        // 입 모양, 부가정보, 부가그림을 추가합니다.
         mouthVideo,
         extraInfo,
+        additionalImage,
         memo: pickValue(row, ["메모", "memo", "notes"]),
         clipStartRaw: clipInfo.genericStartRaw,
         clipEndRaw: clipInfo.genericEndRaw,
@@ -3287,9 +3300,10 @@
           variants: [],
           variantWords: [],
           variantNorms: [],
-          // 입 모양 비디오와 부가정보를 그룹에 저장합니다.
+          // 입 모양 비디오, 부가정보, 부가그림을 그룹에 저장합니다.
           mouthVideo: row.mouthVideo || "",
           extraInfo: row.extraInfo || "",
+          additionalImage: row.additionalImage || "",
           wordClipStartRaw: row.wordClipStartRaw || "",
           wordClipEndRaw: row.wordClipEndRaw || "",
           wordClipStart: row.wordClipStart,
@@ -3316,9 +3330,10 @@
           if (!(Number.isInteger(group.primaryRowIndex) && group.primaryRowIndex >= 0)) group.primaryRowIndex = rowIndex;
         }
 
-      // 입 모양 비디오와 부가정보가 비어있을 경우 채웁니다.
+      // 입 모양 비디오, 부가정보, 부가그림이 비어있을 경우 채웁니다.
       if (!group.mouthVideo && row.mouthVideo) group.mouthVideo = row.mouthVideo;
       if (!group.extraInfo && row.extraInfo) group.extraInfo = row.extraInfo;
+      if (!group.additionalImage && row.additionalImage) group.additionalImage = row.additionalImage;
       if (!safe(group.wordClipStartRaw) && safe(row.wordClipStartRaw)) group.wordClipStartRaw = row.wordClipStartRaw;
       if (!safe(group.wordClipEndRaw) && safe(row.wordClipEndRaw)) group.wordClipEndRaw = row.wordClipEndRaw;
       if (!Number.isFinite(group.wordClipStart) && Number.isFinite(row.wordClipStart)) group.wordClipStart = row.wordClipStart;
@@ -3480,6 +3495,7 @@
             groupWordSignImage: group.wordSignImage,
             groupHandShapeImages: group.handShapeImages,
             groupHandShapeImage: group.handShapeImage,
+            groupAdditionalImage: group.additionalImage,
             groupDefinition: group.definition,
             exampleIndex: exIdx,
             rowIndex: Number.isInteger(ex.rowIndex) ? ex.rowIndex : -1,
@@ -4074,6 +4090,18 @@ ${safe(group.word)}`;
         applyChange = (value) => {
           setPreferredFieldValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"], "translation", value);
         };
+      } else if (fieldCode === "C"){
+        rowIndices = getEditableBaseRowIndices(group);
+        title = `부가그림 링크 편집
+${safe(group.word)}`;
+        initialValue = group.additionalImage || "";
+        applyChange = (value) => {
+          rowIndices.forEach(idx => {
+            const row = getRowObject(idx);
+            if (!row) return;
+            setPreferredFieldValue(row, ["additionalImage", "부가그림", "부가 그림", "extraImage", "supplementalImage"], "additionalImage", value);
+          });
+        };
       } else {
         return;
       }
@@ -4146,6 +4174,7 @@ ${cleanWord}`, "");
         definition: safe(definition),
         mouthVideo: "",
         additionalInfo: safe(extraInfo),
+        additionalImage: "",
         메모: "",
         headwordClipStart: "",
         headwordClipEnd: "",
@@ -4184,6 +4213,7 @@ ${cleanWord}`, "");
         { header: "뜻풀이", value: row => safe(row?.definition || row?.뜻풀이 || "") },
         { header: "입 모양", value: row => safe(row?.mouthVideo || row?.["입 모양"] || "") },
         { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
+        { header: "부가그림", value: row => safe(row?.additionalImage || row?.부가그림 || row?.["부가 그림"] || "") },
         { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
         { header: "구간시작", value: row => getPreferredExportClipValue(row, "start") },
         { header: "구간종료", value: row => getPreferredExportClipValue(row, "end") }
@@ -4324,7 +4354,7 @@ async function saveState(){
     }
 
     function canUseImageZoom(){
-      return currentMode === "D"
+      return (currentMode === "D" || currentMode === "C")
         && els.mainImage
         && els.mainImage.style.display !== "none"
         && !!els.mainImage.getAttribute("src");
@@ -4356,7 +4386,7 @@ async function saveState(){
     }
 
     function updateStageGestureState(){
-      const disableTapZones = currentMode === "D" && !!els.mainImage.getAttribute("src") && (isMobileViewport() || canUseImageZoom());
+      const disableTapZones = (currentMode === "D" || currentMode === "C") && !!els.mainImage.getAttribute("src") && (isMobileViewport() || canUseImageZoom());
       [els.tapPrevZone, els.tapNextZone].forEach(zone => {
         if (!zone) return;
         zone.style.pointerEvents = disableTapZones ? "none" : "auto";
@@ -5073,6 +5103,16 @@ ${text}`, 2400);
 ${group.extraInfo || "부가정보가 없습니다."}`, 2400);
     }
 
+    function showAdditionalImagePopup(){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("검색 결과가 없습니다.", 1200);
+        return;
+      }
+      showOverlay(`부가그림
+${group.additionalImage ? "부가그림 링크 있음" : "부가그림이 없습니다."}`, 1800);
+    }
+
     function showNotePopup(){
       const key = getCurrentEntityKey();
       if (!key){
@@ -5267,6 +5307,15 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         return;
       }
 
+      // C 모드는 부가그림 보기
+      if (mode === "C"){
+        resetWordAssetState();
+        await setMode("C");
+        mobileSCycleState = 0;
+        gToggleState = 0;
+        return;
+      }
+
       // 나머지 모드들은 기본 동작 처리. W/E 상호 전환 시 변이 상태를 유지합니다.
       const preserveVariantSlot = ((currentMode === "W" || currentMode === "E") && (mode === "W" || mode === "E"));
       const currentGroup = getCurrentGroup();
@@ -5339,6 +5388,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         // 부가정보 미리보기
         const info = group?.extraInfo || "부가정보가 없습니다.";
         showMainText(info);
+      } else if (currentMode === "C"){
+        if (group?.additionalImage) showMainImage(group.additionalImage, "부가그림");
+        else showMainText(labelWord || item.text || "");
       }
 
       setImage(els.wordSignImg, group?.wordSignImage || "", "표제어 수어문자");
@@ -5792,6 +5844,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         // 부가정보를 표시합니다.
         const info = group.extraInfo || "부가정보가 없습니다.";
         showMainText(info);
+      } else if (currentMode === "C"){
+        if (group.additionalImage) showMainImage(group.additionalImage, "부가그림");
+        else showMainText("부가그림이 없습니다.");
       }
 
       setImage(els.wordSignImg, group.wordSignImage, "표제어 수어문자");
@@ -5881,6 +5936,7 @@ function buildHelpText(){
     "E 표제어 수어문자 / 반복 시 변이형 순환",
     "G 수형그림 (다시 누르면 입 모양)",
     "X 부가정보 팝업 / 길게 눌러 편집",
+    "C 부가그림 보기 / 버튼 길게 눌러 링크 편집",
     "A 용례문 팝업 / 길게 눌러 편집",
     "S 용례 영상 (모바일: 다시 누르면 구간 시작→종료→초기화)",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
@@ -5902,7 +5958,7 @@ function buildHelpText(){
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
-    "C 왼쪽 기준 최대 확대 / 다시 누르면 원래대로",
+    "V 왼쪽 기준 최대 확대 / 다시 누르면 원래대로",
     "Shift + 휠 위 오른쪽 이동",
     "Shift + 휠 아래 왼쪽 이동",
     "Shift + ? 도움말 열기/닫기",
@@ -7642,6 +7698,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
               ${item.signImage ? `<div style="margin-top:8px;">용례 수어문자 있음</div>` : `<div style="margin-top:8px;">용례 수어문자 없음</div>`}
               ${item.groupWordSignImage ? `<div style="margin-top:8px;">표제어 수어문자 있음</div>` : ``}
               ${(item.groupHandShapeImages || []).length ? `<div style="margin-top:8px;">표제어 수형그림 ${(item.groupHandShapeImages || []).length}장</div>` : ``}
+              ${item.groupAdditionalImage ? `<div style="margin-top:8px;">부가그림 있음</div>` : ``}
             </div>
           </section>
 
@@ -7688,6 +7745,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
             ${group.wordVideo ? `<div>표제어 영상 있음</div>` : `<div>표제어 영상 없음</div>`}
             ${group.wordSignImage ? `<div>표제어 수어문자 있음</div>` : `<div>표제어 수어문자 없음</div>`}
             ${(group.handShapeImages || []).length ? `<div>표제어 수형그림 ${(group.handShapeImages || []).length}장</div>` : `<div>표제어 수형그림 없음</div>`}
+            ${group.additionalImage ? `<div>부가그림 있음</div>` : `<div>부가그림 없음</div>`}
             <div>변이형 수: ${getEffectiveVariants(group).length}</div>
             <div>용례 수: ${group.examples.length}</div>
           </div>
@@ -7986,6 +8044,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (groupHasVariantAssets(group)) messages.push("변이형 영상 있음");
       // 부가정보가 있는 경우 알립니다.
       if (safe(group.extraInfo)) messages.push("부가정보 있음");
+      // 부가그림이 있는 경우 알립니다.
+      if (safe(group.additionalImage)) messages.push("부가그림 있음");
       // 입 모양 비디오가 있는 경우 알립니다.
       if (safe(group.mouthVideo)) messages.push("입 모양 있음");
       // 노트 작성 기록이 있는 경우 알립니다.
@@ -8480,7 +8540,8 @@ ${match.label}${timeText}`, 1500);
       if (e.key === "?" && e.shiftKey){ e.preventDefault(); toggleHelpModal(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
-      if (key === "c"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
+      if (key === "c"){ e.preventDefault(); triggerMode("C"); return; }
+      if (key === "v"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
       if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
@@ -8777,6 +8838,13 @@ ${match.label}${timeText}`, 1500);
           bindHoldableButton(btn, {
             shortAction: () => showExtraInfoPopup(),
             longAction: () => editCurrentField("X")
+          });
+          return;
+        }
+        if (mode === "C"){
+          bindHoldableButton(btn, {
+            shortAction: () => triggerMode("C"),
+            longAction: () => editCurrentField("C")
           });
           return;
         }
@@ -9217,7 +9285,7 @@ ${DEFAULT_FILENAME}
 3) 그래도 없으면 수동 파일 추가
 
 단축키
-Q/W/E/A/S/D/G 모드 전환
+Q/W/E/G/Z/X/C/A/S/D 모드 전환
 H 처음 화면
 R 전체 순서 섞기
 Space 재생/일시정지
