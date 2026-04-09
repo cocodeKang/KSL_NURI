@@ -2285,10 +2285,19 @@
       return fallback?.[1] ? safe(fallback[1]) : "";
     }
 
-    function buildGoogleDrivePreviewUrl(url){
+    function buildGoogleDrivePreviewUrl(url, options = {}){
       const driveId = extractGoogleDriveFileId(url);
       if (!driveId) return "";
-      return `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/preview`;
+      const params = new URLSearchParams();
+      if (options && options.autoPlay) params.set("autoplay", "1");
+      const query = params.toString();
+      return `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/preview${query ? `?${query}` : ""}`;
+    }
+
+    function buildGoogleDriveStreamUrl(url){
+      const driveId = extractGoogleDriveFileId(url);
+      if (!driveId) return "";
+      return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveId)}`;
     }
 
     function normalizeImageUrl(url){
@@ -2316,6 +2325,7 @@
       if (!raw) return false;
       if (/^(data:video\/|blob:)/i.test(raw)) return true;
       if (/signFile\/video\//i.test(raw)) return true;
+      if (/https?:\/\/(?:drive|docs)\.google\.com\/uc\?/i.test(raw)) return true;
       if (/\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(\?|#|$)/i.test(raw)) return true;
       return false;
     }
@@ -2747,6 +2757,45 @@
       }
     }
 
+    function isGoogleDrivePreviewUrl(url){
+      const raw = safe(url);
+      return /https?:\/\/drive\.google\.com\/file\/d\/[^/]+\/preview/i.test(raw);
+    }
+
+    function getGoogleDrivePreviewPlaybackUrl(url, autoPlay = false){
+      const previewUrl = buildGoogleDrivePreviewUrl(url, { autoPlay });
+      if (previewUrl) return previewUrl;
+      const raw = safe(url);
+      if (!raw) return "";
+      try {
+        const u = new URL(raw, location.href);
+        if (!isGoogleDrivePreviewUrl(u.toString())) return "";
+        if (autoPlay) u.searchParams.set("autoplay", "1");
+        else u.searchParams.delete("autoplay");
+        return u.toString();
+      } catch (_) {
+        return raw;
+      }
+    }
+
+    function isDrivePreviewFrameActive(){
+      const src = safe(els.mainFrame?.dataset?.currentSrc || els.mainFrame?.src || "");
+      return !!(els.mainFrame && els.mainFrame.style.display !== "none" && isGoogleDrivePreviewUrl(src));
+    }
+
+    function setDrivePreviewPlaybackState(shouldPlay){
+      if (!isDrivePreviewFrameActive()) return false;
+      const current = safe(els.mainFrame.dataset.currentSrc || els.mainFrame.src || "");
+      const next = getGoogleDrivePreviewPlaybackUrl(current, !!shouldPlay);
+      if (!next) return false;
+      showMainFrame(next);
+      els.mainFrame.dataset.drivePlaying = shouldPlay ? "1" : "0";
+      if (shouldPlay){
+        try { els.mainFrame.focus(); } catch (_) {}
+      }
+      return true;
+    }
+
     function clearMainFrame(){
       clearYoutubeClipWatcher();
       ytActiveClip = null;
@@ -2763,6 +2812,7 @@
           els.mainFrame.style.display = "none";
           try { els.mainFrame.src = "about:blank"; } catch (_) {}
           els.mainFrame.dataset.currentSrc = "";
+          els.mainFrame.dataset.drivePlaying = "0";
         }
       } catch (_) {}
     }
@@ -2774,6 +2824,7 @@
       const nextSrc = safe(url);
       const prevSrc = els.mainFrame.dataset.currentSrc || "";
       if (!nextSrc) return;
+      els.mainFrame.dataset.drivePlaying = /[?&]autoplay=1(?:&|$)/i.test(nextSrc) ? "1" : "0";
 
       // 같은 주소를 다시 여는 경우에도 iframe이 확실히 새로고침되도록 처리합니다.
       if (prevSrc === nextSrc){
@@ -5771,12 +5822,14 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
     function showMainVideo(url, autoPlay = false, options = {}){
       resetImageZoom();
-      const nextSrc = normalizeUrl(url || "");
+      const originalSrc = normalizeUrl(url || "");
       const imageSrc = normalizeImageUrl(url || "");
       const clipStart = Number.isFinite(Number(options?.start)) ? Number(options.start) : null;
       const clipEnd = Number.isFinite(Number(options?.end)) ? Number(options.end) : null;
+      const driveStreamUrl = buildGoogleDriveStreamUrl(originalSrc);
+      const nextSrc = driveStreamUrl || originalSrc;
 
-      if (!nextSrc){
+      if (!originalSrc){
         clearMainFrame();
         hideAllMainPanels();
         els.mainVideo.pause();
@@ -5786,18 +5839,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         return;
       }
 
-      const youtubeId = extractYoutubeVideoId(nextSrc);
+      const youtubeId = extractYoutubeVideoId(originalSrc);
       if (youtubeId){
         try { els.mainVideo.pause(); } catch (_) {}
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = "";
-        showYoutubeVideo(nextSrc, autoPlay, { start: clipStart, end: clipEnd });
+        showYoutubeVideo(originalSrc, autoPlay, { start: clipStart, end: clipEnd });
         return;
       }
 
       if (!isLikelyDirectVideoUrl(nextSrc)){
-        const drivePreviewUrl = buildGoogleDrivePreviewUrl(nextSrc);
+        const drivePreviewUrl = buildGoogleDrivePreviewUrl(originalSrc, { autoPlay });
         if (drivePreviewUrl){
           try { els.mainVideo.pause(); } catch (_) {}
           els.mainVideo.removeAttribute("src");
@@ -5823,6 +5876,8 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       const prevSrc = els.mainVideo.dataset.currentSrc || "";
       const srcChanged = prevSrc !== nextSrc;
+      const usingDriveStream = !!driveStreamUrl;
+      const drivePreviewUrl = usingDriveStream ? buildGoogleDrivePreviewUrl(originalSrc, { autoPlay }) : "";
 
       if (srcChanged){
         try { els.mainVideo.pause(); } catch (_) {}
@@ -5830,6 +5885,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = nextSrc;
+        els.mainVideo.dataset.originalSrc = originalSrc;
         if (nextSrc) els.mainVideo.src = nextSrc;
         else els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
@@ -5839,13 +5895,33 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         try { els.mainVideo.currentTime = 0; } catch (_) {}
       }
 
+      if (usingDriveStream && drivePreviewUrl){
+        const fallbackToDrivePreview = () => {
+          if ((els.mainVideo.dataset.currentSrc || "") !== nextSrc) return;
+          try { els.mainVideo.pause(); } catch (_) {}
+          els.mainVideo.removeAttribute("src");
+          els.mainVideo.load();
+          els.mainVideo.dataset.currentSrc = "";
+          showMainFrame(drivePreviewUrl);
+          showOverlay("구글드라이브 직접 재생이 제한되어 미리보기로 전환했습니다", 1400);
+        };
+        els.mainVideo.addEventListener("error", fallbackToDrivePreview, { once:true });
+        els.mainVideo.addEventListener("stalled", () => {
+          if (!els.mainVideo.currentSrc && !els.mainVideo.src) fallbackToDrivePreview();
+        }, { once:true });
+      }
+
       if (Number.isFinite(clipStart)) pendingRestoreTime = clipStart;
       if (Number.isFinite(clipStart) && Number.isFinite(clipEnd) && clipEnd > clipStart){
         pendingClipFocus = { start: clipStart, end: clipEnd };
       }
 
       if (autoPlay){
-        const playVideo = () => els.mainVideo.play().catch(() => {});
+        const playVideo = () => els.mainVideo.play().catch(() => {
+          if (usingDriveStream && drivePreviewUrl){
+            showMainFrame(drivePreviewUrl);
+          }
+        });
         if (srcChanged && els.mainVideo.readyState < 1) els.mainVideo.addEventListener("loadedmetadata", playVideo, { once:true });
         else playVideo();
       }
@@ -7394,6 +7470,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
         els.mainVideo.play().catch(() => {});
         return true;
       }
+      if (isDrivePreviewFrameActive()){
+        return setDrivePreviewPlaybackState(true);
+      }
       return false;
     }
 
@@ -7410,6 +7489,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
         els.mainVideo.pause();
         return true;
       }
+      if (isDrivePreviewFrameActive()){
+        return setDrivePreviewPlaybackState(false);
+      }
       return false;
     }
 
@@ -7423,7 +7505,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
           return false;
         }
       }
-      return !!(els.mainVideo?.src && !els.mainVideo.paused);
+      if (els.mainVideo?.src) return !els.mainVideo.paused;
+      if (isDrivePreviewFrameActive()) return (els.mainFrame?.dataset?.drivePlaying || "0") === "1";
+      return false;
     }
 
     function togglePlayPause(){
