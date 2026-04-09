@@ -1160,7 +1160,7 @@
       .footer{
         padding:4px 8px calc(6px + env(safe-area-inset-bottom));
         display:grid;
-        grid-template-columns:repeat(5, minmax(0,1fr));
+        grid-template-columns:repeat(6, minmax(0,1fr));
         grid-auto-rows:40px;
         align-items:stretch;
         gap:6px;
@@ -1180,10 +1180,8 @@
         display:none !important;
       }
 
-      #zoomResetBtn,
       #abStartBtn,
-      #abEndBtn,
-      #abResetBtn{
+      #abEndBtn{
         display:inline-flex !important;
       }
 
@@ -1198,16 +1196,20 @@
       .mode-btn[data-mode="W"]{ grid-column:2; grid-row:1; }
       .mode-btn[data-mode="E"]{ grid-column:3; grid-row:1; }
       .mode-btn[data-mode="G"]{ grid-column:4; grid-row:1; }
-      #abStartBtn{ grid-column:5; grid-row:1; }
+      .mode-btn[data-mode="Z"]{ grid-column:5; grid-row:1; }
+      .mode-btn[data-mode="X"]{ grid-column:6; grid-row:1; }
+
       .mode-btn[data-mode="A"]{ grid-column:1; grid-row:2; }
       .mode-btn[data-mode="S"]{ grid-column:2; grid-row:2; }
       .mode-btn[data-mode="D"]{ grid-column:3; grid-row:2; }
-      #shuffleBtn{ grid-column:4; grid-row:2; }
-      #abEndBtn{ grid-column:5; grid-row:2; }
-      .mode-btn[data-mode="Z"]{ grid-column:1; grid-row:3; }
-      #zoomResetBtn{ grid-column:2; grid-row:3; }
-      #zoomFitBtn{ grid-column:3; grid-row:3; }
-      #abResetBtn{ grid-column:4; grid-row:3; }
+      #selectionAddBtnFooter{ grid-column:4; grid-row:2; }
+      #notePopupBtnFooter{ grid-column:5; grid-row:2; }
+      #addHeadwordBtnFooter{ grid-column:6; grid-row:2; }
+
+      #selectionModeBtnFooter{ grid-column:1; grid-row:3; }
+      #shuffleBtn{ grid-column:2; grid-row:3; }
+      #abStartBtn{ grid-column:3; grid-row:3; }
+      #abEndBtn{ grid-column:4; grid-row:3; }
 
       .icon-btn,.playback-btn,.select-btn,.link-btn{
         height:38px;
@@ -1431,6 +1433,14 @@
         <button class="mode-btn" data-mode="S" title="용례 영상">S</button>
         <!-- D: 용례 수어문자 -->
         <button class="mode-btn" data-mode="D" title="용례 수어문자">D</button>
+        <!-- T: 현재 항목 선택학습에 추가 -->
+        <button id="selectionAddBtnFooter" class="mode-btn" title="현재 항목 선택학습에 추가">T</button>
+        <!-- M: 메모 팝업 / 길게 누르면 편집 -->
+        <button id="notePopupBtnFooter" class="mode-btn" title="메모 팝업 / 길게 눌러 편집">M</button>
+        <!-- N: 새로운 표제어 추가 -->
+        <button id="addHeadwordBtnFooter" class="mode-btn" title="새 표제어 추가">N</button>
+        <!-- Y: 선택학습 시작 / 길게 누르면 처음부터 -->
+        <button id="selectionModeBtnFooter" class="mode-btn" title="선택학습 시작 / 길게 눌러 처음부터">Y</button>
         <!-- R: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
         <!-- 구간 시작/종료 버튼은 데스크톱에서만 표시합니다 -->
@@ -1633,6 +1643,10 @@
       viewerBottom: document.querySelector(".viewer-bottom"),
       undoBtn: document.getElementById("undoBtn"),
       noteBtns: [document.getElementById("noteBtn"), document.getElementById("noteBtnDesktop")].filter(Boolean),
+      selectionAddBtnFooter: document.getElementById("selectionAddBtnFooter"),
+      notePopupBtnFooter: document.getElementById("notePopupBtnFooter"),
+      addHeadwordBtnFooter: document.getElementById("addHeadwordBtnFooter"),
+      selectionModeBtnFooter: document.getElementById("selectionModeBtnFooter"),
       helpModal: document.getElementById("helpModal"),
       helpModalBody: document.getElementById("helpModalBody"),
       helpCloseBtn: document.getElementById("helpCloseBtn"),
@@ -1706,6 +1720,7 @@
     // Y 키 길게 누르기 처리를 위한 타이머
     let yHoldTimer = null;
     let yHoldTriggered = false;
+    let heldShortcutStates = {};
 
     // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
     let duplicateWords = new Set();
@@ -3872,7 +3887,7 @@
       });
     }
 
-    function openNoteModal(){
+    function openNoteModal(options = {}){
       if (!els.noteModal) return;
       const key = getCurrentEntityKey();
       if (!key){
@@ -3881,9 +3896,10 @@
       }
       els.noteModalTitle.textContent = `노트 · ${getCurrentEntityLabel()}`;
       els.noteTextarea.value = notesByKey[key] || "";
+      const focusEditor = options && options.focusEditor !== false;
       els.noteModal.classList.add("open");
       els.noteModal.setAttribute("aria-hidden", "false");
-      setTimeout(() => els.noteTextarea?.focus(), 20);
+      if (focusEditor) setTimeout(() => els.noteTextarea?.focus(), 20);
     }
 
     function closeNoteModal(){
@@ -5016,7 +5032,178 @@ function getSearchScope(){
         showOverlay("검색 결과가 없습니다.", 1200);
         return;
       }
-      showOverlay(`뜻풀이\n${group.definition || "뜻풀이가 없습니다."}`, 2200);
+      showOverlay(`뜻풀이
+${group.definition || "뜻풀이가 없습니다."}`, 2200);
+    }
+
+    function showHeadwordPopup(){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("검색 결과가 없습니다.", 1200);
+        return;
+      }
+      showOverlay(`표제어
+${group.word || "표제어가 없습니다."}`, 1800);
+    }
+
+    function showExamplePopup(){
+      const item = getCurrentPoolItem();
+      if (item?.text){
+        showOverlay(`용례문
+${item.text}`, 2400);
+        return;
+      }
+      const group = getCurrentGroup();
+      const text = safe(group?.examples?.[0]?.text || "");
+      if (!text){
+        showOverlay("용례문이 없습니다.", 1200);
+        return;
+      }
+      showOverlay(`용례문
+${text}`, 2400);
+    }
+
+    function showExtraInfoPopup(){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("검색 결과가 없습니다.", 1200);
+        return;
+      }
+      showOverlay(`부가정보
+${group.extraInfo || "부가정보가 없습니다."}`, 2400);
+    }
+
+    function showNotePopup(){
+      const key = getCurrentEntityKey();
+      if (!key){
+        showOverlay("메모를 볼 항목이 없습니다", 1200);
+        return;
+      }
+      const noteText = safe(notesByKey[key] || "");
+      showOverlay(`메모
+${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
+    }
+
+    function beginHeldShortcut(key, shortAction, longAction, holdMs = 650){
+      const normalized = String(key || "").toLowerCase();
+      if (!normalized) return;
+      const existing = heldShortcutStates[normalized];
+      if (existing?.pressed) return;
+      const state = {
+        pressed: true,
+        triggered: false,
+        timer: null,
+        shortAction,
+        longAction
+      };
+      if (typeof longAction === "function"){
+        state.timer = setTimeout(() => {
+          state.timer = null;
+          state.triggered = true;
+          try { longAction(); } catch (err) { console.error(err); }
+        }, holdMs);
+      }
+      heldShortcutStates[normalized] = state;
+    }
+
+    function finishHeldShortcut(key){
+      const normalized = String(key || "").toLowerCase();
+      const state = heldShortcutStates[normalized];
+      if (!state) return false;
+      if (state.timer){
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      const shouldRunShort = !state.triggered && typeof state.shortAction === "function";
+      delete heldShortcutStates[normalized];
+      if (shouldRunShort){
+        try { state.shortAction(); } catch (err) { console.error(err); }
+      }
+      return true;
+    }
+
+    function clearHeldShortcuts(){
+      Object.keys(heldShortcutStates).forEach((key) => {
+        const state = heldShortcutStates[key];
+        if (state?.timer) clearTimeout(state.timer);
+        delete heldShortcutStates[key];
+      });
+    }
+
+    function getHoldShortcutConfig(key){
+      const normalized = String(key || "").toLowerCase();
+      const map = {
+        q: { shortAction: () => showHeadwordPopup(), longAction: () => editCurrentField("Q") },
+        a: { shortAction: () => showExamplePopup(), longAction: () => editCurrentField("A") },
+        z: { shortAction: () => showDefinitionPopup(), longAction: () => editCurrentField("Z") },
+        x: { shortAction: () => showExtraInfoPopup(), longAction: () => editCurrentField("X") },
+        m: { shortAction: () => showNotePopup(), longAction: () => openNoteModal({ focusEditor: true }) },
+        n: { shortAction: () => addNewHeadwordEntry(), longAction: null },
+        t: { shortAction: () => addCurrentGroupToSelection(), longAction: null },
+        y: {
+          shortAction: () => startSelectionMode(),
+          longAction: () => {
+            selectionResumeIndex = 0;
+            selectionResumePoolIndex = 0;
+            if (!selectionModeActive){
+              startSelectionMode();
+            } else {
+              currentIndex = 0;
+              currentPoolIndex = 0;
+              render(false);
+            }
+          }
+        }
+      };
+      return map[normalized] || null;
+    }
+
+    function bindHoldableButton(button, options = {}){
+      if (!button) return;
+      const shortAction = typeof options.shortAction === "function" ? options.shortAction : null;
+      const longAction = typeof options.longAction === "function" ? options.longAction : null;
+      const holdMs = Number.isFinite(Number(options.holdMs)) ? Number(options.holdMs) : 650;
+      let holdTimer = null;
+      let holdTriggered = false;
+
+      const clearTimer = () => {
+        if (holdTimer){
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+      };
+
+      button.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        holdTriggered = false;
+        clearTimer();
+        if (longAction){
+          holdTimer = setTimeout(() => {
+            holdTimer = null;
+            holdTriggered = true;
+            longAction();
+          }, holdMs);
+        }
+      });
+
+      const finish = (e) => {
+        e?.preventDefault?.();
+        const runShort = !holdTriggered;
+        clearTimer();
+        if (runShort && shortAction) shortAction();
+        holdTriggered = false;
+      };
+
+      button.addEventListener("pointerup", finish);
+      button.addEventListener("pointercancel", () => {
+        clearTimer();
+        holdTriggered = false;
+      });
+      button.addEventListener("pointerleave", () => {
+        clearTimer();
+      });
+      button.addEventListener("click", (e) => e.preventDefault());
     }
 
     async function triggerMode(mode){
@@ -5688,19 +5875,19 @@ function buildHelpText(){
   return [
     "단축키 도움말",
     "",
-    "Q 표제어",
-    "Z 뜻풀이",
+    "Q 표제어 팝업 / 길게 눌러 편집",
+    "Z 뜻풀이 팝업 / 길게 눌러 편집",
     "W 표제어 영상 / 반복 시 변이형 순환",
     "E 표제어 수어문자 / 반복 시 변이형 순환",
     "G 수형그림 (다시 누르면 입 모양)",
-    "X 부가정보",
-    "A 용례 번역문",
+    "X 부가정보 팝업 / 길게 눌러 편집",
+    "A 용례문 팝업 / 길게 눌러 편집",
     "S 용례 영상 (모바일: 다시 누르면 구간 시작→종료→초기화)",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
-    "M 노트 열기",
+    "M 메모 팝업 / 길게 눌러 편집",
     "N 새 표제어 추가",
     "Ctrl+Q 표제어 편집",
     "Ctrl+Z 뜻풀이 편집",
@@ -8273,48 +8460,27 @@ ${match.label}${timeText}`, 1500);
         return;
       }
 
-      if (key === "q"){ e.preventDefault(); triggerMode("Q"); return; }
+      const holdShortcutConfig = getHoldShortcutConfig(key);
+      if (holdShortcutConfig){
+        e.preventDefault();
+        if (!e.repeat){
+          beginHeldShortcut(key, holdShortcutConfig.shortAction, holdShortcutConfig.longAction, 650);
+        }
+        return;
+      }
+
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
-      if (key === "a"){ e.preventDefault(); triggerMode("A"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
       if (key === "d"){ e.preventDefault(); triggerMode("D"); return; }
       if (key === "g"){ e.preventDefault(); triggerMode("G"); return; }
-      // Z: 뜻풀이 모드
-      if (key === "z"){ e.preventDefault(); triggerMode("Z"); return; }
-      // X: 부가정보 모드
-      if (key === "x"){ e.preventDefault(); triggerMode("X"); return; }
-      if (key === "t"){ e.preventDefault(); addCurrentGroupToSelection(); return; }
       if (key === "u"){ e.preventDefault(); loadSelectedPreset(); return; }
-      // Y: 선택학습 시작/길게 누르기 처리
-      if (key === "y"){
-        e.preventDefault();
-        if (yHoldTimer) return;
-        yHoldTriggered = false;
-        yHoldTimer = setTimeout(() => {
-          yHoldTriggered = true;
-          yHoldTimer = null;
-          // 길게 누르면 선택학습을 처음부터 시작합니다.
-          selectionResumeIndex = 0;
-          selectionResumePoolIndex = 0;
-          if (!selectionModeActive){
-            startSelectionMode();
-          } else {
-            currentIndex = 0;
-            currentPoolIndex = 0;
-            render(false);
-          }
-        }, 650);
-        return;
-      }
       if (e.code === "Backquote" && e.shiftKey){ e.preventDefault(); toggleFirebaseLiveSync(); return; }
       if (e.code === "Backquote"){ e.preventDefault(); reconnectFirebaseRoom(); return; }
       if (e.key === "?" && e.shiftKey){ e.preventDefault(); toggleHelpModal(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
       if (key === "c"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
-      if (key === "m"){ e.preventDefault(); openNoteModal(); return; }
-      if (key === "n"){ e.preventDefault(); addNewHeadwordEntry(); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
       if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
@@ -8368,18 +8534,7 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeyup(e){
       const key = e.key ? e.key.toLowerCase() : "";
-      // Y 키를 떼면 길게 누르기 여부를 확인합니다. 짧게 눌렀을 경우 선택학습을 시작/종료합니다.
-      if (key === "y"){
-        if (yHoldTimer){
-          clearTimeout(yHoldTimer);
-          yHoldTimer = null;
-          if (!yHoldTriggered){
-            startSelectionMode();
-          }
-        }
-        yHoldTriggered = false;
-        return;
-      }
+      if (finishHeldShortcut(key)) return;
       if (e.code !== "BracketRight") return;
       if (bracketRightHoldTimer){
         clearTimeout(bracketRightHoldTimer);
@@ -8596,7 +8751,36 @@ ${match.label}${timeText}`, 1500);
       els.nextBtn.addEventListener("click", () => goNext(getShouldAutoplay()));
 
       els.modeBtns.forEach(btn => {
-        btn.addEventListener("click", () => triggerMode(btn.dataset.mode));
+        const mode = btn.dataset.mode;
+        if (mode === "Q"){
+          bindHoldableButton(btn, {
+            shortAction: () => showHeadwordPopup(),
+            longAction: () => editCurrentField("Q")
+          });
+          return;
+        }
+        if (mode === "A"){
+          bindHoldableButton(btn, {
+            shortAction: () => showExamplePopup(),
+            longAction: () => editCurrentField("A")
+          });
+          return;
+        }
+        if (mode === "Z"){
+          bindHoldableButton(btn, {
+            shortAction: () => showDefinitionPopup(),
+            longAction: () => editCurrentField("Z")
+          });
+          return;
+        }
+        if (mode === "X"){
+          bindHoldableButton(btn, {
+            shortAction: () => showExtraInfoPopup(),
+            longAction: () => editCurrentField("X")
+          });
+          return;
+        }
+        btn.addEventListener("click", () => triggerMode(mode));
       });
 
       // 여러 재생 버튼 모두에 클릭 이벤트 바인딩
@@ -8659,6 +8843,7 @@ ${match.label}${timeText}`, 1500);
 
       window.addEventListener("keydown", handleGlobalKeydown, true);
       window.addEventListener("keyup", handleGlobalKeyup, true);
+      window.addEventListener("blur", clearHeldShortcuts);
 
       els.mobileInfoBtn.addEventListener("click", () => openMobileSheet("info"));
       els.mobileSheetClose.addEventListener("click", closeMobileSheet);
@@ -8694,48 +8879,38 @@ ${match.label}${timeText}`, 1500);
         e.target.value = "";
       });
 
-      // 선택학습 버튼: 짧게 누르면 시작/종료, 길게 누르면 처음부터 학습하도록 처리합니다.
-      const clearSelHoldTimer = () => {
-        if (selModeHoldTimer){
-          clearTimeout(selModeHoldTimer);
-          selModeHoldTimer = null;
+      const restartSelectionStudy = () => {
+        selectionResumeIndex = 0;
+        selectionResumePoolIndex = 0;
+        if (!selectionModeActive){
+          startSelectionMode();
+        } else {
+          currentIndex = 0;
+          currentPoolIndex = 0;
+          render(false);
         }
       };
-      els.selectionModeBtn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        selModeHoldTriggered = false;
-        clearSelHoldTimer();
-        selModeHoldTimer = setTimeout(() => {
-          selModeHoldTriggered = true;
-          selModeHoldTimer = null;
-          // 길게 누르면 처음부터 선택학습을 시작합니다. 이미 진행 중이면 현재 인덱스를 초기화합니다.
-          selectionResumeIndex = 0;
-          selectionResumePoolIndex = 0;
-          if (!selectionModeActive){
-            startSelectionMode();
-          } else {
-            currentIndex = 0;
-            currentPoolIndex = 0;
-            render(false);
-          }
-        }, 650);
+
+      bindHoldableButton(els.selectionModeBtn, {
+        shortAction: () => startSelectionMode(),
+        longAction: restartSelectionStudy
       });
-      const finishSelHold = (e) => {
-        e.preventDefault();
-        if (selModeHoldTimer){
-          clearSelHoldTimer();
-          if (!selModeHoldTriggered){
-            startSelectionMode();
-          }
-        }
-        selModeHoldTriggered = false;
-      };
-      els.selectionModeBtn.addEventListener("pointerup", finishSelHold);
-      els.selectionModeBtn.addEventListener("pointercancel", () => { clearSelHoldTimer(); selModeHoldTriggered = false; });
-      els.selectionModeBtn.addEventListener("pointerleave", () => { clearSelHoldTimer(); });
-      // click 이벤트를 직접 처리하지 않도록 기본 동작을 막습니다.
-      els.selectionModeBtn.addEventListener("click", (e) => e.preventDefault());
-      // 선택학습 종료는 선택학습 버튼 재클릭으로 처리
+      bindHoldableButton(els.selectionModeBtnFooter, {
+        shortAction: () => startSelectionMode(),
+        longAction: restartSelectionStudy
+      });
+      bindHoldableButton(els.selectionAddBtnFooter, {
+        shortAction: () => addCurrentGroupToSelection(),
+        longAction: null
+      });
+      bindHoldableButton(els.notePopupBtnFooter, {
+        shortAction: () => showNotePopup(),
+        longAction: () => openNoteModal({ focusEditor: true })
+      });
+      bindHoldableButton(els.addHeadwordBtnFooter, {
+        shortAction: () => addNewHeadwordEntry(),
+        longAction: null
+      });
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
       updateExactMatchButton();
