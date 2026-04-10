@@ -1375,7 +1375,7 @@
         <div id="stage" class="stage" tabindex="0">
           <video id="mainVideo" controls playsinline preload="metadata"></video>
           <div id="youtubePlayerWrap" class="main-frame" title="유튜브 플레이어" aria-label="유튜브 플레이어" style="display:none;"><div id="youtubePlayer"></div></div>
-          <iframe id="mainFrame" class="main-frame" title="외부 영상 플레이어" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="origin-when-cross-origin"></iframe>
+          <iframe id="mainFrame" class="main-frame" title="외부 영상 플레이어" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="origin-when-cross-origin" tabindex="0"></iframe>
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
           <div id="mainText" class="main-text"></div>
@@ -2294,10 +2294,20 @@
       return `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/preview${query ? `?${query}` : ""}`;
     }
 
-    function buildGoogleDriveStreamUrl(url){
+    function buildGoogleDriveStreamCandidates(url){
       const driveId = extractGoogleDriveFileId(url);
-      if (!driveId) return "";
-      return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveId)}`;
+      if (!driveId) return [];
+      const id = encodeURIComponent(driveId);
+      return [
+        `https://docs.google.com/uc?export=download&id=${id}`,
+        `https://drive.google.com/uc?export=download&id=${id}`,
+        `https://docs.google.com/uc?export=view&id=${id}`,
+        `https://drive.google.com/uc?id=${id}&export=download`
+      ].filter((value, index, arr) => !!value && arr.indexOf(value) === index);
+    }
+
+    function buildGoogleDriveStreamUrl(url){
+      return buildGoogleDriveStreamCandidates(url)[0] || "";
     }
 
     function normalizeImageUrl(url){
@@ -2788,10 +2798,15 @@
       const current = safe(els.mainFrame.dataset.currentSrc || els.mainFrame.src || "");
       const next = getGoogleDrivePreviewPlaybackUrl(current, !!shouldPlay);
       if (!next) return false;
-      showMainFrame(next);
+      const changed = next !== current;
+      if (changed) showMainFrame(next);
       els.mainFrame.dataset.drivePlaying = shouldPlay ? "1" : "0";
-      if (shouldPlay){
-        try { els.mainFrame.focus(); } catch (_) {}
+      try {
+        els.mainFrame.setAttribute("tabindex", "0");
+        els.mainFrame.focus();
+      } catch (_) {}
+      if (!changed){
+        showOverlay("구글드라이브 미리보기는 클릭 재생이 필요할 수 있습니다", 1200);
       }
       return true;
     }
@@ -5826,8 +5841,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const imageSrc = normalizeImageUrl(url || "");
       const clipStart = Number.isFinite(Number(options?.start)) ? Number(options.start) : null;
       const clipEnd = Number.isFinite(Number(options?.end)) ? Number(options.end) : null;
-      const driveStreamUrl = buildGoogleDriveStreamUrl(originalSrc);
-      const nextSrc = driveStreamUrl || originalSrc;
+      const driveStreamCandidates = buildGoogleDriveStreamCandidates(originalSrc);
+      const usingDriveStream = driveStreamCandidates.length > 0;
+      const nextSrc = usingDriveStream ? driveStreamCandidates[0] : originalSrc;
 
       if (!originalSrc){
         clearMainFrame();
@@ -5857,6 +5873,10 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           els.mainVideo.load();
           els.mainVideo.dataset.currentSrc = "";
           showMainFrame(drivePreviewUrl);
+          try {
+            els.mainFrame?.setAttribute("tabindex", "0");
+            els.mainFrame?.focus();
+          } catch (_) {}
           return;
         }
         if (imageSrc && isLikelyImageUrl(imageSrc)){
@@ -5876,55 +5896,100 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       const prevSrc = els.mainVideo.dataset.currentSrc || "";
       const srcChanged = prevSrc !== nextSrc;
-      const usingDriveStream = !!driveStreamUrl;
       const drivePreviewUrl = usingDriveStream ? buildGoogleDrivePreviewUrl(originalSrc, { autoPlay }) : "";
 
-      if (srcChanged){
+      const setMainVideoSource = (src, forceReload = false) => {
+        const currentSrc = els.mainVideo.dataset.currentSrc || "";
+        if (!forceReload && currentSrc === src) return;
         try { els.mainVideo.pause(); } catch (_) {}
         els.mainVideo.removeAttribute("crossorigin");
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
-        els.mainVideo.dataset.currentSrc = nextSrc;
+        els.mainVideo.dataset.currentSrc = src || "";
         els.mainVideo.dataset.originalSrc = originalSrc;
-        if (nextSrc) els.mainVideo.src = nextSrc;
+        els.mainVideo.dataset.driveSourceCount = usingDriveStream ? String(driveStreamCandidates.length) : "0";
+        if (!usingDriveStream){
+          els.mainVideo.dataset.driveSourceIndex = "";
+        }
+        if (src) els.mainVideo.src = src;
         else els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
+      };
+
+      const queueClipRestore = () => {
+        if (Number.isFinite(clipStart)) pendingRestoreTime = clipStart;
+        if (Number.isFinite(clipStart) && Number.isFinite(clipEnd) && clipEnd > clipStart){
+          pendingClipFocus = { start: clipStart, end: clipEnd };
+        }
+      };
+
+      const startAutoPlay = () => {
+        if (!autoPlay) return;
+        const playVideo = () => els.mainVideo.play().catch(() => {});
+        if (els.mainVideo.readyState < 1) els.mainVideo.addEventListener("loadedmetadata", playVideo, { once:true });
+        else playVideo();
+      };
+
+      const showDrivePreviewFallback = () => {
+        if (!drivePreviewUrl) return false;
+        try { els.mainVideo.pause(); } catch (_) {}
+        els.mainVideo.removeAttribute("src");
+        els.mainVideo.load();
+        els.mainVideo.dataset.currentSrc = "";
+        showMainFrame(drivePreviewUrl);
+        try {
+          els.mainFrame?.setAttribute("tabindex", "0");
+          els.mainFrame?.focus();
+        } catch (_) {}
+        showOverlay("구글드라이브 직접 재생이 제한되어 미리보기로 전환했습니다", 1500);
+        return true;
+      };
+
+      const tryDriveCandidate = (index) => {
+        if (!usingDriveStream) return false;
+        if (index < 0 || index >= driveStreamCandidates.length) return false;
+        els.mainVideo.dataset.driveSourceIndex = String(index);
+        setMainVideoSource(driveStreamCandidates[index], true);
+        queueClipRestore();
+
+        const recover = () => {
+          if ((els.mainVideo.dataset.originalSrc || "") !== originalSrc) return;
+          const activeIndex = Number(els.mainVideo.dataset.driveSourceIndex || "0") || 0;
+          if (activeIndex + 1 < driveStreamCandidates.length){
+            showOverlay(`구글드라이브 재생 주소 ${activeIndex + 2}/${driveStreamCandidates.length} 재시도`, 1000);
+            tryDriveCandidate(activeIndex + 1);
+            return;
+          }
+          showDrivePreviewFallback();
+        };
+
+        els.mainVideo.addEventListener("error", recover, { once:true });
+        els.mainVideo.addEventListener("stalled", () => {
+          const current = els.mainVideo.currentSrc || els.mainVideo.src || "";
+          if (!current || els.mainVideo.networkState === HTMLMediaElement.NETWORK_NO_SOURCE){
+            recover();
+          }
+        }, { once:true });
+
+        startAutoPlay();
+        return true;
+      };
+
+      if (usingDriveStream){
+        tryDriveCandidate(0);
+        return;
+      }
+
+      if (srcChanged){
+        setMainVideoSource(nextSrc, true);
       }
 
       if (srcChanged){
         try { els.mainVideo.currentTime = 0; } catch (_) {}
       }
 
-      if (usingDriveStream && drivePreviewUrl){
-        const fallbackToDrivePreview = () => {
-          if ((els.mainVideo.dataset.currentSrc || "") !== nextSrc) return;
-          try { els.mainVideo.pause(); } catch (_) {}
-          els.mainVideo.removeAttribute("src");
-          els.mainVideo.load();
-          els.mainVideo.dataset.currentSrc = "";
-          showMainFrame(drivePreviewUrl);
-          showOverlay("구글드라이브 직접 재생이 제한되어 미리보기로 전환했습니다", 1400);
-        };
-        els.mainVideo.addEventListener("error", fallbackToDrivePreview, { once:true });
-        els.mainVideo.addEventListener("stalled", () => {
-          if (!els.mainVideo.currentSrc && !els.mainVideo.src) fallbackToDrivePreview();
-        }, { once:true });
-      }
-
-      if (Number.isFinite(clipStart)) pendingRestoreTime = clipStart;
-      if (Number.isFinite(clipStart) && Number.isFinite(clipEnd) && clipEnd > clipStart){
-        pendingClipFocus = { start: clipStart, end: clipEnd };
-      }
-
-      if (autoPlay){
-        const playVideo = () => els.mainVideo.play().catch(() => {
-          if (usingDriveStream && drivePreviewUrl){
-            showMainFrame(drivePreviewUrl);
-          }
-        });
-        if (srcChanged && els.mainVideo.readyState < 1) els.mainVideo.addEventListener("loadedmetadata", playVideo, { once:true });
-        else playVideo();
-      }
+      queueClipRestore();
+      startAutoPlay();
     }
 
     function showMainImage(url, alt = "학습 이미지"){
