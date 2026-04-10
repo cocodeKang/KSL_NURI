@@ -576,6 +576,32 @@
       opacity:1;
     }
 
+    .stage-action-btn{
+      position:absolute;
+      left:50%;
+      bottom:18px;
+      transform:translateX(-50%);
+      z-index:58;
+      display:none;
+      min-height:42px;
+      padding:0 16px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(9,14,24,.82);
+      color:#f5f8ff;
+      font-size:14px;
+      font-weight:700;
+      cursor:pointer;
+      box-shadow:0 10px 24px rgba(0,0,0,.28);
+      backdrop-filter:blur(8px);
+    }
+
+    .stage-action-btn.show{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+
     .viewer-bottom{
       /* hide bottom preview images in non-fullscreen to only show a single active panel */
       display:none;
@@ -1382,6 +1408,7 @@
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="overlayMsg" class="overlay-msg"></div>
+          <button id="stageActionBtn" class="stage-action-btn" type="button"></button>
           <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
         </div>
@@ -1644,6 +1671,7 @@
       prevBtn: document.getElementById("prevBtn"),
       nextBtn: document.getElementById("nextBtn"),
       overlayMsg: document.getElementById("overlayMsg"),
+      stageActionBtn: document.getElementById("stageActionBtn"),
       mobileInfoBtn: document.getElementById("mobileInfoBtn"),
       mobileSheet: document.getElementById("mobileSheet"),
       mobileSheetBody: document.getElementById("mobileSheetBody"),
@@ -2299,10 +2327,13 @@
       if (!driveId) return [];
       const id = encodeURIComponent(driveId);
       return [
+        `https://drive.usercontent.google.com/download?id=${id}&export=download&authuser=0&confirm=t`,
+        `https://drive.usercontent.google.com/download?id=${id}&export=view&authuser=0&confirm=t`,
         `https://docs.google.com/uc?export=download&id=${id}`,
         `https://drive.google.com/uc?export=download&id=${id}`,
         `https://docs.google.com/uc?export=view&id=${id}`,
-        `https://drive.google.com/uc?id=${id}&export=download`
+        `https://drive.google.com/uc?id=${id}&export=download`,
+        `https://drive.google.com/uc?id=${id}&export=view`
       ].filter((value, index, arr) => !!value && arr.indexOf(value) === index);
     }
 
@@ -3584,13 +3615,98 @@
         addVariant(group, row);
       }
 
-      const out = [...groupsByKey.values()].sort((a, b) => a.word.localeCompare(b.word, "ko"));
+      const out = mergeDuplicateGroups([...groupsByKey.values()]).sort((a, b) => a.word.localeCompare(b.word, "ko"));
       out.forEach(group => {
         group.exampleSearchBlob = group.exampleNorms.join("\n");
         group.wordSearchBlob = [group.wordNorm].filter(Boolean).join("\n");
         group.searchBlob = [group.wordNorm, group.exampleSearchBlob, group.definitionNorm].filter(Boolean).join("\n");
       });
       return out;
+    }
+
+    function mergeDuplicateGroups(groupsData){
+      const mergedMap = new Map();
+
+      const mergeVariantEntries = (target, source) => {
+        if (!Array.isArray(source)) return;
+        source.forEach(entry => {
+          if (!entry) return;
+          const label = safe(entry.label || "");
+          const word = safe(entry.word || "");
+          const existing = (target.variants || []).find(item => safe(item?.label || "") === label && safe(item?.word || "") === word);
+          if (existing){
+            if (!existing.video && entry.video) existing.video = entry.video;
+            if (!existing.signImage && entry.signImage) existing.signImage = entry.signImage;
+            if (!existing.wordNorm && entry.wordNorm) existing.wordNorm = entry.wordNorm;
+            existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(entry.handShapeImages || [])].filter(Boolean))];
+          } else {
+            target.variants.push({
+              ...entry,
+              handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
+            });
+          }
+        });
+      };
+
+      groupsData.forEach(group => {
+        if (!group) return;
+        const sid = safe(group.sourceId);
+        const surl = safe(group.sourceUrl);
+        const wordNorm = safe(group.wordNorm || normalizeHangulString(group.word || "").toLowerCase());
+        const keySource = sid ? `sid:${sid}` : `url:${surl}`;
+        const mergeKey = `${keySource}::${wordNorm}`;
+        const existing = mergedMap.get(mergeKey);
+        if (!existing){
+          mergedMap.set(mergeKey, {
+            ...group,
+            handShapeImages: [...new Set((group.handShapeImages || []).filter(Boolean))],
+            rowIndices: [...new Set((group.rowIndices || []).filter(Number.isInteger))],
+            baseRowIndices: [...new Set((group.baseRowIndices || []).filter(Number.isInteger))],
+            exampleNorms: [...new Set((group.exampleNorms || []).filter(Boolean))],
+            variants: [],
+            variantWords: [...new Set((group.variantWords || []).filter(Boolean))],
+            variantNorms: [...new Set((group.variantNorms || []).filter(Boolean))]
+          });
+          mergeVariantEntries(mergedMap.get(mergeKey), group.variants || []);
+          return;
+        }
+
+        if (!existing.definition && group.definition){
+          existing.definition = group.definition;
+          existing.definitionNorm = group.definitionNorm;
+        }
+        if (!existing.category && group.category) existing.category = group.category;
+        if (!existing.sourceName && group.sourceName) existing.sourceName = group.sourceName;
+        if (!existing.sourceUrl && group.sourceUrl) existing.sourceUrl = group.sourceUrl;
+        if (!existing.wordVideo && group.wordVideo) existing.wordVideo = group.wordVideo;
+        if (!existing.wordSignImage && group.wordSignImage) existing.wordSignImage = group.wordSignImage;
+        if (!existing.handShapeImage && group.handShapeImage) existing.handShapeImage = group.handShapeImage;
+        existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(group.handShapeImages || [])].filter(Boolean))];
+        existing.handShapeImage = existing.handShapeImages[0] || existing.handShapeImage || "";
+        if (!existing.mouthVideo && group.mouthVideo) existing.mouthVideo = group.mouthVideo;
+        if (!existing.extraInfo && group.extraInfo) existing.extraInfo = group.extraInfo;
+        if (!existing.additionalImage && group.additionalImage) existing.additionalImage = group.additionalImage;
+        if (!safe(existing.wordClipStartRaw) && safe(group.wordClipStartRaw)) existing.wordClipStartRaw = group.wordClipStartRaw;
+        if (!safe(existing.wordClipEndRaw) && safe(group.wordClipEndRaw)) existing.wordClipEndRaw = group.wordClipEndRaw;
+        if (!Number.isFinite(existing.wordClipStart) && Number.isFinite(group.wordClipStart)) existing.wordClipStart = group.wordClipStart;
+        if (!Number.isFinite(existing.wordClipEnd) && Number.isFinite(group.wordClipEnd)) existing.wordClipEnd = group.wordClipEnd;
+        existing.rowIndices = [...new Set([...(existing.rowIndices || []), ...(group.rowIndices || [])].filter(Number.isInteger))];
+        existing.baseRowIndices = [...new Set([...(existing.baseRowIndices || []), ...(group.baseRowIndices || [])].filter(Number.isInteger))];
+        existing.exampleNorms = [...new Set([...(existing.exampleNorms || []), ...(group.exampleNorms || [])].filter(Boolean))];
+        if (Array.isArray(group.examples)){
+          group.examples.forEach(ex => {
+            if (!ex) return;
+            const exKey = safe(ex._key || [ex.text, ex.video, ex.signImage].join("||"));
+            if ((existing.examples || []).some(item => safe(item._key || [item.text, item.video, item.signImage].join("||")) === exKey)) return;
+            existing.examples.push(ex);
+          });
+        }
+        existing.variantWords = [...new Set([...(existing.variantWords || []), ...(group.variantWords || [])].filter(Boolean))];
+        existing.variantNorms = [...new Set([...(existing.variantNorms || []), ...(group.variantNorms || [])].filter(Boolean))];
+        mergeVariantEntries(existing, group.variants || []);
+      });
+
+      return [...mergedMap.values()];
     }
 
     function buildExamplePool(groupsData){
@@ -5805,6 +5921,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function hideAllMainPanels(){
+      hideStageActionButton();
       els.mainVideo.style.display = "none";
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
       if (els.mainFrame) els.mainFrame.style.display = "none";
@@ -5897,8 +6014,24 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const prevSrc = els.mainVideo.dataset.currentSrc || "";
       const srcChanged = prevSrc !== nextSrc;
       const drivePreviewUrl = usingDriveStream ? buildGoogleDrivePreviewUrl(originalSrc, { autoPlay }) : "";
+      let driveCandidateTimer = null;
+
+      const clearDriveCandidateTimer = () => {
+        if (driveCandidateTimer){
+          clearTimeout(driveCandidateTimer);
+          driveCandidateTimer = null;
+        }
+      };
+
+      const openDriveFallbackWindow = () => {
+        const previewTarget = drivePreviewUrl || originalSrc;
+        if (!previewTarget) return;
+        const opened = openUrlInNewTab(previewTarget);
+        showOverlay(opened ? "새 창에서 구글드라이브 영상을 열었습니다" : "팝업이 차단되어 새 창을 열지 못했습니다", 1500);
+      };
 
       const setMainVideoSource = (src, forceReload = false) => {
+        clearDriveCandidateTimer();
         const currentSrc = els.mainVideo.dataset.currentSrc || "";
         if (!forceReload && currentSrc === src) return;
         try { els.mainVideo.pause(); } catch (_) {}
@@ -5931,28 +6064,32 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       };
 
       const showDrivePreviewFallback = () => {
-        if (!drivePreviewUrl) return false;
+        clearDriveCandidateTimer();
         try { els.mainVideo.pause(); } catch (_) {}
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = "";
-        showMainFrame(drivePreviewUrl);
-        try {
-          els.mainFrame?.setAttribute("tabindex", "0");
-          els.mainFrame?.focus();
-        } catch (_) {}
-        showOverlay("구글드라이브 직접 재생이 제한되어 미리보기로 전환했습니다", 1500);
+        hideAllMainPanels();
+        showMainText(`구글드라이브 보안 정책 때문에 이 페이지 안에서는 미리보기 재생이 차단되었습니다.
+아래 버튼으로 새 창에서 여세요.`);
+        showStageActionButton("새 창에서 열기", openDriveFallbackWindow);
+        showOverlay("페이지 안 재생이 막혀 새 창 열기 버튼으로 전환했습니다", 1600);
         return true;
       };
 
       const tryDriveCandidate = (index) => {
         if (!usingDriveStream) return false;
         if (index < 0 || index >= driveStreamCandidates.length) return false;
+        clearDriveCandidateTimer();
         els.mainVideo.dataset.driveSourceIndex = String(index);
         setMainVideoSource(driveStreamCandidates[index], true);
         queueClipRestore();
 
+        let settled = false;
         const recover = () => {
+          if (settled) return;
+          settled = true;
+          clearDriveCandidateTimer();
           if ((els.mainVideo.dataset.originalSrc || "") !== originalSrc) return;
           const activeIndex = Number(els.mainVideo.dataset.driveSourceIndex || "0") || 0;
           if (activeIndex + 1 < driveStreamCandidates.length){
@@ -5963,6 +6100,14 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           showDrivePreviewFallback();
         };
 
+        const markReady = () => {
+          settled = true;
+          clearDriveCandidateTimer();
+        };
+
+        els.mainVideo.addEventListener("loadedmetadata", markReady, { once:true });
+        els.mainVideo.addEventListener("canplay", markReady, { once:true });
+        els.mainVideo.addEventListener("playing", markReady, { once:true });
         els.mainVideo.addEventListener("error", recover, { once:true });
         els.mainVideo.addEventListener("stalled", () => {
           const current = els.mainVideo.currentSrc || els.mainVideo.src || "";
@@ -5970,6 +6115,12 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
             recover();
           }
         }, { once:true });
+        driveCandidateTimer = setTimeout(() => {
+          const readyEnough = els.mainVideo.readyState >= HTMLMediaElement.HAVE_METADATA;
+          if (!readyEnough || (els.mainVideo.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)){
+            recover();
+          }
+        }, 2500);
 
         startAutoPlay();
         return true;
@@ -8811,6 +8962,10 @@ ${match.label}${timeText}`, 1500);
 
       if (e.code === "Space"){
         e.preventDefault();
+        if (e.repeat) return;
+        const now = Date.now();
+        if (now - lastSpaceToggleAt < 160) return;
+        lastSpaceToggleAt = now;
         togglePlayPause();
         return;
       }
@@ -8902,6 +9057,7 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeyup(e){
       const key = e.key ? e.key.toLowerCase() : "";
+      if (e.code === "Space") lastSpaceToggleAt = 0;
       if (finishHeldShortcut(key)) return;
       if (e.code !== "BracketRight") return;
       if (bracketRightHoldTimer){
