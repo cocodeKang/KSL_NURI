@@ -1873,6 +1873,9 @@
     let dragCounter = 0;
     let isSearchPreviewing = false;
     let currentSourceName = "";
+    let originalWorkbookArrayBuffer = null;
+    let originalWorkbookFirstSheetName = "";
+    let originalWorkbookFirstSheetHeaderRowIndex = 0;
     let notesByKey = {};
     let noteModalEditable = false;
     let undoSnapshot = null;
@@ -3259,32 +3262,93 @@
       return cleaned;
     }
 
-    function rowsMatrixToObjects(matrix){
-      if (!matrix.length) return [];
-      const first = matrix[0] || [];
-      const second = matrix[1] || [];
-      const aliasHits = second.reduce((acc, value) => acc + (HEADER_ALIASES[safe(value)] ? 1 : 0), 0);
-      const hasAliasRow = aliasHits >= 4;
-      const width = Math.max(first.length, second.length, ...matrix.map(row => row.length));
+    function createBlankLayoutRow(){
+      return { __blankRow: true, __layoutRowType: "blank" };
+    }
+
+    function rowHasMeaningfulCell(row){
+      return Array.isArray(row) && row.some(cell => safe(cell));
+    }
+
+    function isBlankLayoutRow(row){
+      return !!(row && typeof row === "object" && row.__blankRow);
+    }
+
+    function getCountableRows(list){
+      return (Array.isArray(list) ? list : []).filter(row => !isBlankLayoutRow(row));
+    }
+
+    function getCountableGroups(list){
+      return (Array.isArray(list) ? list : []).filter(group => !!safe(group?.word));
+    }
+
+    function trimTrailingBlankLayoutRows(list){
+      const arr = Array.isArray(list) ? [...list] : [];
+      let end = arr.length;
+      while (end > 0 && isBlankLayoutRow(arr[end - 1])) end -= 1;
+      return arr.slice(0, end);
+    }
+
+    function countHeaderAliasHits(row){
+      return (Array.isArray(row) ? row : []).reduce((acc, value) => {
+        const raw = safe(value);
+        const compact = raw.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+        const compactNoSpace = compact.replace(/\s+/g, "");
+        const cleaned = sanitizeHeaderRaw(value);
+        const cleanedNoSpace = cleaned.replace(/\s+/g, "");
+        return acc + (HEADER_ALIASES[raw] || HEADER_ALIASES[compact] || HEADER_ALIASES[compactNoSpace] || HEADER_ALIASES[cleaned] || HEADER_ALIASES[cleanedNoSpace] ? 1 : 0);
+      }, 0);
+    }
+
+    function resolveHeaderMatrixInfo(matrix){
+      if (!Array.isArray(matrix) || !matrix.length){
+        return { headerRowIndex: 0, startRow: 1, headers: [] };
+      }
+      const scanLimit = Math.min(matrix.length, 5);
+      let headerRowIndex = 0;
+      let bestHits = -1;
+      for (let i = 0; i < scanLimit; i += 1){
+        const hits = countHeaderAliasHits(matrix[i]);
+        if (hits > bestHits){
+          bestHits = hits;
+          headerRowIndex = i;
+        }
+      }
+      if (bestHits < 4){
+        headerRowIndex = 0;
+      }
+
+      const headerRow = matrix[headerRowIndex] || [];
+      const fallbackRow = matrix[headerRowIndex + 1] || [];
+      const fallbackHits = countHeaderAliasHits(fallbackRow);
+      const shouldUseFallbackRow = headerRowIndex === 0 && countHeaderAliasHits(headerRow) < 4 && fallbackHits >= 4;
+      const width = Math.max(...matrix.map(row => Array.isArray(row) ? row.length : 0), headerRow.length, fallbackRow.length, 0);
       const headers = Array.from({ length: width }, (_, idx) => {
-        const primary = mapHeaderKey(first[idx], idx);
+        const primary = mapHeaderKey(headerRow[idx], idx);
         if (!primary.startsWith("__col_")) return primary;
-        if (hasAliasRow){
-          return mapHeaderKey(second[idx], idx);
+        if (shouldUseFallbackRow){
+          return mapHeaderKey(fallbackRow[idx], idx);
         }
         return primary;
       });
+      return {
+        headerRowIndex,
+        startRow: headerRowIndex + 1,
+        headers
+      };
+    }
 
-      const startRow = hasAliasRow ? 2 : 1;
-      return matrix.slice(startRow)
-        .filter(row => row.some(cell => safe(cell)))
-        .map(row => {
-          const obj = {};
-          headers.forEach((header, idx) => {
-            obj[header] = safe(row[idx]);
-          });
-          return obj;
+    function rowsMatrixToObjects(matrix){
+      if (!matrix.length) return [];
+      const { startRow, headers } = resolveHeaderMatrixInfo(matrix);
+      return matrix.slice(startRow).map(row => {
+        if (!rowHasMeaningfulCell(row)) return createBlankLayoutRow();
+        const obj = {};
+        headers.forEach((header, idx) => {
+          obj[header] = safe(row[idx]);
         });
+        return obj;
+      });
     }
 
     function csvToObjects(text){
@@ -3317,10 +3381,10 @@
       return match?.[1] ? safe(match[1]) : "";
     }
 
-    function xlsxSheetToObjects(sheet){
-      if (!sheet || typeof XLSX === "undefined") return [];
+    function analyzeXlsxSheet(sheet){
+      if (!sheet || typeof XLSX === "undefined") return { objects: [], headerRowIndex: 0 };
       const ref = safe(sheet["!ref"]);
-      if (!ref) return [];
+      if (!ref) return { objects: [], headerRowIndex: 0 };
       const range = XLSX.utils.decode_range(ref);
       const rowCount = range.e.r - range.s.r + 1;
       const colCount = range.e.c - range.s.c + 1;
@@ -3333,25 +3397,15 @@
         });
       });
 
-      if (!matrix.length) return [];
-      const first = matrix[0] || [];
-      const second = matrix[1] || [];
-      const aliasHits = second.reduce((acc, value) => acc + (HEADER_ALIASES[safe(value)] ? 1 : 0), 0);
-      const hasAliasRow = aliasHits >= 4;
-      const width = Math.max(first.length, second.length, ...matrix.map(row => row.length));
-      const headers = Array.from({ length: width }, (_, idx) => {
-        const primary = mapHeaderKey(first[idx], idx);
-        if (!primary.startsWith("__col_")) return primary;
-        if (hasAliasRow){
-          return mapHeaderKey(second[idx], idx);
-        }
-        return primary;
-      });
-      const startRow = hasAliasRow ? 2 : 1;
+      if (!matrix.length) return { objects: [], headerRowIndex: 0 };
+      const { startRow, headers, headerRowIndex } = resolveHeaderMatrixInfo(matrix);
       const objects = [];
       for (let rowOffset = startRow; rowOffset < matrix.length; rowOffset += 1){
         const row = matrix[rowOffset] || [];
-        if (!row.some(cell => safe(cell))) continue;
+        if (!rowHasMeaningfulCell(row)){
+          objects.push(createBlankLayoutRow());
+          continue;
+        }
         const obj = {};
         headers.forEach((header, idx) => {
           const cellRef = XLSX.utils.encode_cell({ r: range.s.r + rowOffset, c: range.s.c + idx });
@@ -3362,7 +3416,11 @@
         });
         objects.push(obj);
       }
-      return objects;
+      return { objects: trimTrailingBlankLayoutRows(objects), headerRowIndex };
+    }
+
+    function xlsxSheetToObjects(sheet){
+      return analyzeXlsxSheet(sheet).objects;
     }
 
     function scoreSheetMatrix(matrix){
@@ -3380,20 +3438,17 @@
 
     function xlsxArrayBufferToObjects(buffer){
       const workbook = XLSX.read(buffer, { type: "array" });
-      const preferredNames = ["DB", "db", "Data", "DATA", workbook.SheetNames[0]].filter(Boolean);
-      let best = { score: -1, rows: [], name: "" };
-
-      for (const sheetName of workbook.SheetNames){
-        const sheet = workbook.Sheets[sheetName];
-        if (!sheet) continue;
-        const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
-        const score = scoreSheetMatrix(matrix) + (preferredNames.includes(sheetName) ? 2 : 0);
-        if (score > best.score){
-          best = { score, rows: xlsxSheetToObjects(sheet), name: sheetName };
-        }
+      const firstSheetName = safe(workbook?.SheetNames?.[0] || "") || "DB";
+      const firstSheet = workbook?.Sheets?.[firstSheetName] || null;
+      const analyzed = analyzeXlsxSheet(firstSheet);
+      try{
+        originalWorkbookArrayBuffer = buffer?.slice ? buffer.slice(0) : buffer;
+      } catch(_){
+        originalWorkbookArrayBuffer = buffer;
       }
-
-      return best.rows || [];
+      originalWorkbookFirstSheetName = firstSheetName;
+      originalWorkbookFirstSheetHeaderRowIndex = Math.max(0, Number(analyzed?.headerRowIndex) || 0);
+      return analyzed.objects;
     }
 
     async function parseFileByNameAndBuffer(name, buffer){
@@ -3405,6 +3460,9 @@
         }
         return xlsxArrayBufferToObjects(buffer);
       }
+      originalWorkbookArrayBuffer = null;
+      originalWorkbookFirstSheetName = "";
+      originalWorkbookFirstSheetHeaderRowIndex = 0;
       const text = new TextDecoder("utf-8").decode(buffer);
       return csvToObjects(text);
     }
@@ -4753,7 +4811,11 @@
     function buildExportRows(){
       const schema = getFixedExportSchema();
       const headers = schema.map(item => item.header);
-      const data = rows.map((row, rowIndex) => {
+      const exportRows = trimTrailingBlankLayoutRows(rows);
+      const data = exportRows.map((row, rowIndex) => {
+        if (row?.__blankRow){
+          return { __blankRow: true };
+        }
         const out = {};
         schema.forEach(item => {
           out[item.header] = normalizeExcelCellValue(item.value(row, rowIndex));
@@ -4795,6 +4857,71 @@
       return true;
     }
 
+    function cloneSheetCell(cell){
+      if (!cell || typeof cell !== "object") return cell;
+      if (typeof structuredClone === "function"){
+        try{ return structuredClone(cell); }catch(_){ }
+      }
+      try{ return JSON.parse(JSON.stringify(cell)); }catch(_){ }
+      const cloned = { ...cell };
+      if (cell.l && typeof cell.l === "object") cloned.l = { ...cell.l };
+      if (cell.s && typeof cell.s === "object") cloned.s = { ...cell.s };
+      return cloned;
+    }
+
+    function refreshWorksheetRef(worksheet){
+      const cellRefs = Object.keys(worksheet || {}).filter(key => key && !key.startsWith("!"));
+      if (!cellRefs.length){
+        worksheet["!ref"] = "A1";
+        return worksheet;
+      }
+      let minRow = Infinity;
+      let minCol = Infinity;
+      let maxRow = -1;
+      let maxCol = -1;
+      cellRefs.forEach(ref => {
+        const pos = XLSX.utils.decode_cell(ref);
+        if (pos.r < minRow) minRow = pos.r;
+        if (pos.c < minCol) minCol = pos.c;
+        if (pos.r > maxRow) maxRow = pos.r;
+        if (pos.c > maxCol) maxCol = pos.c;
+      });
+      worksheet["!ref"] = XLSX.utils.encode_range({ s:{ r:minRow, c:minCol }, e:{ r:maxRow, c:maxCol } });
+      return worksheet;
+    }
+
+    function buildWorksheetWithPreservedLeadingRows(aoa, originalSheet, headerRowIndex){
+      const worksheet = {};
+      const safeHeaderRowIndex = Math.max(0, Number(headerRowIndex) || 0);
+      const ref = safe(originalSheet?.["!ref"]);
+      const range = ref ? XLSX.utils.decode_range(ref) : null;
+      const originColumn = range ? range.s.c : 0;
+
+      if (originalSheet){
+        if (Array.isArray(originalSheet["!cols"])) worksheet["!cols"] = cloneSheetCell(originalSheet["!cols"]);
+        if (Array.isArray(originalSheet["!rows"])) worksheet["!rows"] = cloneSheetCell(originalSheet["!rows"]);
+        if (Array.isArray(originalSheet["!merges"])) {
+          const preservedMerges = originalSheet["!merges"].filter(merge => (merge?.s?.r ?? Infinity) < safeHeaderRowIndex && (merge?.e?.r ?? Infinity) < safeHeaderRowIndex);
+          if (preservedMerges.length) worksheet["!merges"] = cloneSheetCell(preservedMerges);
+        }
+      }
+
+      if (originalSheet && range && safeHeaderRowIndex > 0){
+        for (let rowIndex = range.s.r; rowIndex < Math.min(safeHeaderRowIndex, range.e.r + 1); rowIndex += 1){
+          for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex += 1){
+            const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+            if (originalSheet[cellRef]){
+              worksheet[cellRef] = cloneSheetCell(originalSheet[cellRef]);
+            }
+          }
+        }
+      }
+
+      XLSX.utils.sheet_add_aoa(worksheet, aoa, { origin: { r: safeHeaderRowIndex, c: originColumn } });
+      return refreshWorksheetRef(worksheet);
+    }
+
+
     async function downloadExcelFile(){
       if (!rows.length){
         showOverlay("다운로드할 데이터가 없습니다", 1200);
@@ -4809,13 +4936,38 @@
         const { headers, data } = buildExportRows();
         const aoa = [
           headers,
-          ...data.map(row => headers.map(header => normalizeExcelCellValue(row?.[header])))
+          ...data.map(row => {
+            if (row?.__blankRow) return [];
+            return headers.map(header => row?.[header]);
+          })
         ];
-        const worksheet = XLSX.utils.aoa_to_sheet(aoa);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "DB");
+        let workbook = null;
+        let originalSheet = null;
+        if (originalWorkbookArrayBuffer){
+          try{
+            const clonedBuffer = originalWorkbookArrayBuffer?.slice ? originalWorkbookArrayBuffer.slice(0) : originalWorkbookArrayBuffer;
+            workbook = XLSX.read(clonedBuffer, { type:"array" });
+          } catch (cloneErr){
+            console.warn("원본 워크북 복원 실패, 새 워크북으로 대체합니다.", cloneErr);
+            workbook = null;
+          }
+        }
+        if (workbook && Array.isArray(workbook.SheetNames) && workbook.SheetNames.length){
+          const targetSheetName = safe(originalWorkbookFirstSheetName || workbook.SheetNames[0] || "") || "DB";
+          originalSheet = workbook?.Sheets?.[targetSheetName] || null;
+          const worksheet = buildWorksheetWithPreservedLeadingRows(aoa, originalSheet, originalWorkbookFirstSheetHeaderRowIndex);
+          workbook.Sheets[targetSheetName] = worksheet;
+          if (!workbook.SheetNames.includes(targetSheetName)){
+            workbook.SheetNames.unshift(targetSheetName);
+          }
+        } else {
+          const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+          workbook = XLSX.utils.book_new();
+          const fallbackSheetName = safe(originalWorkbookFirstSheetName || "DB") || "DB";
+          XLSX.utils.book_append_sheet(workbook, worksheet, fallbackSheetName);
+        }
         triggerExcelBlobDownload(workbook, makeExportFileName());
-        showOverlay("엑셀 다운로드 완료", 1100);
+        showOverlay(originalWorkbookArrayBuffer ? "첫 번째 탭만 반영하여 원본 탭 유지 다운로드 완료" : "엑셀 다운로드 완료", 1400);
         return true;
       } catch (err){
         console.error(err);
@@ -6510,7 +6662,8 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function getCountBadgeState(){
-      const wordTotal = filteredGroups.length;
+      const visibleGroups = getCountableGroups(filteredGroups);
+      const wordTotal = visibleGroups.length;
       if (!isExampleMode()){
         const wordNow = wordTotal ? currentIndex + 1 : 0;
         return {
@@ -8439,7 +8592,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
             <h1 class="word">${escapeHtml(group.word)}</h1>
             <div class="meta">
               <span class="pill">${escapeHtml(MODES[currentMode])}</span>
-              <span class="pill">${currentIndex + 1} / ${filteredGroups.length}</span>
+              <span class="pill">${currentIndex + 1} / ${getCountableGroups(filteredGroups).length}</span>
                 <span class="pill">${escapeHtml(group.category || "카테고리 없음")}</span>
                 <span class="pill">ID:${escapeHtml(group.sourceId || group.id)}</span>
                 ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
@@ -8743,7 +8896,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         return;
       }
 
-      els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${filteredGroups.length} | ${group.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
+      els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${getCountableGroups(filteredGroups).length} | ${group.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
     }
 
     function maybeShowVariantHint(force = false){
@@ -8856,7 +9009,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       render(getShouldAutoplay());
 
       const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
-      showOverlay(`${autoText}\n${sourceName}\n표제어 ${groups.length}개\n용례 ${examplePool.length}개`, 1700);
+      const countableGroupTotal = getCountableGroups(groups).length;
+      showOverlay(`${autoText}\n${sourceName}\n표제어 ${countableGroupTotal}개\n용례 ${examplePool.length}개`, 1700);
       await saveState();
     }
 
