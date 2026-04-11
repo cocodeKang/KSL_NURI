@@ -576,32 +576,6 @@
       opacity:1;
     }
 
-    .stage-action-btn{
-      position:absolute;
-      left:50%;
-      bottom:18px;
-      transform:translateX(-50%);
-      z-index:58;
-      display:none;
-      min-height:42px;
-      padding:0 16px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(9,14,24,.82);
-      color:#f5f8ff;
-      font-size:14px;
-      font-weight:700;
-      cursor:pointer;
-      box-shadow:0 10px 24px rgba(0,0,0,.28);
-      backdrop-filter:blur(8px);
-    }
-
-    .stage-action-btn.show{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-    }
-
     .viewer-bottom{
       /* hide bottom preview images in non-fullscreen to only show a single active panel */
       display:none;
@@ -1040,6 +1014,27 @@
       color:#111;
     }
 
+    .note-view{
+      display:none;
+      width:100%;
+      min-height:220px;
+      max-height:min(52dvh, 520px);
+      overflow:auto;
+      border-radius:14px;
+      padding:14px;
+      font-size:15px;
+      line-height:1.65;
+      background:#0e1520;
+      border:1px solid var(--line);
+      color:var(--text);
+      white-space:pre-wrap;
+      word-break:keep-all;
+    }
+
+    .note-view.is-empty{
+      color:var(--sub);
+    }
+
     .desktop-only{display:inline-flex;}
     .mobile-only{display:none;}
 
@@ -1126,6 +1121,7 @@
         align-items:center;
       }
 
+      .header-row-actions #downloadXlsxMobileBtn{ order:2; }
       .header-row-actions #syncRoomApplyBtn{ order:7; }
       .header-row-actions #pushCloudBtn{ order:8; }
       .header-row-actions .sync-room-input{
@@ -1237,6 +1233,24 @@
       #shuffleBtn{ grid-column:3; grid-row:3; }
       #abStartBtn{ grid-column:4; grid-row:3; }
       #abEndBtn{ grid-column:5; grid-row:3; }
+      .mode-btn[data-mode="O"]{ grid-column:6; grid-row:3; }
+
+      .footer,
+      .footer *,
+      .footer button,
+      .footer .mode-btn,
+      .footer .nav-btn,
+      .footer .icon-btn,
+      .footer .playback-btn,
+      .footer .select-btn{
+        user-select:none;
+        -webkit-user-select:none;
+        -moz-user-select:none;
+        -ms-user-select:none;
+        -webkit-touch-callout:none;
+        -webkit-user-drag:none;
+        touch-action:manipulation;
+      }
 
       .icon-btn,.playback-btn,.select-btn,.link-btn{
         height:38px;
@@ -1253,13 +1267,20 @@
         padding:20px;
       }
 
-      .note-dialog{
-        width:100%;
-        max-height:min(82dvh, 720px);
+      .note-modal{
+        align-items:flex-start;
+        padding-top:max(8px, env(safe-area-inset-top));
       }
 
-      .note-textarea{
-        min-height:44dvh;
+      .note-dialog{
+        width:100%;
+        max-height:min(72dvh, 620px);
+      }
+
+      #noteModal .note-textarea,
+      #editModal .note-textarea{
+        min-height:30dvh;
+        max-height:36dvh;
       }
 
       .word{
@@ -1374,6 +1395,7 @@
       <div class="header-row header-row-actions">
         <input type="file" id="fileInput" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none" />
         <button id="loadFileBtn" class="icon-btn" title="파일 선택">파일</button>
+        <button id="downloadXlsxMobileBtn" type="button" class="icon-btn mobile-only" title="현재 편집본 엑셀 다운로드">다운</button>
         <button id="downloadXlsxBtn" type="button" class="icon-btn desktop-only" title="엑셀 다운로드">엑셀</button>
         <button id="rangeLookupBtn" class="icon-btn desktop-only" title="유튜브 구간으로 찾기">구간</button>
         <button id="clearBtn" class="icon-btn" title="검색 초기화">지우기</button>
@@ -1408,7 +1430,6 @@
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="overlayMsg" class="overlay-msg"></div>
-          <button id="stageActionBtn" class="stage-action-btn" type="button"></button>
           <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
         </div>
@@ -1449,8 +1470,8 @@
         <button class="mode-btn" data-mode="W" title="표제어 영상">W</button>
         <!-- E: 표제어 수어문자 -->
         <button class="mode-btn" data-mode="E" title="표제어 수어문자">E</button>
-        <!-- G: 표제어 수형그림 / 다시 누르면 입 모양 전환 -->
-        <button class="mode-btn" data-mode="G" title="수형그림/입 모양">G</button>
+        <!-- G: 표제어 수형그림 -->
+        <button class="mode-btn" data-mode="G" title="수형그림">G</button>
         <!-- Z: 뜻풀이 -->
         <button class="mode-btn" data-mode="Z" title="뜻풀이">Z</button>
         <!-- X: 부가정보 -->
@@ -1465,14 +1486,16 @@
         <button class="mode-btn" data-mode="D" title="용례 수어문자">D</button>
         <!-- T: 현재 항목 선택학습에 추가 -->
         <button id="selectionAddBtnFooter" class="mode-btn" title="현재 항목 선택학습에 추가">T</button>
-        <!-- M: 메모 팝업 / 길게 누르면 편집 -->
-        <button id="notePopupBtnFooter" class="mode-btn" title="메모 팝업 / 길게 눌러 편집">M</button>
+        <!-- M: 메모 보기 / 길게 누르면 편집 -->
+        <button id="notePopupBtnFooter" class="mode-btn" data-mode="M" title="메모 보기 / 길게 눌러 편집">M</button>
         <!-- N: 새로운 표제어 추가 -->
         <button id="addHeadwordBtnFooter" class="mode-btn" title="새 표제어 추가">N</button>
         <!-- Y: 선택학습 시작 / 길게 누르면 처음부터 -->
-        <button id="selectionModeBtnFooter" class="mode-btn" title="선택학습 시작 / 길게 눌러 처음부터">Y</button>
+        <button id="selectionModeBtnFooter" class="mode-btn" title="선택학습 시작 / 길게 눌러 삭제">Y</button>
         <!-- R: 전체 순서 섞기 -->
         <button id="shuffleBtn" class="mode-btn" title="전체 순서 섞기">R</button>
+        <!-- O: 입 모양 영상 -->
+        <button class="mode-btn" data-mode="O" title="입 모양 영상">O</button>
         <!-- 구간 시작/종료 버튼은 데스크톱에서만 표시합니다 -->
         <button id="abStartBtn" class="mode-btn desktop-only" title="구간 시작">[</button>
         <button id="abEndBtn" class="mode-btn desktop-only" title="구간 종료">]</button>
@@ -1514,9 +1537,12 @@
         <strong id="noteModalTitle">노트</strong>
         <button id="noteCloseBtn" class="icon-btn" type="button">닫기</button>
       </div>
+      <div id="noteViewText" class="note-view"></div>
       <textarea id="noteTextarea" class="note-textarea" placeholder="이 항목에 대한 메모를 기록해 두세요."></textarea>
       <div class="note-actions">
+        <button id="noteEditBtn" class="icon-btn" type="button">편집</button>
         <button id="noteDeleteBtn" class="icon-btn" type="button">삭제</button>
+        <button id="noteNewlineBtn" class="icon-btn" type="button" title="줄바꿈">↵</button>
         <button id="noteSaveBtn" class="select-btn" type="button">저장</button>
       </div>
     </div>
@@ -1637,7 +1663,9 @@
       D: "용례 수어문자",
       Z: "뜻풀이",
       X: "부가정보",
-      C: "부가그림"
+      C: "부가그림",
+      O: "입 모양",
+      M: "메모"
     };
 
     const PLAYBACK_MODES = ["MANUAL", "AUTO", "LOOP", "CONT"];
@@ -1671,7 +1699,6 @@
       prevBtn: document.getElementById("prevBtn"),
       nextBtn: document.getElementById("nextBtn"),
       overlayMsg: document.getElementById("overlayMsg"),
-      stageActionBtn: document.getElementById("stageActionBtn"),
       mobileInfoBtn: document.getElementById("mobileInfoBtn"),
       mobileSheet: document.getElementById("mobileSheet"),
       mobileSheetBody: document.getElementById("mobileSheetBody"),
@@ -1686,6 +1713,7 @@
       fileInput: document.getElementById("fileInput"),
       loadFileBtn: document.getElementById("loadFileBtn"),
       downloadXlsxBtn: document.getElementById("downloadXlsxBtn"),
+      downloadXlsxMobileBtn: document.getElementById("downloadXlsxMobileBtn"),
       rangeLookupBtn: document.getElementById("rangeLookupBtn"),
       dropHint: document.getElementById("dropHint"),
       // 여러 개의 재생 버튼을 지원하도록 배열로 수집
@@ -1717,9 +1745,12 @@
       helpCloseBtn: document.getElementById("helpCloseBtn"),
       noteModal: document.getElementById("noteModal"),
       noteModalTitle: document.getElementById("noteModalTitle"),
+      noteViewText: document.getElementById("noteViewText"),
       noteTextarea: document.getElementById("noteTextarea"),
+      noteEditBtn: document.getElementById("noteEditBtn"),
       noteSaveBtn: document.getElementById("noteSaveBtn"),
       noteDeleteBtn: document.getElementById("noteDeleteBtn"),
+      noteNewlineBtn: document.getElementById("noteNewlineBtn"),
       noteCloseBtn: document.getElementById("noteCloseBtn"),
       editModal: document.getElementById("editModal"),
       editModalTitle: document.getElementById("editModalTitle"),
@@ -1843,6 +1874,7 @@
     let isSearchPreviewing = false;
     let currentSourceName = "";
     let notesByKey = {};
+    let noteModalEditable = false;
     let undoSnapshot = null;
     let redoSnapshot = null;
     let searchComposing = false;
@@ -1867,7 +1899,7 @@
     let firebaseMetaUnsub = null;
     let firebaseConnectionUnsub = null;
     let syncRoomKey = sanitizeRoomKey(localStorage.getItem(FIREBASE_ROOM_STORAGE_KEY) || FIREBASE_DEFAULT_ROOM);
-    let liveSyncEnabled = (localStorage.getItem(FIREBASE_LIVE_STORAGE_KEY) ?? "1") === "1";
+    let liveSyncEnabled = false;
     let remoteDatasetAvailable = false;
     let lastUploadedDatasetHash = "";
     let lastAppliedRemoteDatasetVersion = "";
@@ -2327,13 +2359,14 @@
       if (!driveId) return [];
       const id = encodeURIComponent(driveId);
       return [
-        `https://drive.usercontent.google.com/download?id=${id}&export=download&authuser=0&confirm=t`,
-        `https://drive.usercontent.google.com/download?id=${id}&export=view&authuser=0&confirm=t`,
-        `https://docs.google.com/uc?export=download&id=${id}`,
-        `https://drive.google.com/uc?export=download&id=${id}`,
+        `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
+        `https://drive.google.com/uc?export=download&id=${id}&confirm=t`,
+        `https://docs.google.com/uc?export=download&id=${id}&confirm=t`,
+        `https://drive.google.com/uc?export=view&id=${id}`,
         `https://docs.google.com/uc?export=view&id=${id}`,
         `https://drive.google.com/uc?id=${id}&export=download`,
-        `https://drive.google.com/uc?id=${id}&export=view`
+        `https://docs.google.com/uc?export=download&id=${id}`,
+        `https://drive.google.com/uc?export=download&id=${id}`
       ].filter((value, index, arr) => !!value && arr.indexOf(value) === index);
     }
 
@@ -2981,7 +3014,7 @@
     }
 
     function isVideoMode(mode = currentMode){
-      return mode === "W" || mode === "S";
+      return mode === "W" || mode === "S" || mode === "O";
     }
 
     function isTypingContext(){
@@ -3259,6 +3292,79 @@
       return rowsMatrixToObjects(matrix);
     }
 
+    function shouldPreferHyperlinkForHeader(header){
+      const key = safe(header);
+      return [
+        "sourceUrl", "headwordVideo", "wordVideo", "exampleVideo", "signTextImage", "wordSignImage",
+        "exampleSignImage", "exampleSignTextImage", "handShapeImage", "handShapeImage1", "handShapeImage2",
+        "handShapeImage3", "additionalImage", "mouthVideo"
+      ].includes(key);
+    }
+
+    function getSheetCellDisplayValue(cell){
+      if (!cell) return "";
+      if (safe(cell.w)) return safe(cell.w);
+      if (cell.v == null) return "";
+      return safe(cell.v);
+    }
+
+    function getSheetCellHyperlink(cell){
+      if (!cell) return "";
+      const direct = safe(cell?.l?.Target || cell?.l?.target || "");
+      if (direct) return direct;
+      const formula = safe(cell?.f || "");
+      const match = formula.match(/^HYPERLINK\("([^"]+)"(?:,.*)?\)$/i);
+      return match?.[1] ? safe(match[1]) : "";
+    }
+
+    function xlsxSheetToObjects(sheet){
+      if (!sheet || typeof XLSX === "undefined") return [];
+      const ref = safe(sheet["!ref"]);
+      if (!ref) return [];
+      const range = XLSX.utils.decode_range(ref);
+      const rowCount = range.e.r - range.s.r + 1;
+      const colCount = range.e.c - range.s.c + 1;
+      const matrix = Array.from({ length: rowCount }, (_, rowOffset) => {
+        const rowIndex = range.s.r + rowOffset;
+        return Array.from({ length: colCount }, (_, colOffset) => {
+          const colIndex = range.s.c + colOffset;
+          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+          return getSheetCellDisplayValue(sheet[cellRef]);
+        });
+      });
+
+      if (!matrix.length) return [];
+      const first = matrix[0] || [];
+      const second = matrix[1] || [];
+      const aliasHits = second.reduce((acc, value) => acc + (HEADER_ALIASES[safe(value)] ? 1 : 0), 0);
+      const hasAliasRow = aliasHits >= 4;
+      const width = Math.max(first.length, second.length, ...matrix.map(row => row.length));
+      const headers = Array.from({ length: width }, (_, idx) => {
+        const primary = mapHeaderKey(first[idx], idx);
+        if (!primary.startsWith("__col_")) return primary;
+        if (hasAliasRow){
+          return mapHeaderKey(second[idx], idx);
+        }
+        return primary;
+      });
+      const startRow = hasAliasRow ? 2 : 1;
+      const objects = [];
+      for (let rowOffset = startRow; rowOffset < matrix.length; rowOffset += 1){
+        const row = matrix[rowOffset] || [];
+        if (!row.some(cell => safe(cell))) continue;
+        const obj = {};
+        headers.forEach((header, idx) => {
+          const cellRef = XLSX.utils.encode_cell({ r: range.s.r + rowOffset, c: range.s.c + idx });
+          const cell = sheet[cellRef];
+          const displayValue = safe(row[idx]);
+          const hyperlink = getSheetCellHyperlink(cell);
+          obj[header] = (shouldPreferHyperlinkForHeader(header) && hyperlink) ? hyperlink : displayValue;
+        });
+        objects.push(obj);
+      }
+      return objects;
+    }
+
     function scoreSheetMatrix(matrix){
       if (!Array.isArray(matrix) || !matrix.length) return -1;
       const first = matrix[0] || [];
@@ -3283,7 +3389,7 @@
         const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
         const score = scoreSheetMatrix(matrix) + (preferredNames.includes(sheetName) ? 2 : 0);
         if (score > best.score){
-          best = { score, rows: rowsMatrixToObjects(matrix), name: sheetName };
+          best = { score, rows: xlsxSheetToObjects(sheet), name: sheetName };
         }
       }
 
@@ -3400,21 +3506,82 @@
       return "";
     }
 
+    function extractSourceIdFromSourceUrl(rawUrl){
+      const raw = safe(rawUrl);
+      if (!raw) return "";
+      try{
+        const u = new URL(raw, location.href);
+        const idFromQuery = safe(u.searchParams.get("signWordId") || u.searchParams.get("id"));
+        if (/^\d+$/.test(idFromQuery)) return idFromQuery;
+      } catch (_){ }
+      const matchId = raw.match(/signWordId=(\d+)/i) || raw.match(/[?&]id=(\d+)/i);
+      return safe(matchId?.[1] || "");
+    }
+
+    function getCanonicalSourceIdentity(entity){
+      const sourceId = safe(entity?.sourceId || extractSourceIdFromSourceUrl(entity?.sourceUrl));
+      if (sourceId) return `sid:${sourceId}`;
+      const sourceUrl = safe(entity?.sourceUrl);
+      return sourceUrl ? `url:${sourceUrl}` : "";
+    }
+
+    function hasHeadwordClipValue(entity){
+      return !!(
+        safe(entity?.wordClipStartRaw)
+        || safe(entity?.wordClipEndRaw)
+        || safe(entity?.clipStartRaw)
+        || safe(entity?.clipEndRaw)
+      );
+    }
+
     function buildGroups(dataRows){
       const normalizedRows = dataRows
         .map(normalizeDataRow)
         .filter(Boolean);
+
+      const dedupedRows = [];
+      const normalizedRowSeen = new Set();
+      normalizedRows.forEach(row => {
+        const rowKey = [
+          safe(row.sourceId),
+          safe(row.sourceUrl),
+          safe(row.wordNorm || row.word),
+          safe(row.definitionNorm || row.definition),
+          safe(row.category),
+          safe(row.variantLabel),
+          safe(row.wordVideo),
+          safe(row.wordSignImage),
+          (row.handShapeImages || []).join("|"),
+          safe(row.exampleText),
+          safe(row.exampleVideo),
+          safe(row.exampleSignImage),
+          safe(row.mouthVideo),
+          safe(row.extraInfo),
+          safe(row.additionalImage),
+          safe(row.wordClipStartRaw),
+          safe(row.wordClipEndRaw),
+          safe(row.exampleClipStartRaw),
+          safe(row.exampleClipEndRaw)
+        ].join("||");
+        if (normalizedRowSeen.has(rowKey)) return;
+        normalizedRowSeen.add(rowKey);
+        dedupedRows.push(row);
+      });
 
       const groupsByKey = new Map();
       const looseLookup = new Map();
       const baseGroupsBySourceId = new Map();
       const baseGroupsBySourceUrl = new Map();
 
+      function getGroupSourceKey(row){
+        return getCanonicalSourceIdentity(row);
+      }
+
       function makeStableGroupId(row){
         const sid = safe(row.sourceId);
         const surl = safe(row.sourceUrl);
-        const keySource = sid ? `sid:${sid}` : `url:${surl}`;
-        const sig = [safe(row.word), safe(row.category), safe(row.definition)].join("||");
+        const keySource = getGroupSourceKey(row) || (sid ? `sid:${sid}` : `url:${surl}`);
+        const sig = [safe(row.wordNorm || row.word), safe(row.category)].join("||");
         return `${keySource}::${makeDataHash(sig)}`;
       }
 
@@ -3549,16 +3716,18 @@
 
       function makeLooseKeys(row){
         const keys = [];
-        const source = safe(row.sourceUrl) || buildSourceUrl(row.sourceId, "");
+        const canonicalSource = getGroupSourceKey(row);
+        const source = canonicalSource || safe(row.sourceUrl) || buildSourceUrl(row.sourceId, "");
+        const sourceId = safe(row.sourceId || extractSourceIdFromSourceUrl(row.sourceUrl));
         const category = safe(row.category);
         const word = safe(row.word);
         const definition = safe(row.definition);
         if (source && word && category) keys.push(`SRCWORD::${source}||${word}||${category}`);
         if (source && word) keys.push(`SRCWORDONLY::${source}||${word}`);
-        if (row.sourceId && word && category) keys.push(`IDWORD::${row.sourceId}||${word}||${category}`);
-        if (row.sourceId && word) keys.push(`IDWORDONLY::${row.sourceId}||${word}`);
+        if (sourceId && word && category) keys.push(`IDWORD::${sourceId}||${word}||${category}`);
+        if (sourceId && word) keys.push(`IDWORDONLY::${sourceId}||${word}`);
         if (source && definition && category) keys.push(`SRCDEF::${source}||${definition}||${category}`);
-        if (row.sourceId && definition && category) keys.push(`IDDEF::${row.sourceId}||${definition}||${category}`);
+        if (sourceId && definition && category) keys.push(`IDDEF::${sourceId}||${definition}||${category}`);
         return [...new Set(keys.filter(Boolean))];
       }
 
@@ -3571,22 +3740,23 @@
       }
 
       function registerBaseRefs(group, row){
-        const sid = safe(row.sourceId);
-        const surl = safe(row.sourceUrl);
+        const sid = safe(row.sourceId || extractSourceIdFromSourceUrl(row.sourceUrl));
+        const canonicalSource = getGroupSourceKey(row);
         if (sid){
           if (!baseGroupsBySourceId.has(sid)) baseGroupsBySourceId.set(sid, []);
           const arr = baseGroupsBySourceId.get(sid);
           if (!arr.includes(group)) arr.push(group);
         }
-        if (surl){
-          if (!baseGroupsBySourceUrl.has(surl)) baseGroupsBySourceUrl.set(surl, []);
-          const arr = baseGroupsBySourceUrl.get(surl);
+        if (canonicalSource){
+          if (!baseGroupsBySourceUrl.has(canonicalSource)) baseGroupsBySourceUrl.set(canonicalSource, []);
+          const arr = baseGroupsBySourceUrl.get(canonicalSource);
           if (!arr.includes(group)) arr.push(group);
         }
       }
 
-      for (const row of normalizedRows.filter(item => !item.isVariant)){
-        const baseKey = [row.sourceUrl || row.sourceId, row.word, row.category, row.definition].join("||");
+      for (const row of dedupedRows.filter(item => !item.isVariant)){
+        const baseIdentity = getGroupSourceKey(row) || [row.wordNorm || row.word, row.category].join("||");
+        const baseKey = [baseIdentity, row.wordNorm || row.word, row.category].join("||");
         let group = groupsByKey.get(baseKey);
         if (!group){
           group = createGroup(row, baseKey);
@@ -3598,9 +3768,10 @@
         registerBaseRefs(group, row);
       }
 
-      for (const row of normalizedRows.filter(item => item.isVariant)){
-        const byId = baseGroupsBySourceId.get(safe(row.sourceId)) || [];
-        const byUrl = baseGroupsBySourceUrl.get(safe(row.sourceUrl)) || [];
+      for (const row of dedupedRows.filter(item => item.isVariant)){
+        const variantSourceId = safe(row.sourceId || extractSourceIdFromSourceUrl(row.sourceUrl));
+        const byId = baseGroupsBySourceId.get(variantSourceId) || [];
+        const byUrl = baseGroupsBySourceUrl.get(getGroupSourceKey(row)) || [];
         const looseCandidates = makeLooseKeys(row).flatMap(key => looseLookup.get(key) || []);
         const candidates = [...new Set([...byId, ...byUrl, ...looseCandidates])];
         let group = candidates.find(item => safe(item.word) === safe(row.word) && safe(item.category) === safe(row.category))
@@ -3614,60 +3785,53 @@
         }
         addVariant(group, row);
       }
-
-      const out = mergeDuplicateGroups([...groupsByKey.values()]).sort((a, b) => a.word.localeCompare(b.word, "ko"));
-      out.forEach(group => {
-        group.exampleSearchBlob = group.exampleNorms.join("\n");
-        group.wordSearchBlob = [group.wordNorm].filter(Boolean).join("\n");
-        group.searchBlob = [group.wordNorm, group.exampleSearchBlob, group.definitionNorm].filter(Boolean).join("\n");
-      });
-      return out;
-    }
-
-    function mergeDuplicateGroups(groupsData){
-      const mergedMap = new Map();
-
-      const mergeVariantEntries = (target, source) => {
-        if (!Array.isArray(source)) return;
-        source.forEach(entry => {
-          if (!entry) return;
-          const label = safe(entry.label || "");
-          const word = safe(entry.word || "");
-          const existing = (target.variants || []).find(item => safe(item?.label || "") === label && safe(item?.word || "") === word);
-          if (existing){
-            if (!existing.video && entry.video) existing.video = entry.video;
-            if (!existing.signImage && entry.signImage) existing.signImage = entry.signImage;
-            if (!existing.wordNorm && entry.wordNorm) existing.wordNorm = entry.wordNorm;
-            existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(entry.handShapeImages || [])].filter(Boolean))];
-          } else {
-            target.variants.push({
-              ...entry,
-              handShapeImages: [...new Set((entry.handShapeImages || []).filter(Boolean))]
-            });
+      const mergedGroups = [];
+      const mergedGroupMap = new Map();
+      const mergeExamplesIntoGroup = (target, source) => {
+        (source.examples || []).forEach(ex => {
+          const exKey = [safe(ex.text), safe(ex.video), safe(ex.signImage), safe(ex.clipStartRaw), safe(ex.clipEndRaw)].join("||");
+          if (!target.examples.some(item => [safe(item.text), safe(item.video), safe(item.signImage), safe(item.clipStartRaw), safe(item.clipEndRaw)].join("||") === exKey)){
+            target.examples.push({ ...ex });
+          }
+          if (safe(ex.textNorm) && !target.exampleNorms.includes(ex.textNorm)) target.exampleNorms.push(ex.textNorm);
+        });
+      };
+      const mergeVariantsIntoGroup = (target, source) => {
+        (source.variants || []).forEach(variant => {
+          const variantKey = [safe(variant.label), safe(variant.word), safe(variant.video), safe(variant.signImage), (variant.handShapeImages || []).join("|")].join("||");
+          if (!target.variants.some(item => [safe(item.label), safe(item.word), safe(item.video), safe(item.signImage), (item.handShapeImages || []).join("|")].join("||") === variantKey)){
+            target.variants.push({ ...variant, handShapeImages: [...(variant.handShapeImages || [])] });
+          }
+          if (safe(variant.wordNorm) && variant.wordNorm !== target.wordNorm && !target.variantNorms.includes(variant.wordNorm)){
+            target.variantNorms.push(variant.wordNorm);
+            if (safe(variant.word) && !target.variantWords.includes(variant.word)) target.variantWords.push(variant.word);
           }
         });
       };
 
-      groupsData.forEach(group => {
-        if (!group) return;
-        const sid = safe(group.sourceId);
-        const surl = safe(group.sourceUrl);
-        const wordNorm = safe(group.wordNorm || normalizeHangulString(group.word || "").toLowerCase());
-        const keySource = sid ? `sid:${sid}` : `url:${surl}`;
-        const mergeKey = `${keySource}::${wordNorm}`;
-        const existing = mergedMap.get(mergeKey);
+      [...groupsByKey.values()].forEach(group => {
+        const canonicalSource = getGroupSourceKey(group) || safe(group.sourceUrl) || safe(group.sourceId);
+        const mergeKey = [
+          canonicalSource,
+          safe(group.wordNorm || group.word),
+          safe(group.category),
+          hasHeadwordClipValue(group) ? `clip:${safe(group.wordClipStartRaw)}|${safe(group.wordClipEndRaw)}|${safe(group.clipStartRaw)}|${safe(group.clipEndRaw)}` : "noclip"
+        ].join("||");
+        const existing = mergedGroupMap.get(mergeKey);
         if (!existing){
-          mergedMap.set(mergeKey, {
+          const cloned = {
             ...group,
-            handShapeImages: [...new Set((group.handShapeImages || []).filter(Boolean))],
-            rowIndices: [...new Set((group.rowIndices || []).filter(Number.isInteger))],
-            baseRowIndices: [...new Set((group.baseRowIndices || []).filter(Number.isInteger))],
-            exampleNorms: [...new Set((group.exampleNorms || []).filter(Boolean))],
-            variants: [],
-            variantWords: [...new Set((group.variantWords || []).filter(Boolean))],
-            variantNorms: [...new Set((group.variantNorms || []).filter(Boolean))]
-          });
-          mergeVariantEntries(mergedMap.get(mergeKey), group.variants || []);
+            rowIndices: [...(group.rowIndices || [])],
+            baseRowIndices: [...(group.baseRowIndices || [])],
+            examples: [...(group.examples || [])],
+            exampleNorms: [...(group.exampleNorms || [])],
+            variants: [...(group.variants || [])],
+            variantWords: [...(group.variantWords || [])],
+            variantNorms: [...(group.variantNorms || [])],
+            handShapeImages: [...(group.handShapeImages || [])]
+          };
+          mergedGroupMap.set(mergeKey, cloned);
+          mergedGroups.push(cloned);
           return;
         }
 
@@ -3675,14 +3839,10 @@
           existing.definition = group.definition;
           existing.definitionNorm = group.definitionNorm;
         }
-        if (!existing.category && group.category) existing.category = group.category;
-        if (!existing.sourceName && group.sourceName) existing.sourceName = group.sourceName;
-        if (!existing.sourceUrl && group.sourceUrl) existing.sourceUrl = group.sourceUrl;
         if (!existing.wordVideo && group.wordVideo) existing.wordVideo = group.wordVideo;
         if (!existing.wordSignImage && group.wordSignImage) existing.wordSignImage = group.wordSignImage;
-        if (!existing.handShapeImage && group.handShapeImage) existing.handShapeImage = group.handShapeImage;
-        existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(group.handShapeImages || [])].filter(Boolean))];
-        existing.handShapeImage = existing.handShapeImages[0] || existing.handShapeImage || "";
+        if (!existing.sourceUrl && group.sourceUrl) existing.sourceUrl = group.sourceUrl;
+        if (!existing.sourceName && group.sourceName) existing.sourceName = group.sourceName;
         if (!existing.mouthVideo && group.mouthVideo) existing.mouthVideo = group.mouthVideo;
         if (!existing.extraInfo && group.extraInfo) existing.extraInfo = group.extraInfo;
         if (!existing.additionalImage && group.additionalImage) existing.additionalImage = group.additionalImage;
@@ -3690,23 +3850,24 @@
         if (!safe(existing.wordClipEndRaw) && safe(group.wordClipEndRaw)) existing.wordClipEndRaw = group.wordClipEndRaw;
         if (!Number.isFinite(existing.wordClipStart) && Number.isFinite(group.wordClipStart)) existing.wordClipStart = group.wordClipStart;
         if (!Number.isFinite(existing.wordClipEnd) && Number.isFinite(group.wordClipEnd)) existing.wordClipEnd = group.wordClipEnd;
-        existing.rowIndices = [...new Set([...(existing.rowIndices || []), ...(group.rowIndices || [])].filter(Number.isInteger))];
-        existing.baseRowIndices = [...new Set([...(existing.baseRowIndices || []), ...(group.baseRowIndices || [])].filter(Number.isInteger))];
-        existing.exampleNorms = [...new Set([...(existing.exampleNorms || []), ...(group.exampleNorms || [])].filter(Boolean))];
-        if (Array.isArray(group.examples)){
-          group.examples.forEach(ex => {
-            if (!ex) return;
-            const exKey = safe(ex._key || [ex.text, ex.video, ex.signImage].join("||"));
-            if ((existing.examples || []).some(item => safe(item._key || [item.text, item.video, item.signImage].join("||")) === exKey)) return;
-            existing.examples.push(ex);
-          });
+        existing.handShapeImages = [...new Set([...(existing.handShapeImages || []), ...(group.handShapeImages || [])])];
+        existing.handShapeImage = existing.handShapeImages[0] || "";
+        existing.rowIndices = [...new Set([...(existing.rowIndices || []), ...(group.rowIndices || [])])];
+        existing.baseRowIndices = [...new Set([...(existing.baseRowIndices || []), ...(group.baseRowIndices || [])])];
+        if (!(Number.isInteger(existing.primaryRowIndex) && existing.primaryRowIndex >= 0) && Number.isInteger(group.primaryRowIndex) && group.primaryRowIndex >= 0){
+          existing.primaryRowIndex = group.primaryRowIndex;
         }
-        existing.variantWords = [...new Set([...(existing.variantWords || []), ...(group.variantWords || [])].filter(Boolean))];
-        existing.variantNorms = [...new Set([...(existing.variantNorms || []), ...(group.variantNorms || [])].filter(Boolean))];
-        mergeVariantEntries(existing, group.variants || []);
+        mergeExamplesIntoGroup(existing, group);
+        mergeVariantsIntoGroup(existing, group);
       });
 
-      return [...mergedMap.values()];
+      const out = mergedGroups.sort((a, b) => a.word.localeCompare(b.word, "ko"));
+      out.forEach(group => {
+        group.exampleSearchBlob = group.exampleNorms.join("\n");
+        group.wordSearchBlob = [group.wordNorm].filter(Boolean).join("\n");
+        group.searchBlob = [group.wordNorm, group.exampleSearchBlob, group.definitionNorm].filter(Boolean).join("\n");
+      });
+      return out;
     }
 
     function buildExamplePool(groupsData){
@@ -4142,9 +4303,24 @@
         showOverlay("기록할 항목이 없습니다", 1000);
         return;
       }
-      els.noteModalTitle.textContent = `노트 · ${getCurrentEntityLabel()}`;
-      els.noteTextarea.value = notesByKey[key] || "";
-      const focusEditor = options && options.focusEditor !== false;
+      const value = notesByKey[key] || "";
+      const editable = !!(options && (options.editable || options.focusEditor));
+      const focusEditor = !!(options && options.focusEditor);
+      noteModalEditable = editable;
+      els.noteModalTitle.textContent = `${editable ? "메모 편집" : "메모"} · ${getCurrentEntityLabel()}`;
+      if (els.noteTextarea) els.noteTextarea.value = value;
+      if (els.noteViewText){
+        els.noteViewText.textContent = value || "저장된 메모가 없습니다.";
+        els.noteViewText.classList.toggle("is-empty", !safe(value));
+        els.noteViewText.style.display = editable ? "none" : "block";
+      }
+      if (els.noteTextarea) els.noteTextarea.style.display = editable ? "block" : "none";
+      if (els.noteEditBtn) els.noteEditBtn.style.display = editable ? "none" : "inline-flex";
+      if (els.noteDeleteBtn) els.noteDeleteBtn.style.display = editable ? "inline-flex" : "none";
+      if (els.noteNewlineBtn) els.noteNewlineBtn.style.display = editable ? "inline-flex" : "none";
+      if (els.noteSaveBtn) els.noteSaveBtn.style.display = editable ? "inline-flex" : "none";
+      els.noteModal.classList.toggle("editing", editable);
+      els.noteModal.classList.toggle("readonly", !editable);
       els.noteModal.classList.add("open");
       els.noteModal.setAttribute("aria-hidden", "false");
       if (focusEditor) setTimeout(() => els.noteTextarea?.focus(), 20);
@@ -4152,7 +4328,8 @@
 
     function closeNoteModal(){
       if (!els.noteModal) return;
-      els.noteModal.classList.remove("open");
+      noteModalEditable = false;
+      els.noteModal.classList.remove("open", "editing", "readonly");
       els.noteModal.setAttribute("aria-hidden", "true");
       if (document.fullscreenElement && els.stage){
         setTimeout(() => els.stage.focus?.(), 0);
@@ -4186,6 +4363,25 @@
       renderInfo();
       closeNoteModal();
       showOverlay("노트 삭제", 1000);
+    }
+
+    function insertLineBreakIntoTextarea(textarea){
+      if (!textarea) return;
+      const value = String(textarea.value || "");
+      const start = Number.isFinite(textarea.selectionStart) ? textarea.selectionStart : value.length;
+      const end = Number.isFinite(textarea.selectionEnd) ? textarea.selectionEnd : start;
+      const nextValue = value.slice(0, start) + "\n" + value.slice(end);
+      textarea.value = nextValue;
+      const nextPos = start + 1;
+      textarea.focus();
+      try { textarea.setSelectionRange(nextPos, nextPos); } catch (err) {}
+      textarea.dispatchEvent(new Event("input", { bubbles:true }));
+    }
+
+    function insertNoteLineBreak(){
+      if (!noteModalEditable) return;
+      if (!els.noteTextarea) return;
+      insertLineBreakIntoTextarea(els.noteTextarea);
     }
 
     function getRowObject(rowIndex){
@@ -4600,10 +4796,6 @@
     }
 
     async function downloadExcelFile(){
-      if (window.matchMedia("(max-width: 1180px)").matches){
-        showOverlay("PC 버전에서만 엑셀 다운로드가 가능합니다", 1200);
-        return false;
-      }
       if (!rows.length){
         showOverlay("다운로드할 데이터가 없습니다", 1200);
         return false;
@@ -4661,8 +4853,8 @@ async function saveState(){
   localStateHoldUntil = Math.max(localStateHoldUntil, Date.now() + 1800);
   await idbSet(CACHE_KEYS.STATE, payload);
   await idbSet(`${CACHE_KEYS.STATE}:${syncRoomKey}`, payload);
-  if (!isApplyingRemoteState && firebasePushEnabled && !firebaseBootstrapping && Date.now() >= remotePullCooldownUntil){
-    scheduleFirebaseStatePush(payload, !!liveSyncEnabled);
+  if (!isApplyingRemoteState && firebasePushEnabled && liveSyncEnabled && !firebaseBootstrapping && Date.now() >= remotePullCooldownUntil){
+    scheduleFirebaseStatePush(payload, true);
   }
 }
 
@@ -5499,22 +5691,16 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         a: { shortAction: () => triggerMode("A"), longAction: isTouchLikeViewport ? () => editCurrentField("A") : null },
         z: { shortAction: () => triggerMode("Z"), longAction: isTouchLikeViewport ? () => editCurrentField("Z") : null },
         x: { shortAction: () => triggerMode("X"), longAction: isTouchLikeViewport ? () => editCurrentField("X") : null },
-        m: { shortAction: () => openNoteModal({ focusEditor:false }), longAction: isTouchLikeViewport ? () => openNoteModal({ focusEditor: true }) : null },
+        m: { shortAction: () => triggerMode("M"), longAction: isTouchLikeViewport ? () => openNoteModal({ editable:true, focusEditor: true }) : null },
         n: { shortAction: () => addNewHeadwordEntry(), longAction: null },
-        t: { shortAction: () => addCurrentGroupToSelection(), longAction: null },
+        t: {
+          shortAction: () => addCurrentGroupToSelection(),
+          longAction: isTouchLikeViewport ? () => removeCurrentSelectionToken() : null
+        },
+        o: { shortAction: () => triggerMode("O"), longAction: null },
         y: {
           shortAction: () => startSelectionMode(),
-          longAction: isTouchLikeViewport ? () => {
-            selectionResumeIndex = 0;
-            selectionResumePoolIndex = 0;
-            if (!selectionModeActive){
-              startSelectionMode();
-            } else {
-              currentIndex = 0;
-              currentPoolIndex = 0;
-              render(false);
-            }
-          } : null
+          longAction: isTouchLikeViewport ? () => removeCurrentSelectionToken() : null
         }
       };
       return map[normalized] || null;
@@ -5568,6 +5754,10 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         clearTimer();
       });
       button.addEventListener("click", (e) => e.preventDefault());
+      button.addEventListener("contextmenu", (e) => e.preventDefault());
+      button.addEventListener("selectstart", (e) => e.preventDefault());
+      button.addEventListener("dragstart", (e) => e.preventDefault());
+      button.setAttribute("draggable", "false");
     }
 
     async function triggerMode(mode){
@@ -5583,8 +5773,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       // 현재 모드에서 다시 버튼을 누른 경우의 특수 동작 처리
       if (mode === currentMode){
-        // W/E 모드는 변이형 순환
-        if (mode === "W" || mode === "E"){
+        // W 모드는 변이형이 있을 때만 순환하고, 없으면 처음부터 재시작합니다.
+        if (mode === "W"){
+          const group = getCurrentGroup();
+          if (groupHasVariantAssets(group)){
+            await cycleCurrentWordAsset(mode);
+          } else {
+            restartCurrentWordPlayback();
+          }
+          return;
+        }
+        // E 모드는 변이형 순환
+        if (mode === "E"){
           await cycleCurrentWordAsset(mode);
           return;
         }
@@ -5601,14 +5801,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
             return;
           }
         }
-        // S 모드는 모바일에서 구간 반복 기능을 순환합니다.
-        if (mode === "S" && isMobileViewport()){
-          handleMobileSCycle();
-          return;
-        }
-        // G 모드는 두 번째 누를 때 입 모양 비디오로 전환합니다.
-        if (mode === "G"){
-          handleGToggle();
+        // S 모드는 다시 누르면 현재 용례 영상을 처음부터 재시작합니다.
+        if (mode === "S"){
+          restartCurrentExamplePlayback();
           return;
         }
       }
@@ -5637,6 +5832,24 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         await setMode("C");
         mobileSCycleState = 0;
         gToggleState = 0;
+        return;
+      }
+
+      // M 모드는 메모 보기
+      if (mode === "M"){
+        resetWordAssetState();
+        await setMode("M");
+        mobileSCycleState = 0;
+        gToggleState = 0;
+        return;
+      }
+
+      // O 모드는 입 모양 보기
+      if (mode === "O"){
+        resetWordAssetState();
+        await setMode("O");
+        mobileSCycleState = 0;
+        gToggleState = 1;
         return;
       }
 
@@ -5698,6 +5911,15 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       } else if (currentMode === "G"){
         if (group?.handShapeImages?.length) showMainGallery(group.handShapeImages, "표제어 수형그림");
         else showMainText(labelWord || item.text || "");
+      } else if (currentMode === "O"){
+        if (group?.mouthVideo) showMainVideo(group.mouthVideo, true);
+        else showMainText("입 모양 정보가 없습니다.");
+      } else if (currentMode === "M"){
+        const previewNoteKey = item?.type === "example"
+          ? buildRowNoteKey(Number(example?.rowIndex))
+          : buildRowNoteKey(getGroupPrimaryRowIndex(group));
+        const previewNote = safe(notesByKey[previewNoteKey] || "");
+        showMainText(previewNote || "저장된 메모가 없습니다.");
       } else if (currentMode === "A"){
         showMainText(example?.text || item.text || labelWord || "");
       } else if (currentMode === "S"){
@@ -5913,6 +6135,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         els.mainVideo.addEventListener("error", () => {
           const src = els.mainVideo.currentSrc || els.mainVideo.getAttribute("src") || "";
           console.warn("영상 로드 실패", src, els.mainVideo.error);
+          const driveCount = Number(els.mainVideo.dataset.driveSourceCount || "0") || 0;
+          const driveIndex = Number(els.mainVideo.dataset.driveSourceIndex || "0") || 0;
+          if (driveCount > 0 && driveIndex + 1 < driveCount) return;
           if (els.mainVideo.style.display !== "none"){
             showMainText(videoErrorMessage);
           }
@@ -5921,7 +6146,6 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function hideAllMainPanels(){
-      hideStageActionButton();
       els.mainVideo.style.display = "none";
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
       if (els.mainFrame) els.mainFrame.style.display = "none";
@@ -6014,24 +6238,8 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const prevSrc = els.mainVideo.dataset.currentSrc || "";
       const srcChanged = prevSrc !== nextSrc;
       const drivePreviewUrl = usingDriveStream ? buildGoogleDrivePreviewUrl(originalSrc, { autoPlay }) : "";
-      let driveCandidateTimer = null;
-
-      const clearDriveCandidateTimer = () => {
-        if (driveCandidateTimer){
-          clearTimeout(driveCandidateTimer);
-          driveCandidateTimer = null;
-        }
-      };
-
-      const openDriveFallbackWindow = () => {
-        const previewTarget = drivePreviewUrl || originalSrc;
-        if (!previewTarget) return;
-        const opened = openUrlInNewTab(previewTarget);
-        showOverlay(opened ? "새 창에서 구글드라이브 영상을 열었습니다" : "팝업이 차단되어 새 창을 열지 못했습니다", 1500);
-      };
 
       const setMainVideoSource = (src, forceReload = false) => {
-        clearDriveCandidateTimer();
         const currentSrc = els.mainVideo.dataset.currentSrc || "";
         if (!forceReload && currentSrc === src) return;
         try { els.mainVideo.pause(); } catch (_) {}
@@ -6064,32 +6272,37 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       };
 
       const showDrivePreviewFallback = () => {
-        clearDriveCandidateTimer();
         try { els.mainVideo.pause(); } catch (_) {}
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = "";
+        clearMainFrame();
         hideAllMainPanels();
-        showMainText(`구글드라이브 보안 정책 때문에 이 페이지 안에서는 미리보기 재생이 차단되었습니다.
-아래 버튼으로 새 창에서 여세요.`);
-        showStageActionButton("새 창에서 열기", openDriveFallbackWindow);
-        showOverlay("페이지 안 재생이 막혀 새 창 열기 버튼으로 전환했습니다", 1600);
-        return true;
+        const fallbackText = drivePreviewUrl
+          ? "구글드라이브 직접 재생이 제한되었습니다. 원본 링크 또는 미리보기 링크를 새 창에서 열어 확인해 주세요."
+          : "구글드라이브 직접 재생이 제한되었습니다. 원본 링크를 새 창에서 열어 확인해 주세요.";
+        showMainText(fallbackText);
+        showOverlay("구글드라이브 직접 재생 실패", 1500);
+        return false;
       };
 
       const tryDriveCandidate = (index) => {
         if (!usingDriveStream) return false;
         if (index < 0 || index >= driveStreamCandidates.length) return false;
-        clearDriveCandidateTimer();
         els.mainVideo.dataset.driveSourceIndex = String(index);
         setMainVideoSource(driveStreamCandidates[index], true);
         queueClipRestore();
 
         let settled = false;
-        const recover = () => {
-          if (settled) return;
+        let recoverTimer = null;
+        const settle = () => {
+          if (settled) return true;
           settled = true;
-          clearDriveCandidateTimer();
+          if (recoverTimer){ clearTimeout(recoverTimer); recoverTimer = null; }
+          return false;
+        };
+        const recover = () => {
+          if (settle()) return;
           if ((els.mainVideo.dataset.originalSrc || "") !== originalSrc) return;
           const activeIndex = Number(els.mainVideo.dataset.driveSourceIndex || "0") || 0;
           if (activeIndex + 1 < driveStreamCandidates.length){
@@ -6099,15 +6312,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           }
           showDrivePreviewFallback();
         };
-
-        const markReady = () => {
-          settled = true;
-          clearDriveCandidateTimer();
+        const markLoaded = () => {
+          if (settle()) return;
+          const duration = Number(els.mainVideo.duration || 0);
+          const hasReadyState = Number(els.mainVideo.readyState || 0) >= 1;
+          if (!hasReadyState && !(Number.isFinite(duration) && duration > 0)){
+            recover();
+            return;
+          }
         };
 
-        els.mainVideo.addEventListener("loadedmetadata", markReady, { once:true });
-        els.mainVideo.addEventListener("canplay", markReady, { once:true });
-        els.mainVideo.addEventListener("playing", markReady, { once:true });
+        els.mainVideo.addEventListener("loadedmetadata", markLoaded, { once:true });
+        els.mainVideo.addEventListener("canplay", markLoaded, { once:true });
         els.mainVideo.addEventListener("error", recover, { once:true });
         els.mainVideo.addEventListener("stalled", () => {
           const current = els.mainVideo.currentSrc || els.mainVideo.src || "";
@@ -6115,12 +6331,12 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
             recover();
           }
         }, { once:true });
-        driveCandidateTimer = setTimeout(() => {
-          const readyEnough = els.mainVideo.readyState >= HTMLMediaElement.HAVE_METADATA;
-          if (!readyEnough || (els.mainVideo.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)){
-            recover();
-          }
-        }, 2500);
+        recoverTimer = setTimeout(() => {
+          const current = els.mainVideo.currentSrc || els.mainVideo.src || "";
+          const hasDuration = Number.isFinite(Number(els.mainVideo.duration)) && Number(els.mainVideo.duration) > 0;
+          const hasReadyState = Number(els.mainVideo.readyState || 0) >= 1;
+          if (!current || (!hasReadyState && !hasDuration)) recover();
+        }, 2400);
 
         startAutoPlay();
         return true;
@@ -6274,6 +6490,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           ? currentAsset.entry.handShapeImages
           : (group.handShapeImages || []);
         showMainGallery(galleryImages, currentAsset?.slot > 0 ? "변이형 수형그림" : "표제어 수형그림");
+      } else if (currentMode === "O"){
+        if (group.mouthVideo) showMainVideo(group.mouthVideo, true);
+        else showMainText("입 모양 정보가 없습니다.");
       } else if (currentMode === "X"){
         // 부가정보를 표시합니다.
         const info = group.extraInfo || "부가정보가 없습니다.";
@@ -6281,6 +6500,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       } else if (currentMode === "C"){
         if (group.additionalImage) showMainImage(group.additionalImage, "부가그림");
         else showMainText("부가그림이 없습니다.");
+      } else if (currentMode === "M"){
+        const noteText = safe(notesByKey[getCurrentEntityKey()] || "");
+        showMainText(noteText || "저장된 메모가 없습니다.");
       }
 
       setImage(els.wordSignImg, group.wordSignImage, "표제어 수어문자");
@@ -6372,7 +6594,7 @@ function buildHelpText(){
     "X 부가정보 팝업 / 길게 눌러 편집",
     "C 부가그림 보기 / 버튼 길게 눌러 링크 편집",
     "A 용례문 팝업 / 길게 눌러 편집",
-    "S 용례 영상 (모바일: 다시 누르면 구간 시작→종료→초기화)",
+    "S 용례 영상 / 다시 누르면 처음부터 재시작",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
@@ -6654,8 +6876,8 @@ async function uploadCurrentDatasetToFirebase(reason = "manual", force = false){
 }
 
 async function getPreferredInitialState(){
-  if (pendingRemoteStateEnvelope?.payload) return pendingRemoteStateEnvelope.payload;
-  if (firebaseReady){
+  if (pendingRemoteStateEnvelope?.payload && liveSyncEnabled) return pendingRemoteStateEnvelope.payload;
+  if (firebaseReady && liveSyncEnabled){
     try{
       const snap = await getDoc(roomDocRef());
       firebaseBootstrapChecked = true;
@@ -6801,12 +7023,14 @@ async function toggleFirebaseLiveSync(force){
     lastLocalStateSavedAt = 0;
     if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
     await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
-    startFirebaseLiveWatchers();
+    if (liveSyncEnabled) startFirebaseLiveWatchers();
+  else cleanupFirebaseWatchers();
     firebasePushEnabled = true;
     updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
     showOverlay("실시간 리스너 켜짐", 900);
   } else {
     cleanupFirebaseWatchers();
+    updateFirebaseStatus("로컬", "normal");
     showOverlay("실시간 리스너 꺼짐", 900);
   }
 }
@@ -6867,18 +7091,16 @@ async function reconnectFirebaseRoom(){
   remotePullCooldownUntil = 0;
 
   if (pendingFirebaseStateTimer){ clearTimeout(pendingFirebaseStateTimer); pendingFirebaseStateTimer = null; }
-  const remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+  const remoteLoaded = liveSyncEnabled ? await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true }) : false;
 
   startFirebaseLiveWatchers();
 
-  updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+  updateFirebaseStatus(liveSyncEnabled ? `연결됨 · ${syncRoomKey}` : "로컬", liveSyncEnabled ? "ok" : "normal");
   firebaseBootstrapping = false;
   firebasePushEnabled = true;
   // 새로운 접속 코드가 히스토리에 반영되도록 업데이트합니다.
   updateRoomHistory(syncRoomKey);
-  showOverlay(remoteLoaded ? `Firestore 기준으로 이어받음
-${syncRoomKey}` : `Firestore에 저장된 상태 없음
-${syncRoomKey}`, 1100);
+  showOverlay(liveSyncEnabled ? (remoteLoaded ? `Firestore 기준으로 이어받음\n${syncRoomKey}` : `Firestore에 저장된 상태 없음\n${syncRoomKey}`) : `접속 코드 변경\n${syncRoomKey}`, 1100);
 }
 
 async function initFirebaseSync(){
@@ -6889,18 +7111,17 @@ async function initFirebaseSync(){
     firebaseAuth = getAuth(firebaseApp);
     firebaseDb = getFirestore(firebaseApp);
     try { await enableIndexedDbPersistence(firebaseDb); } catch (_) {}
-    updateFirebaseStatus("로그인 중...");
+    updateFirebaseStatus(liveSyncEnabled ? "로그인 중..." : "로컬");
     const cred = await signInAnonymously(firebaseAuth);
     firebaseUid = cred?.user?.uid || firebaseAuth.currentUser?.uid || "";
     firebaseReady = !!firebaseUid;
     if (els.syncRoomInput) els.syncRoomInput.value = syncRoomKey;
-    if (firebaseReady){
-      liveSyncEnabled = true;
-      localStorage.setItem(FIREBASE_LIVE_STORAGE_KEY, "1");
-    }
     updateLiveSyncButton();
-    updateFirebaseStatus(firebaseReady ? `연결됨 · ${syncRoomKey}` : "로그인 실패", firebaseReady ? "ok" : "error");
-    if (firebaseReady) startFirebaseLiveWatchers();
+    updateFirebaseStatus(
+      firebaseReady ? (liveSyncEnabled ? `연결됨 · ${syncRoomKey}` : "로컬") : "로그인 실패",
+      firebaseReady ? (liveSyncEnabled ? "ok" : "normal") : "error"
+    );
+    if (firebaseReady && liveSyncEnabled) startFirebaseLiveWatchers();
     return firebaseReady;
   } catch (err){
     console.error("Firestore 초기화 실패", err);
@@ -7177,6 +7398,34 @@ async function initFirebaseSync(){
       saveState();
       Promise.resolve().then(() => persistCurrentSelectionToActivePreset("auto")).catch(() => {});
       if (firebaseReady) flushPendingFirebaseStatePush(buildStatePayload());
+    }
+
+    function getCurrentSelectionToken(){
+      const item = getCurrentPoolItem();
+      if (isExampleMode() && item) return makeExampleSelectionToken(item);
+      const group = getCurrentGroup();
+      if (group) return makeGroupSelectionToken(group.id);
+      return "";
+    }
+
+    function removeCurrentSelectionToken(){
+      const entries = getSelectionEntries();
+      if (!entries.length){
+        showOverlay("선택학습 목록이 비어 있습니다", 1000);
+        return;
+      }
+      let token = normalizeSelectionToken(getCurrentSelectionToken());
+      if (!token || !entries.includes(token)){
+        const group = getCurrentGroup();
+        const fallback = group ? normalizeSelectionToken(makeGroupSelectionToken(group.id)) : "";
+        if (fallback && entries.includes(fallback)) token = fallback;
+      }
+      if (!token || !entries.includes(token)){
+        showOverlay("현재 항목이 선택학습 목록에 없습니다", 1100);
+        return;
+      }
+      removeSelectedGroup(token);
+      showOverlay("현재 항목을 선택학습에서 삭제", 1000);
     }
 
     function formatSelectionWordLabel(group){
@@ -7830,6 +8079,28 @@ ${getSelectionEntries().length}개 항목`, 1200);
       showOverlay("구간 반복 초기화", 900);
     }
 
+    function restartCurrentWordPlayback(){
+      const group = getCurrentGroup();
+      const entry = group ? getWordAssetEntryBySlot(group, "W", 0) : null;
+      if (entry?.url){
+        showMainVideo(entry.url, true, { start: group?.wordClipStart, end: group?.wordClipEnd, fallbackAlt: "표제어 이미지" });
+        showOverlay("처음부터 재시작", 700);
+        return;
+      }
+      renderMainStage(true);
+      showOverlay("처음부터 재시작", 700);
+    }
+
+    function restartCurrentExamplePlayback(){
+      const item = getCurrentPoolItem();
+      if (item?.video){
+        showMainVideo(item.video, true, { start: item.clipStart, end: item.clipEnd, fallbackAlt: "용례 이미지" });
+        showOverlay("처음부터 재시작", 700);
+        return;
+      }
+      restartCurrentWordPlayback();
+    }
+
     /**
      * 모바일 환경에서 S 버튼을 연속으로 눌렀을 때 구간 반복 기능을 순차적으로 실행합니다.
      * 첫 번째 클릭은 S 모드 진입으로 용례 영상을 보여주고, 두 번째 클릭은 구간 시작,
@@ -7853,7 +8124,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     /**
-     * G 모드를 다시 누르면 수형그림 대신 입 모양 비디오를 보여주고, 다시 누르면 수형그림으로 되돌립니다.
+     * 예전 호환용 함수입니다. 현재 입 모양은 O 모드에서 직접 표시합니다.
      */
     function handleGToggle(){
       const group = getCurrentGroup();
@@ -8956,16 +9227,13 @@ ${match.label}${timeText}`, 1500);
       if (e.ctrlKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
       if (e.ctrlKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
       if (e.ctrlKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
-      if (e.ctrlKey && key === 'm'){ e.preventDefault(); openNoteModal({ focusEditor:true }); return; }
+      if (e.ctrlKey && key === 'm'){ e.preventDefault(); openNoteModal({ editable:true, focusEditor:true }); return; }
       if (e.ctrlKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
       if (e.ctrlKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
 
       if (e.code === "Space"){
         e.preventDefault();
         if (e.repeat) return;
-        const now = Date.now();
-        if (now - lastSpaceToggleAt < 160) return;
-        lastSpaceToggleAt = now;
         togglePlayPause();
         return;
       }
@@ -9006,7 +9274,8 @@ ${match.label}${timeText}`, 1500);
       if (key === "v"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
-      if (key === "o"){ e.preventDefault(); captureCurrentStage(); return; }
+      if (key === "o" && e.shiftKey){ e.preventDefault(); captureCurrentStage(); return; }
+      if (key === "o"){ e.preventDefault(); triggerMode("O"); return; }
 
       if (/^[0-9]$/.test(key)){
         e.preventDefault();
@@ -9057,7 +9326,6 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeyup(e){
       const key = e.key ? e.key.toLowerCase() : "";
-      if (e.code === "Space") lastSpaceToggleAt = 0;
       if (finishHeldShortcut(key)) return;
       if (e.code !== "BracketRight") return;
       if (bracketRightHoldTimer){
@@ -9316,7 +9584,19 @@ ${match.label}${timeText}`, 1500);
           });
           return;
         }
-        btn.addEventListener("click", () => triggerMode(mode));
+        if (mode === "M"){
+          bindHoldableButton(btn, {
+            shortAction: () => triggerMode("M"),
+            longAction: () => openNoteModal({ editable:true, focusEditor:true }),
+            mouseLongAction: false
+          });
+          return;
+        }
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          triggerMode(mode);
+        });
+        btn.addEventListener("contextmenu", (e) => e.preventDefault());
       });
 
       // 여러 재생 버튼 모두에 클릭 이벤트 바인딩
@@ -9341,9 +9621,26 @@ ${match.label}${timeText}`, 1500);
       if (els.homeBtn) els.homeBtn.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
       if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
       if (els.undoBtn) els.undoBtn.addEventListener("click", () => { undoLastAction(); });
-      (els.noteBtns || []).forEach(btn => btn.addEventListener("click", () => openNoteModal({ focusEditor:false })));
+      (els.noteBtns || []).forEach(btn => bindHoldableButton(btn, {
+        shortAction: () => triggerMode("M"),
+        longAction: () => isMobileViewport() ? openNoteModal({ editable:true, focusEditor:true }) : null,
+        mouseLongAction: false
+      }));
+      document.querySelectorAll(".footer button").forEach((btn) => {
+        btn.addEventListener("contextmenu", (e) => e.preventDefault());
+        btn.addEventListener("selectstart", (e) => e.preventDefault());
+        btn.addEventListener("dragstart", (e) => e.preventDefault());
+        btn.setAttribute("draggable", "false");
+      });
+      els.noteEditBtn?.addEventListener("click", () => openNoteModal({ editable:true, focusEditor:true }));
       els.noteSaveBtn?.addEventListener("click", () => { saveCurrentNote(); });
       els.noteDeleteBtn?.addEventListener("click", () => { deleteCurrentNote(); });
+      bindHoldableButton(els.noteNewlineBtn, {
+        shortAction: () => insertNoteLineBreak(),
+        longAction: null,
+        mouseLongAction: false,
+        holdMs: 650
+      });
       els.noteCloseBtn?.addEventListener("click", closeNoteModal);
       els.noteModal?.addEventListener("click", (e) => { if (e.target === els.noteModal) closeNoteModal(); });
 
@@ -9429,9 +9726,11 @@ ${match.label}${timeText}`, 1500);
         }
       });
 
-      (els.downloadXlsxBtn || document.getElementById("downloadXlsxBtn"))?.addEventListener("click", async (e) => {
-        e.preventDefault();
-        await downloadExcelFile();
+      [els.downloadXlsxBtn, els.downloadXlsxMobileBtn, document.getElementById("downloadXlsxBtn"), document.getElementById("downloadXlsxMobileBtn")].filter(Boolean).forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          await downloadExcelFile();
+        });
       });
 
       els.fileInput.addEventListener("change", async (e) => {
@@ -9465,17 +9764,17 @@ ${match.label}${timeText}`, 1500);
       });
       bindHoldableButton(els.selectionModeBtnFooter, {
         shortAction: () => startSelectionMode(),
-        longAction: restartSelectionStudy,
+        longAction: () => isMobileViewport() ? removeCurrentSelectionToken() : restartSelectionStudy(),
         mouseLongAction: false
       });
       bindHoldableButton(els.selectionAddBtnFooter, {
         shortAction: () => addCurrentGroupToSelection(),
-        longAction: null,
+        longAction: () => removeCurrentSelectionToken(),
         mouseLongAction: false
       });
       bindHoldableButton(els.notePopupBtnFooter, {
-        shortAction: () => openNoteModal({ focusEditor:false }),
-        longAction: () => openNoteModal({ focusEditor: true }),
+        shortAction: () => triggerMode("M"),
+        longAction: () => openNoteModal({ editable:true, focusEditor: true }),
         mouseLongAction: false
       });
       bindHoldableButton(els.addHeadwordBtnFooter, {
@@ -9809,6 +10108,9 @@ O 현재 화면 캡처`);
       initEmptyState();
       firebaseBootstrapping = true;
       firebasePushEnabled = false;
+      liveSyncEnabled = false;
+      localStorage.setItem(FIREBASE_LIVE_STORAGE_KEY, "0");
+      updateLiveSyncButton();
 
       const auxPromise = Promise.allSettled([
         loadSelectionPresets(),
@@ -9822,7 +10124,7 @@ O 현재 화면 캡처`);
 
       const firebaseStarted = await firebaseInitPromise;
       if (firebaseStarted){
-        remoteLoaded = await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true });
+        remoteLoaded = liveSyncEnabled ? await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true }) : false;
       } else {
         firebaseBootstrapChecked = true;
       }
@@ -9834,7 +10136,7 @@ O 현재 화면 캡처`);
 
       await auxPromise;
 
-      if (firebaseStarted && rows.length){
+      if (firebaseStarted && rows.length && liveSyncEnabled){
         if (pendingRemoteStateEnvelope){
           remoteLoaded = await applyRemoteStateEnvelope(pendingRemoteStateEnvelope, { silent: true, forceRemote: true }) || remoteLoaded;
         } else if (hasRemoteStateInRoom){
@@ -9850,19 +10152,21 @@ O 현재 화면 캡처`);
 
       firebaseBootstrapping = false;
       firebasePushEnabled = true;
-      if (firebaseStarted && remoteLoaded){
+      if (firebaseStarted && liveSyncEnabled && remoteLoaded){
         updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
+      } else if (firebaseStarted && !liveSyncEnabled){
+        updateFirebaseStatus("로컬", "normal");
       }
     }
 
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && rows.length){
+      if (document.visibilityState === "hidden" && rows.length && liveSyncEnabled){
         pushStateToFirebase(buildStatePayload()).catch(() => {});
       }
     });
 
     window.addEventListener("pagehide", () => {
-      if (rows.length){
+      if (rows.length && liveSyncEnabled){
         pushStateToFirebase(buildStatePayload()).catch(() => {});
       }
     });
