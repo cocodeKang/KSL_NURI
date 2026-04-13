@@ -1389,6 +1389,7 @@
           <option value="">전체 범주</option>
         </select>
 
+        <button id="viewModeBtn" class="icon-btn" title="보기 모드 변경">일반</button>
         <div id="countBadge" class="count-badge">0 / 0</div>
       </div>
 
@@ -1676,6 +1677,14 @@
       CONT: "재생: 연속"
     };
 
+    const VIEW_MODES = ["NORMAL", "WORD", "ID", "WORD_ID"];
+    const VIEW_MODE_LABELS = {
+      NORMAL: "일반",
+      WORD: "표제어",
+      ID: "ID순",
+      WORD_ID: "표제어ID순"
+    };
+
     const els = {
       searchInput: document.getElementById("searchInput"),
       searchSuggestions: document.getElementById("searchSuggestions"),
@@ -1684,6 +1693,7 @@
       sourceSelect: document.getElementById("sourceSelect"),
       clearBtn: document.getElementById("clearBtn"),
       searchIdBtn: document.getElementById("searchIdBtn"),
+      viewModeBtn: document.getElementById("viewModeBtn"),
       countBadge: document.getElementById("countBadge"),
       mainVideo: document.getElementById("mainVideo"),
       youtubePlayerWrap: document.getElementById("youtubePlayerWrap"),
@@ -1796,6 +1806,7 @@
     let playbackMode = "MANUAL";
     let groupShuffleSeed = null;
     let exampleShuffleSeed = null;
+    let viewMode = "NORMAL";
 
     let selectionModeActive = false;
 
@@ -4246,7 +4257,8 @@
         abLoopStart,
         abLoopEnd,
         groupShuffleSeed,
-        exampleShuffleSeed
+        exampleShuffleSeed,
+        viewMode
       };
     }
 
@@ -4278,11 +4290,13 @@
       if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
+      viewMode = VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL";
       currentVideoTime = snap.currentVideoTime || 0;
       abLoopStart = snap.abLoopStart ?? null;
       abLoopEnd = snap.abLoopEnd ?? null;
       updateSearchIdButton();
       updateSearchPlaceholder();
+      updateViewModeButton();
       updateLiveSyncButton();
       await applyFilter();
       currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
@@ -4313,6 +4327,7 @@
       if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
+      viewMode = VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL";
       currentVideoTime = snap.currentVideoTime || 0;
       abLoopStart = snap.abLoopStart ?? null;
       abLoopEnd = snap.abLoopEnd ?? null;
@@ -5147,6 +5162,7 @@ async function saveState(){
       updateSearchIdButton();
       updateSearchPlaceholder();
       updateLiveSyncButton();
+      updateViewModeButton();
       if (state.selectionPresets && typeof state.selectionPresets === "object" && !Array.isArray(state.selectionPresets)){
         selectionPresets = Object.fromEntries(Object.entries(state.selectionPresets).map(([name, ids]) => [
           safe(name).slice(0, 80),
@@ -5162,6 +5178,8 @@ async function saveState(){
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
       if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
       if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
+      if (typeof state.viewMode === "string" && VIEW_MODES.includes(state.viewMode)) viewMode = state.viewMode;
+      updateViewModeButton();
       if (state.activeWordAssetState && typeof state.activeWordAssetState === "object") {
         activeWordAssetState = {
           groupId: safe(state.activeWordAssetState.groupId || ""),
@@ -6102,6 +6120,87 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       render(false);
     }
 
+    function getGroupIdWordKey(group){
+      return `${safe(group?.sourceId || group?.id)}::${safe(group?.word)}`;
+    }
+
+    function getExampleIdWordKey(item){
+      const sourceId = safe(item?.sourceId || groupById.get(String(item?.groupId || ""))?.sourceId || item?.groupId || "");
+      return `${sourceId}::${safe(item?.word)}`;
+    }
+
+    function getGroupWordKey(group){
+      return safe(group?.word);
+    }
+
+    function getExampleWordKey(item){
+      return safe(item?.word);
+    }
+
+    function compareBySourceIdOrder(a, b){
+      const aRaw = safe(a?.sourceId || a?.id || a?.groupId || "");
+      const bRaw = safe(b?.sourceId || b?.id || b?.groupId || "");
+      const aNum = Number(String(aRaw).replace(/[^\d.-]/g, ""));
+      const bNum = Number(String(bRaw).replace(/[^\d.-]/g, ""));
+      const aHasNum = Number.isFinite(aNum) && String(aRaw).match(/\d/);
+      const bHasNum = Number.isFinite(bNum) && String(bRaw).match(/\d/);
+      if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
+      if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
+      return String(aRaw).localeCompare(String(bRaw), "ko", { numeric:true })
+        || safe(a?.word || a?.text || "").localeCompare(safe(b?.word || b?.text || ""), "ko")
+        || safe(a?.text || "").localeCompare(safe(b?.text || ""), "ko");
+    }
+
+    function applyViewModeToGroups(list){
+      let next = Array.isArray(list) ? [...list] : [];
+      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+        const seen = new Set();
+        next = next.filter(group => {
+          const key = getGroupWordKey(group);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      if (viewMode === "ID" || viewMode === "WORD_ID") {
+        next.sort(compareBySourceIdOrder);
+      }
+      return next;
+    }
+
+    function applyViewModeToExamples(list){
+      let next = Array.isArray(list) ? [...list] : [];
+      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+        const seen = new Set();
+        next = next.filter(item => {
+          const key = `${getExampleWordKey(item)}::${safe(item?.text)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      if (viewMode === "ID" || viewMode === "WORD_ID") {
+        next.sort(compareBySourceIdOrder);
+      }
+      return next;
+    }
+
+    function updateViewModeButton(){
+      if (!els.viewModeBtn) return;
+      const label = VIEW_MODE_LABELS[viewMode] || VIEW_MODE_LABELS.NORMAL;
+      els.viewModeBtn.textContent = label;
+      els.viewModeBtn.title = `보기 모드 변경 (${label})`;
+      els.viewModeBtn.dataset.viewMode = viewMode;
+    }
+
+    async function cycleViewMode(){
+      const idx = VIEW_MODES.indexOf(viewMode);
+      viewMode = VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "NORMAL";
+      updateViewModeButton();
+      await applyFilter();
+      showOverlay(`보기 모드: ${VIEW_MODE_LABELS[viewMode] || viewMode}`, 900);
+    }
+
     function sortFilteredGroupsByWordLength(list){
       const qNorm = (!searchIdMode && els.searchInput) ? normalizeHangulString(safe(els.searchInput.value).toLowerCase()).toLowerCase() : "";
       list.sort((a, b) => ((qNorm && a.wordNorm === qNorm ? -1 : 0) - (qNorm && b.wordNorm === qNorm ? -1 : 0))
@@ -6183,6 +6282,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         filteredGroups.push(g);
       }
       if (qNorm || qId) sortFilteredGroupsByWordLength(filteredGroups);
+      filteredGroups = applyViewModeToGroups(filteredGroups);
 
       const exampleCandidates = [];
       for (const item of exampleBase){
@@ -6213,6 +6313,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       filteredExamplePool = selectionModeActive
         ? (selectionExampleTokenSet && selectionExampleTokenSet.size ? exampleCandidates : buildBalancedExamplePool(exampleCandidates))
         : exampleCandidates;
+      filteredExamplePool = applyViewModeToExamples(filteredExamplePool);
       applyDeterministicShuffleOrder();
 
       if (previousGroupId && filteredGroups.length){
@@ -6937,6 +7038,7 @@ function buildStatePayload(){
     exactMatch,
     groupShuffleSeed,
     exampleShuffleSeed,
+    viewMode,
     activeWordAssetState: {
       groupId: safe(activeWordAssetState?.groupId || ""),
       index: Number.isFinite(activeWordAssetState?.index) ? Math.max(0, Number(activeWordAssetState.index)) : 0
@@ -7381,6 +7483,19 @@ async function initFirebaseSync(){
         items = [...buildMatches(wordSuggestionIndex, "word"), ...buildMatches(exampleSuggestionIndex, "example")]
           .sort(compareSuggestionItems)
           .slice(0, cap);
+      }
+
+      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+        const seen = new Set();
+        items = items.filter(item => {
+          const key = `${safe(item.word)}::${item.type === "example" ? safe(item.text) : ""}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      if (viewMode === "ID" || viewMode === "WORD_ID") {
+        items = [...items].sort(compareBySourceIdOrder);
       }
 
       suggestionCacheKey = cacheKey;
@@ -8970,6 +9085,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const state = await getPreferredInitialState();
       if (state) applyRestoredUIState(state);
       updateQuickButtons();
+      updateViewModeButton();
 
       if (saveCacheToo){
         await saveDataCache(sourceName);
@@ -9674,6 +9790,13 @@ ${match.label}${timeText}`, 1500);
         await setSearchIdMode(!searchIdMode);
         els.searchInput.focus();
       });
+
+      if (els.viewModeBtn){
+        bindHoldableButton(els.viewModeBtn, {
+          shortAction: () => { cycleViewMode(); },
+          mouseLongAction: false
+        });
+      }
 
       els.clearBtn.addEventListener("click", () => {
         suggestionCacheKey = "";
