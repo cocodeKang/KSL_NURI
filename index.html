@@ -4509,19 +4509,8 @@
       return getGroupPrimaryRowIndex(group);
     }
 
-    async function persistEditedRows(message, focusWord = ""){
+    async function persistEditedRows(message){
       await finalizeLoadedData(rows, currentSourceName || "수정 데이터", false, true);
-      if (focusWord){
-        els.searchScopeSelect.value = "word";
-        els.searchInput.value = focusWord;
-        clearSelectedSearchPick();
-        clearMultiSelectedSearch();
-        suggestionCacheKey = "";
-        searchIdMode = false;
-        updateSearchIdButton();
-        updateSearchPlaceholder();
-        await applyFilter({ save: false });
-      }
       render(false);
       if (message) showOverlay(message, 1100);
     }
@@ -4665,10 +4654,9 @@
       }
       rememberUndoSnapshot();
       currentEditSession.applyChange(nextValue);
-      const focusWord = currentEditSession.fieldCode === "Q" ? nextValue : safe(currentEditSession.focusWord || "");
       const successMessage = currentEditSession.successMessage || "저장";
       closeEditModal();
-      await persistEditedRows(successMessage, focusWord);
+      await persistEditedRows(successMessage);
     }
 
     async function editCurrentField(fieldCode){
