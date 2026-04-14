@@ -1872,7 +1872,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v55_구간자유수정";
+  const HTML_VERSION = "v56_CtrlN표제어편집";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5911,6 +5911,66 @@
       openAddEntryModal(buildCurrentAddEntryPrefill());
     }
 
+    function buildCtrlNHeadwordPrefill(){
+      const row = getRowObject(getCurrentEntityRowIndex()) || null;
+      const group = getCurrentGroup();
+      const currentItem = getCurrentPoolItem();
+      const baseId = safe(pickValue(row, ["sourceId", "ID", "id", "Id"]) || group?.sourceId || group?.id || "");
+      const templateRow = cloneAddEntryTemplateRow(row);
+
+      const storedHeadwordStart = normalizeClipRawValue(
+        pickValue(row, ["headwordClipStart", "구간시작_표제어"]) || group?.wordClipStartRaw || group?.wordClipStart || ""
+      );
+      const storedHeadwordEnd = normalizeClipRawValue(
+        pickValue(row, ["headwordClipEnd", "구간종료_표제어"]) || group?.wordClipEndRaw || group?.wordClipEnd || ""
+      );
+      const storedExampleEnd = normalizeClipRawValue(
+        pickValue(row, ["exampleClipEnd", "구간종료_용례"]) || currentItem?.clipEndRaw || currentItem?.clipEnd || ""
+      );
+      const storedExampleStart = normalizeClipRawValue(
+        pickValue(row, ["exampleClipStart", "구간시작_용례"]) || currentItem?.clipStartRaw || currentItem?.clipStart || ""
+      );
+
+      const livePlaybackTime = getActiveMediaTime();
+      const livePlaybackStart = Number.isFinite(livePlaybackTime) ? normalizeClipRawValue(livePlaybackTime) : "";
+      const effectiveHeadwordStart = livePlaybackStart || storedHeadwordStart || storedExampleStart || "";
+      const syncedExampleStart = effectiveHeadwordStart || storedExampleStart || "";
+
+      if (templateRow){
+        setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", effectiveHeadwordStart || "");
+        setPreferredFieldValue(templateRow, ["headwordClipEnd", "구간종료_표제어"], "headwordClipEnd", storedHeadwordEnd || "");
+        setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", syncedExampleStart);
+        setPreferredFieldValue(templateRow, ["exampleClipEnd", "구간종료_용례"], "exampleClipEnd", storedExampleEnd || "");
+        delete templateRow.clipStart;
+        delete templateRow.clipEnd;
+        delete templateRow["구간시작"];
+        delete templateRow["구간종료"];
+      }
+
+      const currentWord = safe(pickValue(row, ["expression", "표제어", "word", "단어", "표현"]) || group?.word || "");
+      const pauseAnchor = parseTimeToSeconds(effectiveHeadwordStart || syncedExampleStart || storedExampleEnd || "");
+
+      return {
+        title: row ? "표제어 추가 / 편집" : "새 표제어 추가",
+        sourceId: getNextAvailableSourceId(baseId),
+        word: incrementHeadwordLabel(currentWord),
+        definition: safe(pickValue(row, ["definition", "뜻풀이"]) || group?.definition || ""),
+        exampleText: safe(pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]) || getCurrentPoolItem()?.text || ""),
+        memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
+        extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
+        sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
+        templateRow,
+        preferredMode: "W",
+        pauseTime: Number.isFinite(pauseAnchor) ? pauseAnchor : null
+      };
+    }
+
+    async function openCtrlNHeadwordEditor(){
+      pauseActiveMedia();
+      openAddEntryModal(buildCtrlNHeadwordPrefill());
+    }
+
     function getPreferredExportClipValue(row, type){
       const key = type === "start" ? "구간시작" : "구간종료";
       const generic = safe(row?.[type === "start" ? "clipStart" : "clipEnd"] || row?.[key] || "");
@@ -8010,6 +8070,7 @@ function buildHelpText(){
     "T 현재 항목 선택학습 추가",
     "M 메모 팝업 / 길게 눌러 편집",
     "N 새 표제어 추가",
+    "Ctrl+N 표제어 추가 / 편집 (현재 재생 시점=표제어 시작, 용례 시작 동기화, 용례 종료 유지, 저장 후 W 화면 정지)",
     "Shift+N 현재 내용 복제 추가",
     "Shift+Q 표제어 편집",
     "Shift+Z 뜻풀이 편집",
@@ -10980,6 +11041,12 @@ ${match.label}${timeText}`, 1500);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'n'){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        openCtrlNHeadwordEditor();
+        return;
+      }
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
