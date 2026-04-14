@@ -3122,23 +3122,27 @@
     }
 
     function getRowClipInfo(row){
-      const wordStartSource = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]);
-      const wordEndSource = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]);
-      const exampleStartSource = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]);
-      const exampleEndSource = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]);
+      const genericStartSource = getRowClipFieldValue(row, ["clipStart", "구간시작"]);
+      const genericEndSource = getRowClipFieldValue(row, ["clipEnd", "구간종료"]);
+      const wordStartSource = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]) || genericStartSource;
+      const wordEndSource = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]) || genericEndSource;
+      const exampleStartSource = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]) || genericStartSource;
+      const exampleEndSource = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]) || genericEndSource;
+      const genericStart = parseTimeToSeconds(genericStartSource);
+      const genericEnd = parseTimeToSeconds(genericEndSource);
       const wordStart = parseTimeToSeconds(wordStartSource);
       const wordEnd = parseTimeToSeconds(wordEndSource);
       const exampleStart = parseTimeToSeconds(exampleStartSource);
       const exampleEnd = parseTimeToSeconds(exampleEndSource);
       return {
-        genericStartRaw: "",
-        genericEndRaw: "",
+        genericStartRaw: normalizeClipRawValue(genericStartSource),
+        genericEndRaw: normalizeClipRawValue(genericEndSource),
         wordStartRaw: normalizeClipRawValue(wordStartSource),
         wordEndRaw: normalizeClipRawValue(wordEndSource),
         exampleStartRaw: normalizeClipRawValue(exampleStartSource),
         exampleEndRaw: normalizeClipRawValue(exampleEndSource),
-        genericStart: null,
-        genericEnd: null,
+        genericStart,
+        genericEnd,
         wordStart,
         wordEnd,
         exampleStart,
@@ -3761,6 +3765,8 @@
       return !!(
         safe(entity?.wordClipStartRaw)
         || safe(entity?.wordClipEndRaw)
+        || safe(entity?.clipStartRaw)
+        || safe(entity?.clipEndRaw)
       );
     }
 
@@ -4972,14 +4978,12 @@
         headwordClipStart: safe(templateRow.headwordClipStart || templateRow.구간시작_표제어 || ""),
         headwordClipEnd: safe(templateRow.headwordClipEnd || templateRow.구간종료_표제어 || ""),
         exampleClipStart: safe(templateRow.exampleClipStart || templateRow.구간시작_용례 || ""),
-        exampleClipEnd: safe(templateRow.exampleClipEnd || templateRow.구간종료_용례 || "")
+        exampleClipEnd: safe(templateRow.exampleClipEnd || templateRow.구간종료_용례 || ""),
+        clipStart: safe(templateRow.clipStart || templateRow.구간시작 || ""),
+        clipEnd: safe(templateRow.clipEnd || templateRow.구간종료 || "")
       };
 
       delete newRow.__rowIndex;
-      delete newRow.clipStart;
-      delete newRow.clipEnd;
-      delete newRow["구간시작"];
-      delete newRow["구간종료"];
 
       rememberUndoSnapshot();
       rows.push(newRow);
@@ -5034,6 +5038,8 @@
         { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
         { header: "부가그림", value: row => safe(row?.additionalImage || row?.부가그림 || row?.["부가 그림"] || "") },
         { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
+        { header: "구간시작", value: row => getPreferredExportClipValue(row, "start") },
+        { header: "구간종료", value: row => getPreferredExportClipValue(row, "end") },
         { header: "구간시작_표제어", value: row => normalizeClipRawValue(row?.headwordClipStart || row?.["구간시작_표제어"] || "") },
         { header: "구간종료_표제어", value: row => normalizeClipRawValue(row?.headwordClipEnd || row?.["구간종료_표제어"] || "") },
         { header: "구간시작_용례", value: row => normalizeClipRawValue(row?.exampleClipStart || row?.["구간시작_용례"] || "") },
@@ -8604,15 +8610,9 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     function clearABLoop(){
-      const clipScope = getCurrentClipScope();
-      const hasStoredRange = !!(getCurrentModeClipRange() || clipScope);
-      if (abLoopStart === null && abLoopEnd === null && !hasStoredRange){
+      if (abLoopStart === null && abLoopEnd === null){
         showOverlay("구간 반복이 설정되지 않았습니다", 900);
         return;
-      }
-      if (clipScope){
-        updateActiveClipValue(clipScope, "start", null);
-        updateActiveClipValue(clipScope, "end", null);
       }
       abLoopStart = null;
       abLoopEnd = null;
@@ -8637,10 +8637,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         const row = getRowObject(rowIndex);
         if (row){
           setPreferredFieldValue(row, [type === "start" ? "exampleClipStart" : "exampleClipEnd", type === "start" ? "구간시작_용례" : "구간종료_용례"], type === "start" ? "exampleClipStart" : "exampleClipEnd", rawValue);
-          delete row.clipStart;
-          delete row.clipEnd;
-          delete row["구간시작"];
-          delete row["구간종료"];
+          setPreferredFieldValue(row, [type === "start" ? "clipStart" : "clipEnd", type === "start" ? "구간시작" : "구간종료"], type === "start" ? "clipStart" : "clipEnd", rawValue);
         }
         const item = getCurrentPoolItem();
         if (item){
@@ -8663,10 +8660,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const row = getRowObject(rowIndex);
           if (!row) return;
           setPreferredFieldValue(row, [type === "start" ? "headwordClipStart" : "headwordClipEnd", type === "start" ? "구간시작_표제어" : "구간종료_표제어"], type === "start" ? "headwordClipStart" : "headwordClipEnd", rawValue);
-          delete row.clipStart;
-          delete row.clipEnd;
-          delete row["구간시작"];
-          delete row["구간종료"];
+          setPreferredFieldValue(row, [type === "start" ? "clipStart" : "clipEnd", type === "start" ? "구간시작" : "구간종료"], type === "start" ? "clipStart" : "clipEnd", rawValue);
         });
         if (group){
           if (type === "start"){
