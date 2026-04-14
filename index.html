@@ -1872,7 +1872,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v52_가림막리사이즈_전체화면메모배치";
+  const HTML_VERSION = "v53_표제어용례구간완전분리";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -9035,12 +9035,23 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
     async function setMode(mode, options = {}){
       const { preserveWordAssetState = false } = options;
-      if (mode !== currentMode) rememberUndoSnapshot();
-      if (mode !== currentMode && !preserveWordAssetState) resetWordAssetState();
+      const modeChanged = mode !== currentMode;
+      if (modeChanged) rememberUndoSnapshot();
+      if (modeChanged && !preserveWordAssetState) resetWordAssetState();
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
       const currentExampleItem = prevWasExample ? getCurrentPoolItem() : null;
       const currentExampleToken = currentExampleItem ? makeExampleSelectionToken(currentExampleItem) : lastViewedExampleToken;
+
+      if (modeChanged){
+        // 표제어 영상(W)과 용례 영상(S)은 저장 구간은 각각 유지하되,
+        // 직전 모드에서 임시로 잡아 둔 AB 구간은 다음 모드로 넘기지 않습니다.
+        // 이 값을 남겨두면 표제어 영상 구간이 용례 영상에도 그대로 적용되는 문제가 생길 수 있습니다.
+        abLoopStart = null;
+        abLoopEnd = null;
+        pendingClipFocus = null;
+        pendingRestoreTime = null;
+      }
 
       currentMode = mode;
       els.modeBtns.forEach(btn => {
