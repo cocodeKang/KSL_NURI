@@ -572,6 +572,7 @@
     }
 
     .caption-mask-resize-handle::after{
+      display:none;
       content:"";
       position:absolute;
       inset:0;
@@ -1872,7 +1873,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v53_표제어용례구간완전분리";
+  const HTML_VERSION = "v54_구간팝업_고정구간모드_가림막점숨김";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -7941,11 +7942,13 @@ function buildHelpText(){
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
     "P 재생모드 변경",
+    "Shift+P 재생: 구간 켜기/끄기",
     "F 전체화면",
     "O 현재 화면 캡처",
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
+    "Shift+\\ 현재 모드 구간 시작/종료 보기",
     "V 왼쪽 기준 최대 확대 / 다시 누르면 원래대로",
     "Shift + 휠 위 오른쪽 이동",
     "Shift + 휠 아래 왼쪽 이동",
@@ -9031,6 +9034,50 @@ ${getSelectionEntries().length}개 항목`, 1200);
       updatePlaybackButton();
       await saveState();
       showOverlay(PLAYBACK_LABELS[playbackMode], 900);
+    }
+
+    async function toggleFixedClipPlaybackMode(){
+      rememberUndoSnapshot();
+      playbackMode = playbackMode === "CLIP" ? "MANUAL" : "CLIP";
+      applyVideoLoopState();
+      updatePlaybackButton();
+      await saveState();
+      showOverlay(PLAYBACK_LABELS[playbackMode], 900);
+    }
+
+    function getStoredClipRangeForMode(mode = currentMode){
+      if (mode === "S"){
+        const item = getCurrentPoolItem();
+        const start = Number(item?.clipStart);
+        const end = Number(item?.clipEnd);
+        return {
+          scopeLabel: "용례",
+          start: Number.isFinite(start) ? start : null,
+          end: Number.isFinite(end) ? end : null
+        };
+      }
+      if (mode === "W"){
+        const group = getCurrentGroup();
+        const start = Number(group?.wordClipStart);
+        const end = Number(group?.wordClipEnd);
+        return {
+          scopeLabel: "표제어",
+          start: Number.isFinite(start) ? start : null,
+          end: Number.isFinite(end) ? end : null
+        };
+      }
+      return null;
+    }
+
+    function showCurrentClipRangePopup(){
+      const stored = getStoredClipRangeForMode(currentMode);
+      if (!stored){
+        showOverlay("현재 모드는 구간 시간을 표시할 수 없습니다", 1200);
+        return;
+      }
+      const startText = stored.start == null ? "없음" : formatSecondsForUi(stored.start);
+      const endText = stored.end == null ? "없음" : formatSecondsForUi(stored.end);
+      showOverlay(`${stored.scopeLabel} 구간 시간\n시작 ${startText}\n종료 ${endText}`, 1800);
     }
 
     async function setMode(mode, options = {}){
@@ -10814,6 +10861,7 @@ ${match.label}${timeText}`, 1500);
         return;
       }
 
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'p'){ e.preventDefault(); toggleFixedClipPlaybackMode(); return; }
       if (key === "b" && !e.shiftKey && !e.ctrlKey && !e.metaKey){ e.preventDefault(); toggleCaptionMask(); return; }
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
@@ -10874,7 +10922,11 @@ ${match.label}${timeText}`, 1500);
 
       if (e.code === "Backslash"){
         e.preventDefault();
-        clearABLoop();
+        if (e.shiftKey){
+          showCurrentClipRangePopup();
+        } else {
+          clearABLoop();
+        }
         return;
       }
 
