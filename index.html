@@ -1665,6 +1665,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
+  const HTML_VERSION = "v48_재생안정화_버전표시";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2749,8 +2750,9 @@
 
         const clipStart = Number.isFinite(Number(ytActiveClip?.start)) ? Number(ytActiveClip.start) : null;
         const clipEnd = Number.isFinite(Number(ytPreviewStopAt)) ? Number(ytPreviewStopAt) : null;
+        const shouldEnforceStoredClip = playbackMode === "CLIP" || playbackMode === "LOOP" || playbackMode === "CONT";
 
-        if (clipEnd != null && current >= (clipEnd - 0.02)){
+        if (shouldEnforceStoredClip && clipEnd != null && current >= (clipEnd - 0.02)){
           if ((playbackMode === "LOOP" || playbackMode === "CLIP") && clipStart != null && clipEnd > clipStart){
             try {
               ytPlayer.seekTo(clipStart, true);
@@ -7114,6 +7116,7 @@ function updateLiveSyncButton(){
 function buildHelpText(){
   return [
     "단축키 도움말",
+    `HTML 버전: ${HTML_VERSION}`,
     "",
     "Q 표제어 팝업 / 길게 눌러 편집",
     "Z 뜻풀이 팝업 / 길게 눌러 편집",
@@ -9964,8 +9967,12 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-        if (!spaceTogglePressed){
+        if (!e.repeat && Date.now() >= spaceToggleCooldownUntil){
           spaceTogglePressed = true;
+          spaceToggleCooldownUntil = Date.now() + 260;
+          blurInteractiveFocusForSpaceToggle();
+          togglePlayPause();
+          focusStageForShortcuts(0);
         }
         return;
       }
@@ -10063,14 +10070,7 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-        const shouldToggle = spaceTogglePressed && !e.repeat;
         spaceTogglePressed = false;
-        if (shouldToggle && Date.now() >= spaceToggleCooldownUntil){
-          spaceToggleCooldownUntil = Date.now() + 220;
-          blurInteractiveFocusForSpaceToggle();
-          togglePlayPause();
-          focusStageForShortcuts(0);
-        }
         return;
       }
       if (finishHeldShortcut(key)) return;
@@ -10811,8 +10811,14 @@ ${match.label}${timeText}`, 1500);
       els.mainVideo.addEventListener("timeupdate", () => {
         currentVideoTime = els.mainVideo.currentTime;
         const activeClip = getCurrentModeClipRange();
+        const shouldEnforceStoredClip = !!activeClip && (
+          activeClip.source === "ab" ||
+          playbackMode === "CLIP" ||
+          playbackMode === "LOOP" ||
+          playbackMode === "CONT"
+        );
 
-        if (activeClip && Number.isFinite(activeClip.start) && Number.isFinite(activeClip.end) && activeClip.end > activeClip.start){
+        if (shouldEnforceStoredClip && activeClip && Number.isFinite(activeClip.start) && Number.isFinite(activeClip.end) && activeClip.end > activeClip.start){
           if (els.mainVideo.currentTime >= activeClip.end){
             if (playbackMode === "LOOP" || playbackMode === "CLIP" || activeClip.source === "ab"){
               els.mainVideo.currentTime = activeClip.start;
