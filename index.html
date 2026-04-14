@@ -532,6 +532,28 @@
       font-size:clamp(28px,4.2vw,68px);
     }
 
+    .caption-mask{
+      position:absolute;
+      display:none;
+      left:50%;
+      bottom:10%;
+      transform:translateX(-50%);
+      width:min(78%, 920px);
+      height:14%;
+      min-height:44px;
+      max-height:28%;
+      border-radius:18px;
+      background:rgba(8,10,14,.96);
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow:0 10px 24px rgba(0,0,0,.38);
+      z-index:42;
+      pointer-events:none;
+    }
+
+    .caption-mask.is-visible{
+      display:block;
+    }
+
     .overlay-msg{
       position:absolute;
       left:50%;
@@ -1430,6 +1452,7 @@
           <div id="mainText" class="main-text"></div>
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
+          <div id="captionMask" class="caption-mask" aria-hidden="true"></div>
           <div id="overlayMsg" class="overlay-msg"></div>
           <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
@@ -1643,6 +1666,8 @@
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
 
+  const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
+
     const IDB_DB_NAME = "ksl-learning-db";
     const IDB_STORE = "kv";
 
@@ -1719,6 +1744,7 @@
       stage: document.getElementById("stage"),
       tapPrevZone: document.getElementById("tapPrevZone"),
       tapNextZone: document.getElementById("tapNextZone"),
+      captionMask: document.getElementById("captionMask"),
       searchScopeQuickBtn: document.getElementById("searchScopeQuickBtn"),
       categoryQuickBtn: document.getElementById("categoryQuickBtn"),
       modeBtns: [...document.querySelectorAll(".mode-btn[data-mode]")],
@@ -1847,6 +1873,13 @@
     let yHoldTimer = null;
     let yHoldTriggered = false;
     let heldShortcutStates = {};
+
+    let captionMaskState = {
+      visible: false,
+      widthRatio: 0.78,
+      heightRatio: 0.16,
+      bottomRatio: 0.06
+    };
 
     // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
     let duplicateWords = new Set();
@@ -2253,6 +2286,127 @@
           return null;
         }
       }
+    }
+
+    function loadCaptionMaskState(){
+      try {
+        const raw = localStorage.getItem(CAPTION_MASK_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return;
+        captionMaskState = {
+          ...captionMaskState,
+          visible: !!parsed.visible,
+          widthRatio: Number.isFinite(Number(parsed.widthRatio)) ? clamp(Number(parsed.widthRatio), 0.3, 0.96) : captionMaskState.widthRatio,
+          heightRatio: Number.isFinite(Number(parsed.heightRatio)) ? clamp(Number(parsed.heightRatio), 0.08, 0.35) : captionMaskState.heightRatio,
+          bottomRatio: Number.isFinite(Number(parsed.bottomRatio)) ? clamp(Number(parsed.bottomRatio), 0.01, 0.18) : captionMaskState.bottomRatio
+        };
+      } catch (err){
+        console.warn("가림막 상태 복원 실패", err);
+      }
+    }
+
+    function saveCaptionMaskState(){
+      try {
+        localStorage.setItem(CAPTION_MASK_STORAGE_KEY, JSON.stringify({
+          visible: !!captionMaskState.visible,
+          widthRatio: captionMaskState.widthRatio,
+          heightRatio: captionMaskState.heightRatio,
+          bottomRatio: captionMaskState.bottomRatio
+        }));
+      } catch (err){
+        console.warn("가림막 상태 저장 실패", err);
+      }
+    }
+
+    function getContainedRect(containerRect, naturalWidth, naturalHeight){
+      const boxWidth = Math.max(1, Number(containerRect?.width || 0));
+      const boxHeight = Math.max(1, Number(containerRect?.height || 0));
+      const mediaWidth = Math.max(1, Number(naturalWidth || boxWidth));
+      const mediaHeight = Math.max(1, Number(naturalHeight || boxHeight));
+      const scale = Math.min(boxWidth / mediaWidth, boxHeight / mediaHeight) || 1;
+      const width = mediaWidth * scale;
+      const height = mediaHeight * scale;
+      return {
+        left: Number(containerRect.left || 0) + (boxWidth - width) / 2,
+        top: Number(containerRect.top || 0) + (boxHeight - height) / 2,
+        width,
+        height
+      };
+    }
+
+    function getCaptionMaskTargetRect(){
+      const stageRect = els.stage?.getBoundingClientRect?.();
+      if (!stageRect || !stageRect.width || !stageRect.height) return null;
+
+      if (els.mainVideo && els.mainVideo.style.display !== "none"){
+        const videoRect = els.mainVideo.getBoundingClientRect();
+        if (videoRect.width && videoRect.height){
+          return getContainedRect(videoRect, els.mainVideo.videoWidth || videoRect.width, els.mainVideo.videoHeight || videoRect.height);
+        }
+      }
+
+      if (els.mainImage && els.mainImage.style.display !== "none"){
+        const imageRect = els.mainImage.getBoundingClientRect();
+        if (imageRect.width && imageRect.height){
+          return getContainedRect(imageRect, els.mainImage.naturalWidth || imageRect.width, els.mainImage.naturalHeight || imageRect.height);
+        }
+      }
+
+      const fallbackCandidates = [els.youtubePlayerWrap, els.mainFrame, els.mainGallery, els.mainText].filter(Boolean);
+      for (const el of fallbackCandidates){
+        if (el.style.display === "none") continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width && rect.height){
+          return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        }
+      }
+
+      return { left: stageRect.left, top: stageRect.top, width: stageRect.width, height: stageRect.height };
+    }
+
+    function updateCaptionMaskLayout(){
+      if (!els.captionMask) return;
+      if (!captionMaskState.visible){
+        els.captionMask.classList.remove("is-visible");
+        els.captionMask.style.display = "none";
+        return;
+      }
+      const stageRect = els.stage?.getBoundingClientRect?.();
+      const targetRect = getCaptionMaskTargetRect();
+      if (!stageRect || !targetRect || !stageRect.width || !stageRect.height){
+        els.captionMask.classList.remove("is-visible");
+        els.captionMask.style.display = "none";
+        return;
+      }
+
+      const width = clamp(targetRect.width * captionMaskState.widthRatio, 160, targetRect.width * 0.96);
+      const height = clamp(targetRect.height * captionMaskState.heightRatio, 40, targetRect.height * 0.30);
+      const left = (targetRect.left - stageRect.left) + (targetRect.width - width) / 2;
+      const top = (targetRect.top - stageRect.top) + targetRect.height - height - (targetRect.height * captionMaskState.bottomRatio);
+
+      els.captionMask.style.display = "block";
+      els.captionMask.classList.add("is-visible");
+      els.captionMask.style.width = `${Math.max(1, width)}px`;
+      els.captionMask.style.height = `${Math.max(1, height)}px`;
+      els.captionMask.style.left = `${left}px`;
+      els.captionMask.style.top = `${Math.max(0, top)}px`;
+      els.captionMask.style.bottom = "auto";
+      els.captionMask.style.transform = "none";
+      els.captionMask.style.borderRadius = `${Math.max(12, Math.round(height * 0.28))}px`;
+    }
+
+    function applyCaptionMaskState(){
+      updateCaptionMaskLayout();
+    }
+
+    function toggleCaptionMask(forceVisible = null){
+      const nextVisible = typeof forceVisible === "boolean" ? forceVisible : !captionMaskState.visible;
+      captionMaskState.visible = !!nextVisible;
+      saveCaptionMaskState();
+      applyCaptionMaskState();
+      showOverlay(captionMaskState.visible ? "가림막 켜짐" : "가림막 숨김", 900);
+      Promise.resolve(saveState()).catch(() => {});
     }
 
     function showOverlay(message, ms = 1200){
@@ -2917,6 +3071,7 @@
           els.mainFrame.dataset.drivePlaying = "0";
         }
       } catch (_) {}
+      applyCaptionMaskState();
     }
 
     function showMainFrame(url){
@@ -2942,6 +3097,7 @@
 
       els.mainFrame.src = nextSrc;
       els.mainFrame.dataset.currentSrc = nextSrc;
+      applyCaptionMaskState();
     }
 
     function normalizeMediaLookupKey(url){
@@ -5254,6 +5410,7 @@ async function saveState(){
       if (typeof state.currentVideoTime === "number") currentVideoTime = state.currentVideoTime;
       if (typeof state.abLoopStart === "number" || state.abLoopStart === null) abLoopStart = state.abLoopStart;
       if (typeof state.abLoopEnd === "number" || state.abLoopEnd === null) abLoopEnd = state.abLoopEnd;
+      if (typeof state.captionMaskVisible === "boolean") captionMaskState.visible = state.captionMaskVisible;
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
       if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
       if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
@@ -6502,6 +6659,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       hideAllMainPanels();
       els.mainText.textContent = text || "";
       els.mainText.style.display = "flex";
+      applyCaptionMaskState();
     }
 
     function applyVideoLoopState(){
@@ -6676,6 +6834,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       if (usingDriveStream){
         tryDriveCandidate(0);
+        applyCaptionMaskState();
         return;
       }
 
@@ -6689,6 +6848,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       queueClipRestore();
       startAutoPlay();
+      applyCaptionMaskState();
     }
 
     function showMainImage(url, alt = "학습 이미지"){
@@ -6930,15 +7090,18 @@ function buildHelpText(){
     "S 용례 영상 / 다시 누르면 처음부터 재시작",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
+    "B 가림막 켜기/숨기기",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
     "M 메모 팝업 / 길게 눌러 편집",
     "N 새 표제어 추가",
-    "Ctrl+N 현재 내용 복제 추가",
-    "Ctrl+Q 표제어 편집",
-    "Ctrl+Z 뜻풀이 편집",
-    "Ctrl+X 부가정보 편집",
-    "Ctrl+A 용례문 편집",
+    "Shift+N 현재 내용 복제 추가",
+    "Shift+Q 표제어 편집",
+    "Shift+Z 뜻풀이 편집",
+    "Shift+X 부가정보 편집",
+    "Shift+A 용례문 편집",
+    "Shift+C 부가그림 편집",
+    "Shift+M 메모 편집",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
@@ -7115,6 +7278,7 @@ function buildStatePayload(){
     currentVideoTime,
     abLoopStart,
     abLoopEnd,
+    captionMaskVisible: !!captionMaskState.visible,
     exactMatch,
     groupShuffleSeed,
     exampleShuffleSeed,
@@ -9653,13 +9817,13 @@ ${match.label}${timeText}`, 1500);
       if (e.ctrlKey && key === 'y'){ e.preventDefault(); redoSelectionHistory(); return; }
       if (e.ctrlKey && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
       if (isTypingContext()) return;
-      if (e.ctrlKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
-      if (e.ctrlKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
-      if (e.ctrlKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
-      if (e.ctrlKey && key === 'm'){ e.preventDefault(); openNoteModal({ editable:true, focusEditor:true }); return; }
-      if (e.ctrlKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
-      if (e.ctrlKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
-      if (e.ctrlKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'm'){ e.preventDefault(); openNoteModal({ editable:true, focusEditor:true }); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
 
       if (e.code === "Space"){
         e.preventDefault();
@@ -9689,6 +9853,7 @@ ${match.label}${timeText}`, 1500);
         return;
       }
 
+      if (key === "b" && !e.shiftKey && !e.ctrlKey && !e.metaKey){ e.preventDefault(); toggleCaptionMask(); return; }
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
@@ -10348,6 +10513,7 @@ ${match.label}${timeText}`, 1500);
 
       els.mainImage.addEventListener("load", () => {
         applyImageZoom();
+        updateCaptionMaskLayout();
       });
 
       els.mainImage.addEventListener("dblclick", (e) => {
@@ -10452,6 +10618,7 @@ ${match.label}${timeText}`, 1500);
       });
 
       els.mainVideo.addEventListener("loadedmetadata", () => {
+        updateCaptionMaskLayout();
         if (pendingRestoreTime !== null && isFinite(els.mainVideo.duration)){
           els.mainVideo.currentTime = Math.min(pendingRestoreTime, Math.max(0, els.mainVideo.duration - 0.1));
           pendingRestoreTime = null;
@@ -10489,6 +10656,7 @@ ${match.label}${timeText}`, 1500);
 
       window.addEventListener("resize", () => {
         applyImageZoom();
+        updateCaptionMaskLayout();
         updateQuickButtons();
         updateLandscapeFocusMode();
         suggestionCacheKey = "";
@@ -10500,9 +10668,12 @@ ${match.label}${timeText}`, 1500);
         setTimeout(() => {
           updateLandscapeFocusMode();
           applyImageZoom();
+          updateCaptionMaskLayout();
         }, 80);
       });
 
+      loadCaptionMaskState();
+      applyCaptionMaskState();
       setupDragAndDrop();
       updatePlaybackButton();
       updateQuickButtons();
