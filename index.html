@@ -547,11 +547,75 @@
       border:1px solid rgba(255,255,255,.14);
       box-shadow:0 10px 24px rgba(0,0,0,.38);
       z-index:42;
-      pointer-events:none;
+      pointer-events:auto;
+      cursor:grab;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
     }
 
     .caption-mask.is-visible{
       display:block;
+    }
+
+    .caption-mask.is-dragging{
+      cursor:grabbing;
+    }
+
+    .caption-mask-panel{
+      position:absolute;
+      display:none;
+      min-width:220px;
+      max-width:min(84vw, 280px);
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(10,14,22,.94);
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow:0 14px 30px rgba(0,0,0,.42);
+      z-index:58;
+      color:#eef4ff;
+      backdrop-filter:blur(10px);
+    }
+
+    .caption-mask-panel.is-open{
+      display:block;
+    }
+
+    .caption-mask-panel-title{
+      font-size:13px;
+      font-weight:800;
+      margin-bottom:8px;
+      color:#d9e7ff;
+    }
+
+    .caption-mask-panel-row{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+
+    .caption-mask-panel-row + .caption-mask-panel-row{
+      margin-top:8px;
+    }
+
+    .caption-mask-panel input[type="range"]{
+      flex:1;
+      width:100%;
+    }
+
+    .caption-mask-panel-value{
+      min-width:44px;
+      text-align:right;
+      font-size:12px;
+      color:#bfd1ee;
+      font-variant-numeric:tabular-nums;
+    }
+
+    .caption-mask-panel-hint{
+      margin-top:8px;
+      font-size:12px;
+      color:#9fb0c8;
+      line-height:1.45;
     }
 
     .overlay-msg{
@@ -1459,6 +1523,15 @@
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="captionMask" class="caption-mask" aria-hidden="true"></div>
+          <div id="captionMaskPanel" class="caption-mask-panel" aria-hidden="true">
+            <div class="caption-mask-panel-title">가림막 조정</div>
+            <div class="caption-mask-panel-row">
+              <label for="captionMaskOpacityRange" style="font-size:12px;white-space:nowrap;">투명도</label>
+              <input id="captionMaskOpacityRange" type="range" min="0.1" max="1" step="0.01" value="0.96" />
+              <span id="captionMaskOpacityValue" class="caption-mask-panel-value">96%</span>
+            </div>
+            <div class="caption-mask-panel-hint">가림막을 드래그해서 위치를 옮길 수 있습니다.</div>
+          </div>
           <div id="overlayMsg" class="overlay-msg"></div>
           <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
           <div id="dropHint" class="drop-hint">CSV / XLSX 파일을 여기에 끌어다 놓으세요</div>
@@ -1671,7 +1744,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v49_복제이동_전체화면추가창_표제어번호증가";
+  const HTML_VERSION = "v50_가림막이동_투명도조절";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -1743,6 +1816,9 @@
       prevBtn: document.getElementById("prevBtn"),
       nextBtn: document.getElementById("nextBtn"),
       overlayMsg: document.getElementById("overlayMsg"),
+      captionMaskPanel: document.getElementById("captionMaskPanel"),
+      captionMaskOpacityRange: document.getElementById("captionMaskOpacityRange"),
+      captionMaskOpacityValue: document.getElementById("captionMaskOpacityValue"),
       mobileInfoBtn: document.getElementById("mobileInfoBtn"),
       mobileSheet: document.getElementById("mobileSheet"),
       mobileSheetBody: document.getElementById("mobileSheetBody"),
@@ -1885,7 +1961,22 @@
       visible: false,
       widthRatio: 0.78,
       heightRatio: 0.16,
-      bottomRatio: 0.06
+      centerXRatio: 0.5,
+      centerYRatio: 0.86,
+      opacity: 0.96
+    };
+
+    let captionMaskPanelOpen = false;
+    let captionMaskDragState = {
+      active: false,
+      pointerId: null,
+      targetRect: null,
+      stageRect: null,
+      maskWidth: 0,
+      maskHeight: 0,
+      offsetX: 0,
+      offsetY: 0,
+      moved: false
     };
 
     // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
@@ -2305,12 +2396,16 @@
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return;
+        const legacyBottomRatio = Number.isFinite(Number(parsed.bottomRatio)) ? clamp(Number(parsed.bottomRatio), 0.01, 0.18) : 0.06;
+        const legacyCenterY = 1 - ((Number.isFinite(Number(parsed.heightRatio)) ? clamp(Number(parsed.heightRatio), 0.08, 0.35) : captionMaskState.heightRatio) / 2) - legacyBottomRatio;
         captionMaskState = {
           ...captionMaskState,
           visible: !!parsed.visible,
           widthRatio: Number.isFinite(Number(parsed.widthRatio)) ? clamp(Number(parsed.widthRatio), 0.3, 0.96) : captionMaskState.widthRatio,
           heightRatio: Number.isFinite(Number(parsed.heightRatio)) ? clamp(Number(parsed.heightRatio), 0.08, 0.35) : captionMaskState.heightRatio,
-          bottomRatio: Number.isFinite(Number(parsed.bottomRatio)) ? clamp(Number(parsed.bottomRatio), 0.01, 0.18) : captionMaskState.bottomRatio
+          centerXRatio: Number.isFinite(Number(parsed.centerXRatio)) ? clamp(Number(parsed.centerXRatio), 0.08, 0.92) : captionMaskState.centerXRatio,
+          centerYRatio: Number.isFinite(Number(parsed.centerYRatio)) ? clamp(Number(parsed.centerYRatio), 0.08, 0.92) : legacyCenterY,
+          opacity: Number.isFinite(Number(parsed.opacity)) ? clamp(Number(parsed.opacity), 0.1, 1) : captionMaskState.opacity
         };
       } catch (err){
         console.warn("가림막 상태 복원 실패", err);
@@ -2323,7 +2418,9 @@
           visible: !!captionMaskState.visible,
           widthRatio: captionMaskState.widthRatio,
           heightRatio: captionMaskState.heightRatio,
-          bottomRatio: captionMaskState.bottomRatio
+          centerXRatio: captionMaskState.centerXRatio,
+          centerYRatio: captionMaskState.centerYRatio,
+          opacity: captionMaskState.opacity
         }));
       } catch (err){
         console.warn("가림막 상태 저장 실패", err);
@@ -2376,11 +2473,56 @@
       return { left: stageRect.left, top: stageRect.top, width: stageRect.width, height: stageRect.height };
     }
 
+    function updateCaptionMaskPanelControls(){
+      if (els.captionMaskOpacityRange){
+        const value = clamp(Number(captionMaskState.opacity || 0.96), 0.1, 1);
+        els.captionMaskOpacityRange.value = value.toFixed(2);
+      }
+      if (els.captionMaskOpacityValue){
+        els.captionMaskOpacityValue.textContent = `${Math.round(clamp(Number(captionMaskState.opacity || 0.96), 0.1, 1) * 100)}%`;
+      }
+    }
+
+    function setCaptionMaskPanelOpen(forceOpen){
+      captionMaskPanelOpen = !!forceOpen && !!captionMaskState.visible;
+      if (!els.captionMaskPanel) return;
+      els.captionMaskPanel.classList.toggle("is-open", captionMaskPanelOpen);
+      els.captionMaskPanel.setAttribute("aria-hidden", captionMaskPanelOpen ? "false" : "true");
+      if (captionMaskPanelOpen) updateCaptionMaskPanelControls();
+      updateCaptionMaskPanelLayout();
+    }
+
+    function updateCaptionMaskPanelLayout(){
+      if (!els.captionMaskPanel) return;
+      if (!captionMaskPanelOpen || !captionMaskState.visible || !els.captionMask?.classList.contains("is-visible")){
+        els.captionMaskPanel.style.display = "none";
+        return;
+      }
+      const stageRect = els.stage?.getBoundingClientRect?.();
+      const maskRect = els.captionMask?.getBoundingClientRect?.();
+      if (!stageRect || !maskRect || !maskRect.width || !maskRect.height){
+        els.captionMaskPanel.style.display = "none";
+        return;
+      }
+      const panelRect = els.captionMaskPanel.getBoundingClientRect();
+      const preferredLeft = maskRect.left - stageRect.left + maskRect.width - Math.max(220, panelRect.width || 220);
+      let left = clamp(preferredLeft, 8, Math.max(8, stageRect.width - Math.max(220, panelRect.width || 220) - 8));
+      let top = maskRect.top - stageRect.top - (panelRect.height || 90) - 10;
+      if (!Number.isFinite(top) || top < 8){
+        top = maskRect.top - stageRect.top + maskRect.height + 10;
+      }
+      top = clamp(top, 8, Math.max(8, stageRect.height - Math.max(90, panelRect.height || 90) - 8));
+      els.captionMaskPanel.style.display = "block";
+      els.captionMaskPanel.style.left = `${left}px`;
+      els.captionMaskPanel.style.top = `${top}px`;
+    }
+
     function updateCaptionMaskLayout(){
       if (!els.captionMask) return;
       if (!captionMaskState.visible){
         els.captionMask.classList.remove("is-visible");
         els.captionMask.style.display = "none";
+        setCaptionMaskPanelOpen(false);
         return;
       }
       const stageRect = els.stage?.getBoundingClientRect?.();
@@ -2388,23 +2530,33 @@
       if (!stageRect || !targetRect || !stageRect.width || !stageRect.height){
         els.captionMask.classList.remove("is-visible");
         els.captionMask.style.display = "none";
+        setCaptionMaskPanelOpen(false);
         return;
       }
 
       const width = clamp(targetRect.width * captionMaskState.widthRatio, 160, targetRect.width * 0.96);
       const height = clamp(targetRect.height * captionMaskState.heightRatio, 40, targetRect.height * 0.30);
-      const left = (targetRect.left - stageRect.left) + (targetRect.width - width) / 2;
-      const top = (targetRect.top - stageRect.top) + targetRect.height - height - (targetRect.height * captionMaskState.bottomRatio);
+      const minCenterX = width / 2;
+      const maxCenterX = Math.max(minCenterX, targetRect.width - width / 2);
+      const minCenterY = height / 2;
+      const maxCenterY = Math.max(minCenterY, targetRect.height - height / 2);
+      const centerX = clamp(targetRect.width * captionMaskState.centerXRatio, minCenterX, maxCenterX);
+      const centerY = clamp(targetRect.height * captionMaskState.centerYRatio, minCenterY, maxCenterY);
+      const left = (targetRect.left - stageRect.left) + centerX - width / 2;
+      const top = (targetRect.top - stageRect.top) + centerY - height / 2;
 
       els.captionMask.style.display = "block";
       els.captionMask.classList.add("is-visible");
       els.captionMask.style.width = `${Math.max(1, width)}px`;
       els.captionMask.style.height = `${Math.max(1, height)}px`;
-      els.captionMask.style.left = `${left}px`;
+      els.captionMask.style.left = `${Math.max(0, left)}px`;
       els.captionMask.style.top = `${Math.max(0, top)}px`;
       els.captionMask.style.bottom = "auto";
       els.captionMask.style.transform = "none";
       els.captionMask.style.borderRadius = `${Math.max(12, Math.round(height * 0.28))}px`;
+      els.captionMask.style.background = `rgba(8,10,14,${clamp(Number(captionMaskState.opacity || 0.96), 0.1, 1)})`;
+      updateCaptionMaskPanelControls();
+      updateCaptionMaskPanelLayout();
     }
 
     function applyCaptionMaskState(){
@@ -2414,10 +2566,115 @@
     function toggleCaptionMask(forceVisible = null){
       const nextVisible = typeof forceVisible === "boolean" ? forceVisible : !captionMaskState.visible;
       captionMaskState.visible = !!nextVisible;
+      if (!captionMaskState.visible) setCaptionMaskPanelOpen(false);
       saveCaptionMaskState();
       applyCaptionMaskState();
       showOverlay(captionMaskState.visible ? "가림막 켜짐" : "가림막 숨김", 900);
       Promise.resolve(saveState()).catch(() => {});
+    }
+
+    function setupCaptionMaskControls(){
+      if (!els.captionMask) return;
+
+      const closeIfOutside = (event) => {
+        if (!captionMaskPanelOpen) return;
+        const target = event.target;
+        if (els.captionMask?.contains(target) || els.captionMaskPanel?.contains(target)) return;
+        setCaptionMaskPanelOpen(false);
+      };
+
+      document.addEventListener("pointerdown", closeIfOutside, true);
+
+      els.captionMask.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (captionMaskDragState.moved) return;
+        setCaptionMaskPanelOpen(!captionMaskPanelOpen);
+        focusStageForShortcuts(0);
+      });
+
+      els.captionMask.addEventListener("pointerdown", (event) => {
+        if (!captionMaskState.visible) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        const stageRect = els.stage?.getBoundingClientRect?.();
+        const targetRect = getCaptionMaskTargetRect();
+        const maskRect = els.captionMask?.getBoundingClientRect?.();
+        if (!stageRect || !targetRect || !maskRect) return;
+        captionMaskDragState = {
+          active: true,
+          pointerId: event.pointerId,
+          targetRect,
+          stageRect,
+          maskWidth: maskRect.width,
+          maskHeight: maskRect.height,
+          offsetX: event.clientX - maskRect.left,
+          offsetY: event.clientY - maskRect.top,
+          moved: false
+        };
+        els.captionMask.classList.add("is-dragging");
+        try { els.captionMask.setPointerCapture(event.pointerId); } catch (_) {}
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      const handleDragMove = (event) => {
+        if (!captionMaskDragState.active || event.pointerId !== captionMaskDragState.pointerId) return;
+        const { stageRect, targetRect, maskWidth, maskHeight, offsetX, offsetY } = captionMaskDragState;
+        const targetLeftInStage = targetRect.left - stageRect.left;
+        const targetTopInStage = targetRect.top - stageRect.top;
+        let leftInStage = event.clientX - stageRect.left - offsetX;
+        let topInStage = event.clientY - stageRect.top - offsetY;
+        const minLeft = targetLeftInStage;
+        const maxLeft = targetLeftInStage + targetRect.width - maskWidth;
+        const minTop = targetTopInStage;
+        const maxTop = targetTopInStage + targetRect.height - maskHeight;
+        leftInStage = clamp(leftInStage, minLeft, Math.max(minLeft, maxLeft));
+        topInStage = clamp(topInStage, minTop, Math.max(minTop, maxTop));
+        const centerX = (leftInStage - targetLeftInStage) + maskWidth / 2;
+        const centerY = (topInStage - targetTopInStage) + maskHeight / 2;
+        captionMaskState.centerXRatio = clamp(centerX / Math.max(1, targetRect.width), 0.08, 0.92);
+        captionMaskState.centerYRatio = clamp(centerY / Math.max(1, targetRect.height), 0.08, 0.92);
+        captionMaskDragState.moved = true;
+        updateCaptionMaskLayout();
+        event.preventDefault();
+      };
+
+      const finishDrag = (event) => {
+        if (!captionMaskDragState.active || (event && event.pointerId !== undefined && event.pointerId !== captionMaskDragState.pointerId)) return;
+        const moved = captionMaskDragState.moved;
+        const pointerId = captionMaskDragState.pointerId;
+        captionMaskDragState.active = false;
+        captionMaskDragState.pointerId = null;
+        els.captionMask.classList.remove("is-dragging");
+        if (pointerId !== null){
+          try { els.captionMask.releasePointerCapture(pointerId); } catch (_) {}
+        }
+        saveCaptionMaskState();
+        Promise.resolve(saveState()).catch(() => {});
+        if (moved) setCaptionMaskPanelOpen(true);
+      };
+
+      els.captionMask.addEventListener("pointermove", handleDragMove);
+      els.captionMask.addEventListener("pointerup", finishDrag);
+      els.captionMask.addEventListener("pointercancel", finishDrag);
+
+      els.captionMaskPanel?.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      els.captionMaskPanel?.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+
+      els.captionMaskOpacityRange?.addEventListener("input", (event) => {
+        captionMaskState.opacity = clamp(Number(event.target.value || 0.96), 0.1, 1);
+        updateCaptionMaskLayout();
+        saveCaptionMaskState();
+      });
+
+      els.captionMaskOpacityRange?.addEventListener("change", () => {
+        saveCaptionMaskState();
+        Promise.resolve(saveState()).catch(() => {});
+      });
     }
 
     function showOverlay(message, ms = 1200){
@@ -5586,7 +5843,19 @@ async function saveState(){
       if (typeof state.currentVideoTime === "number") currentVideoTime = state.currentVideoTime;
       if (typeof state.abLoopStart === "number" || state.abLoopStart === null) abLoopStart = state.abLoopStart;
       if (typeof state.abLoopEnd === "number" || state.abLoopEnd === null) abLoopEnd = state.abLoopEnd;
-      if (typeof state.captionMaskVisible === "boolean") captionMaskState.visible = state.captionMaskVisible;
+      if (state.captionMaskState && typeof state.captionMaskState === "object") {
+        captionMaskState = {
+          ...captionMaskState,
+          visible: !!state.captionMaskState.visible,
+          widthRatio: Number.isFinite(Number(state.captionMaskState.widthRatio)) ? clamp(Number(state.captionMaskState.widthRatio), 0.3, 0.96) : captionMaskState.widthRatio,
+          heightRatio: Number.isFinite(Number(state.captionMaskState.heightRatio)) ? clamp(Number(state.captionMaskState.heightRatio), 0.08, 0.35) : captionMaskState.heightRatio,
+          centerXRatio: Number.isFinite(Number(state.captionMaskState.centerXRatio)) ? clamp(Number(state.captionMaskState.centerXRatio), 0.08, 0.92) : captionMaskState.centerXRatio,
+          centerYRatio: Number.isFinite(Number(state.captionMaskState.centerYRatio)) ? clamp(Number(state.captionMaskState.centerYRatio), 0.08, 0.92) : captionMaskState.centerYRatio,
+          opacity: Number.isFinite(Number(state.captionMaskState.opacity)) ? clamp(Number(state.captionMaskState.opacity), 0.1, 1) : captionMaskState.opacity
+        };
+      } else if (typeof state.captionMaskVisible === "boolean") {
+        captionMaskState.visible = state.captionMaskVisible;
+      }
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
       if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
       if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
@@ -7267,7 +7536,7 @@ function buildHelpText(){
     "S 용례 영상 / 다시 누르면 처음부터 재시작",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
-    "B 가림막 켜기/숨기기",
+    "B 가림막 켜기/숨기기 · 클릭 후 이동/투명도",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
     "M 메모 팝업 / 길게 눌러 편집",
@@ -7456,6 +7725,14 @@ function buildStatePayload(){
     abLoopStart,
     abLoopEnd,
     captionMaskVisible: !!captionMaskState.visible,
+    captionMaskState: {
+      visible: !!captionMaskState.visible,
+      widthRatio: captionMaskState.widthRatio,
+      heightRatio: captionMaskState.heightRatio,
+      centerXRatio: captionMaskState.centerXRatio,
+      centerYRatio: captionMaskState.centerYRatio,
+      opacity: captionMaskState.opacity
+    },
     exactMatch,
     groupShuffleSeed,
     exampleShuffleSeed,
@@ -9082,7 +9359,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
               logging: false,
               scale: Math.max(1, Math.min(2, window.devicePixelRatio || 1)),
               ignoreElements: (el) => {
-                return el === els.tapPrevZone || el === els.tapNextZone || el === els.dropHint || el === els.rotateHotspot || el === els.overlayMsg;
+                return el === els.tapPrevZone || el === els.tapNextZone || el === els.dropHint || el === els.rotateHotspot || el === els.overlayMsg || el === els.captionMaskPanel;
               }
             });
             downloadCanvas(canvas);
@@ -10994,6 +11271,7 @@ ${match.label}${timeText}`, 1500);
 
       loadCaptionMaskState();
       applyCaptionMaskState();
+      setupCaptionMaskControls();
       setupDragAndDrop();
       updatePlaybackButton();
       updateQuickButtons();
