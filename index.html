@@ -4,8 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>수어 학습 사이트</title>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <style>
+    <style>
     :root{
       --bg:#0b0d12;
       --panel:#121722;
@@ -2173,6 +2172,9 @@
     let noteModalEditable = false;
     let undoSnapshot = null;
     let redoSnapshot = null;
+    let dataUndoStack = [];
+    let dataRedoStack = [];
+    let isApplyingDataHistory = false;
     let searchComposing = false;
     let suggestionCacheKey = "";
     let suggestionCacheItems = [];
@@ -4923,7 +4925,7 @@
     function updateUndoButton(){
 
       if (!els.undoBtn) return;
-      const enabled = !!undoSnapshot;
+      const enabled = !!undoSnapshot || !!dataUndoStack.length;
       els.undoBtn.disabled = !enabled;
       els.undoBtn.style.opacity = enabled ? "1" : ".45";
     }
@@ -4946,6 +4948,79 @@
         exampleShuffleSeed,
         viewMode
       };
+    }
+
+    function cloneHistoryValue(value){
+      try {
+        if (typeof structuredClone === "function") return structuredClone(value);
+      } catch (_) {}
+      return JSON.parse(JSON.stringify(value ?? null));
+    }
+
+    function getRowsForHistory(){
+      return (Array.isArray(rows) ? rows : []).map((row) => {
+        const next = row && typeof row === "object" ? { ...row } : {};
+        delete next.__rowIndex;
+        return next;
+      });
+    }
+
+    function createDataHistorySnapshot(reason = ""){
+      return {
+        reason: safe(reason || ""),
+        rows: cloneHistoryValue(getRowsForHistory()),
+        notesByKey: cloneHistoryValue(notesByKey || {}),
+        ui: cloneHistoryValue(createUndoSnapshot()),
+        sourceName: safe(currentSourceName || "수정 데이터") || "수정 데이터"
+      };
+    }
+
+    function pushDataHistorySnapshot(reason = ""){
+      if (isApplyingDataHistory) return;
+      dataUndoStack.push(createDataHistorySnapshot(reason));
+      if (dataUndoStack.length > 40) dataUndoStack.shift();
+      dataRedoStack = [];
+      updateUndoButton();
+    }
+
+    async function restoreDataHistorySnapshot(snapshot, options = {}){
+      if (!snapshot || !Array.isArray(snapshot.rows)) return false;
+      isApplyingDataHistory = true;
+      try {
+        notesByKey = cloneHistoryValue(snapshot.notesByKey || {});
+        await finalizeLoadedData(cloneHistoryValue(snapshot.rows), snapshot.sourceName || currentSourceName || "수정 데이터", false, true, {
+          suppressLoadedOverlay: true,
+          restoredState: cloneHistoryValue(snapshot.ui || createUndoSnapshot()),
+          skipRemoteApply: true,
+          skipAutoInitialState: true
+        });
+        await saveNotesCache();
+        updateNoteButtons();
+        renderInfo();
+        await saveState();
+        return true;
+      } finally {
+        isApplyingDataHistory = false;
+        updateUndoButton();
+      }
+    }
+
+    async function undoDataHistory(){
+      if (!dataUndoStack.length) return false;
+      const snapshot = dataUndoStack.pop();
+      dataRedoStack.push(createDataHistorySnapshot(snapshot.reason || "redo"));
+      const restored = await restoreDataHistorySnapshot(snapshot);
+      if (restored) showOverlay("이전 작업 복원", 1000);
+      return restored;
+    }
+
+    async function redoDataHistory(){
+      if (!dataRedoStack.length) return false;
+      const snapshot = dataRedoStack.pop();
+      dataUndoStack.push(createDataHistorySnapshot(snapshot.reason || "undo"));
+      const restored = await restoreDataHistorySnapshot(snapshot);
+      if (restored) showOverlay("다시 실행 완료", 1000);
+      return restored;
     }
 
     function rememberUndoSnapshot(){
@@ -5102,6 +5177,7 @@
       if (!key) return;
       const value = safe(els.noteTextarea?.value || "");
       const rowIndex = getCurrentEntityRowIndex();
+      pushDataHistorySnapshot("노트 저장");
       if (value) notesByKey[key] = value;
       else delete notesByKey[key];
       if (rowIndex >= 0) setInlineMemoForRowIndex(rowIndex, value);
@@ -5116,6 +5192,7 @@
       const key = getCurrentEntityKey();
       if (!key) return;
       const rowIndex = getCurrentEntityRowIndex();
+      pushDataHistorySnapshot("노트 삭제");
       delete notesByKey[key];
       if (rowIndex >= 0) setInlineMemoForRowIndex(rowIndex, "");
       if (els.noteTextarea) els.noteTextarea.value = "";
@@ -5343,6 +5420,7 @@
         return;
       }
       rememberUndoSnapshot();
+      pushDataHistorySnapshot(`필드 편집:${currentEditSession.fieldCode || ""}`);
       currentEditSession.applyChange(nextValue);
       const successMessage = currentEditSession.successMessage || "저장";
       closeEditModal();
@@ -5577,6 +5655,7 @@
 
       const fallbackGroupIndex = Math.max(0, currentIndex - 1);
       rememberUndoSnapshot();
+      pushDataHistorySnapshot("현재 표제어 삭제");
       for (let i = deleteRowIndices.length - 1; i >= 0; i -= 1){
         rows.splice(deleteRowIndices[i], 1);
       }
@@ -5799,6 +5878,7 @@
       delete newRow["구간종료"];
 
       rememberUndoSnapshot();
+      pushDataHistorySnapshot(wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가");
       rows.push(newRow);
       const newRowIndex = rows.length - 1;
       closeAddEntryModal();
@@ -8421,6 +8501,15 @@ async function reconnectFirebaseRoom(){
   const nextRoom = sanitizeRoomKey(els.syncRoomInput?.value || syncRoomKey);
   firebaseBootstrapping = true;
   firebasePushEnabled = false;
+  if (!firebaseReady){
+    const ok = await initFirebaseSync();
+    if (!ok){
+      firebaseBootstrapping = false;
+      firebasePushEnabled = false;
+      updateFirebaseStatus("로컬", "normal");
+      return;
+    }
+  }
   const nextRoomKey = nextRoom;
   syncRoomKey = nextRoomKey;
   localStorage.setItem(FIREBASE_ROOM_STORAGE_KEY, syncRoomKey);
@@ -10428,7 +10517,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       maybeShowVariantHint();
     }
 
-    async function finalizeLoadedData(dataRows, sourceName, autoLoaded = false, saveCacheToo = false){
+    async function finalizeLoadedData(dataRows, sourceName, autoLoaded = false, saveCacheToo = false, options = {}){
       rows = (Array.isArray(dataRows) ? dataRows : []).map((row, idx) => {
         const next = row && typeof row === "object" ? { ...row } : {};
         next.__rowIndex = idx;
@@ -10457,8 +10546,13 @@ ${getSelectionEntries().length}개 항목`, 1200);
       updateCategoryOptions();
       updateSourceOptions();
 
-      const state = await getPreferredInitialState();
-      if (state) applyRestoredUIState(state);
+      const restoredState = options && typeof options === "object" ? options.restoredState : null;
+      const skipAutoInitialState = !!(options && options.skipAutoInitialState);
+      if (restoredState) applyRestoredUIState(restoredState);
+      else if (!skipAutoInitialState){
+        const state = await getPreferredInitialState();
+        if (state) applyRestoredUIState(state);
+      }
       updateQuickButtons();
       updateViewModeButton();
 
@@ -10496,12 +10590,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       pendingRestoreTime = currentVideoTime > 0 ? currentVideoTime : null;
-      await applyPendingRemoteStateIfReady({ silent: true, forceRemote: true });
+      if (!(options && options.skipRemoteApply)){
+        await applyPendingRemoteStateIfReady({ silent: true, forceRemote: true });
+      }
       render(getShouldAutoplay());
 
-      const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
-      const countableGroupTotal = getCountableGroups(groups).length;
-      showOverlay(`${autoText}\n${sourceName}\n표제어 ${countableGroupTotal}개\n용례 ${examplePool.length}개`, 1700);
+      if (!(options && options.suppressLoadedOverlay)){
+        const autoText = autoLoaded ? "자동 로드 완료" : "로드 완료";
+        const countableGroupTotal = getCountableGroups(groups).length;
+        showOverlay(`${autoText}\n${sourceName}\n표제어 ${countableGroupTotal}개\n용례 ${examplePool.length}개`, 1700);
+      }
       await saveState();
     }
 
@@ -10866,8 +10964,21 @@ ${match.label}${timeText}`, 1500);
         }
       }
 
-      if (e.ctrlKey && key === 'y'){ e.preventDefault(); redoSelectionHistory(); return; }
-      if (e.ctrlKey && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z'){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        if (dataUndoStack.length) undoDataHistory();
+        else undoLastAction();
+        return;
+      }
+      if (((e.ctrlKey || e.metaKey) && key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'z')){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        if (dataRedoStack.length) redoDataHistory();
+        else redoSelectionHistory();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
@@ -11295,7 +11406,10 @@ ${match.label}${timeText}`, 1500);
       }
       if (els.homeBtn) els.homeBtn.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
       if (els.homeBtnTop) els.homeBtnTop.addEventListener("click", async () => { rememberUndoSnapshot(); await goHome(); });
-      if (els.undoBtn) els.undoBtn.addEventListener("click", () => { undoLastAction(); });
+      if (els.undoBtn) els.undoBtn.addEventListener("click", async () => {
+        if (dataUndoStack.length) await undoDataHistory();
+        else await undoLastAction();
+      });
       (els.noteBtns || []).forEach(btn => bindHoldableButton(btn, {
         shortAction: () => triggerMode("M"),
         longAction: () => isMobileViewport() ? openNoteModal({ editable:true, focusEditor:true }) : null,
@@ -11838,33 +11952,25 @@ O 현재 화면 캡처`);
 
     async function boot(){
       installMediaDiagnostics();
-      preconnectYoutubeHosts();
-      ensureYoutubeApi().catch(() => {});
       bindEvents();
-      warmYoutubePlayerSoon();
       initEmptyState();
       firebaseBootstrapping = true;
       firebasePushEnabled = false;
       liveSyncEnabled = false;
       localStorage.setItem(FIREBASE_LIVE_STORAGE_KEY, "0");
       updateLiveSyncButton();
+      updateFirebaseStatus("로컬", "normal");
 
       const auxPromise = Promise.allSettled([
         loadSelectionPresets(),
         loadNotesCache()
       ]).catch(err => console.warn("보조 데이터 복원 실패", err));
 
-      const firebaseInitPromise = initFirebaseSync();
-
       let loaded = false;
       let remoteLoaded = false;
 
-      const firebaseStarted = await firebaseInitPromise;
-      if (firebaseStarted){
-        remoteLoaded = liveSyncEnabled ? await loadInitialFirebaseSnapshot({ forceRemote: true, silent: true }) : false;
-      } else {
-        firebaseBootstrapChecked = true;
-      }
+      const firebaseStarted = false;
+      firebaseBootstrapChecked = true;
 
       loaded = await tryRestoreIndexedCache();
       if (!loaded){
@@ -11888,10 +11994,10 @@ O 현재 화면 캡처`);
       }
 
       firebaseBootstrapping = false;
-      firebasePushEnabled = true;
+      firebasePushEnabled = !!firebaseStarted;
       if (firebaseStarted && liveSyncEnabled && remoteLoaded){
         updateFirebaseStatus(`연결됨 · ${syncRoomKey}`, "ok");
-      } else if (firebaseStarted && !liveSyncEnabled){
+      } else {
         updateFirebaseStatus("로컬", "normal");
       }
     }
