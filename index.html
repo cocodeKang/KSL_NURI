@@ -552,14 +552,103 @@
       touch-action:none;
       user-select:none;
       -webkit-user-select:none;
+      overflow:visible;
     }
 
     .caption-mask.is-visible{
       display:block;
     }
 
-    .caption-mask.is-dragging{
+    .caption-mask.is-dragging,
+    .caption-mask.is-resizing{
       cursor:grabbing;
+    }
+
+    .caption-mask-resize-handle{
+      position:absolute;
+      z-index:2;
+      background:transparent;
+      touch-action:none;
+    }
+
+    .caption-mask-resize-handle::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      margin:auto;
+      width:12px;
+      height:12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.55);
+      background:rgba(255,255,255,.18);
+      box-shadow:0 0 0 1px rgba(0,0,0,.18);
+      opacity:.92;
+    }
+
+    .caption-mask-resize-handle[data-dir="n"],
+    .caption-mask-resize-handle[data-dir="s"]{
+      left:14px;
+      right:14px;
+      height:14px;
+    }
+
+    .caption-mask-resize-handle[data-dir="n"]{
+      top:-7px;
+      cursor:ns-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="s"]{
+      bottom:-7px;
+      cursor:ns-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="e"],
+    .caption-mask-resize-handle[data-dir="w"]{
+      top:14px;
+      bottom:14px;
+      width:14px;
+    }
+
+    .caption-mask-resize-handle[data-dir="e"]{
+      right:-7px;
+      cursor:ew-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="w"]{
+      left:-7px;
+      cursor:ew-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="ne"],
+    .caption-mask-resize-handle[data-dir="nw"],
+    .caption-mask-resize-handle[data-dir="se"],
+    .caption-mask-resize-handle[data-dir="sw"]{
+      width:18px;
+      height:18px;
+    }
+
+    .caption-mask-resize-handle[data-dir="ne"]{
+      top:-9px;
+      right:-9px;
+      cursor:nesw-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="nw"]{
+      top:-9px;
+      left:-9px;
+      cursor:nwse-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="se"]{
+      right:-9px;
+      bottom:-9px;
+      cursor:nwse-resize;
+    }
+
+    .caption-mask-resize-handle[data-dir="sw"]{
+      left:-9px;
+      bottom:-9px;
+      cursor:nesw-resize;
     }
 
     .caption-mask-panel{
@@ -1068,6 +1157,36 @@
       z-index:2147483647;
     }
 
+    .note-modal.fullscreen-bottom{
+      align-items:flex-end;
+      justify-content:center;
+      padding:0 12px calc(12px + env(safe-area-inset-bottom));
+    }
+
+    .note-modal.fullscreen-bottom .note-dialog{
+      width:min(96vw, 1800px);
+      min-height:20vh;
+      max-height:20vh;
+      margin:0 auto;
+      gap:8px;
+      border-bottom-left-radius:0;
+      border-bottom-right-radius:0;
+      box-shadow:0 -10px 30px rgba(0,0,0,.35);
+    }
+
+    .note-modal.fullscreen-bottom .note-textarea,
+    .note-modal.fullscreen-bottom .note-view{
+      min-height:0;
+      max-height:none;
+      height:100%;
+      flex:1 1 auto;
+    }
+
+    .note-modal.fullscreen-bottom .note-head,
+    .note-modal.fullscreen-bottom .note-actions{
+      flex:0 0 auto;
+    }
+
     .note-modal.open{
       display:flex;
     }
@@ -1522,7 +1641,16 @@
           <div id="mainText" class="main-text"></div>
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
-          <div id="captionMask" class="caption-mask" aria-hidden="true"></div>
+          <div id="captionMask" class="caption-mask" aria-hidden="true">
+            <div class="caption-mask-resize-handle" data-dir="n" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="s" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="e" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="w" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="ne" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="nw" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="se" aria-hidden="true"></div>
+            <div class="caption-mask-resize-handle" data-dir="sw" aria-hidden="true"></div>
+          </div>
           <div id="captionMaskPanel" class="caption-mask-panel" aria-hidden="true">
             <div class="caption-mask-panel-title">가림막 조정</div>
             <div class="caption-mask-panel-row">
@@ -1530,7 +1658,7 @@
               <input id="captionMaskOpacityRange" type="range" min="0.1" max="1" step="0.01" value="0.96" />
               <span id="captionMaskOpacityValue" class="caption-mask-panel-value">96%</span>
             </div>
-            <div class="caption-mask-panel-hint">가림막을 드래그해서 위치를 옮길 수 있습니다.</div>
+            <div class="caption-mask-panel-hint">가림막을 드래그해서 위치를 옮기고, 테두리를 끌어서 크기를 조절할 수 있습니다.</div>
           </div>
           <div id="overlayMsg" class="overlay-msg"></div>
           <button id="rotateHotspot" class="rotate-hotspot mobile-only" title="화면 회전" aria-label="화면 회전">🔄</button>
@@ -1744,7 +1872,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v50_가림막이동_투명도조절";
+  const HTML_VERSION = "v52_가림막리사이즈_전체화면메모배치";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -1978,6 +2106,18 @@
       offsetY: 0,
       moved: false
     };
+    let captionMaskResizeState = {
+      active: false,
+      pointerId: null,
+      direction: "",
+      targetRect: null,
+      stageRect: null,
+      startLeft: 0,
+      startTop: 0,
+      startRight: 0,
+      startBottom: 0,
+      moved: false
+    };
 
     // 검색 제안 및 표제어 구분을 위해 중복되는 단어 목록을 저장합니다.
     let duplicateWords = new Set();
@@ -2001,6 +2141,10 @@
     let currentAddEntryTemplateRow = null;
     let addEntryModalOriginalParent = null;
     let addEntryModalOriginalNextSibling = null;
+    let noteModalOriginalParent = null;
+    let noteModalOriginalNextSibling = null;
+    let editModalOriginalParent = null;
+    let editModalOriginalNextSibling = null;
     const imageZoom = {
       scale: 1,
       x: 0,
@@ -2585,16 +2729,20 @@
 
       document.addEventListener("pointerdown", closeIfOutside, true);
 
+      const isResizeHandleTarget = (target) => !!target?.closest?.(".caption-mask-resize-handle");
+
       els.captionMask.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (captionMaskDragState.moved) return;
+        if (captionMaskDragState.moved || captionMaskResizeState.moved) return;
+        if (isResizeHandleTarget(event.target)) return;
         setCaptionMaskPanelOpen(!captionMaskPanelOpen);
         focusStageForShortcuts(0);
       });
 
       els.captionMask.addEventListener("pointerdown", (event) => {
         if (!captionMaskState.visible) return;
+        if (isResizeHandleTarget(event.target)) return;
         if (event.button !== undefined && event.button !== 0) return;
         const stageRect = els.stage?.getBoundingClientRect?.();
         const targetRect = getCaptionMaskTargetRect();
@@ -2611,6 +2759,7 @@
           offsetY: event.clientY - maskRect.top,
           moved: false
         };
+        captionMaskResizeState.moved = false;
         els.captionMask.classList.add("is-dragging");
         try { els.captionMask.setPointerCapture(event.pointerId); } catch (_) {}
         event.preventDefault();
@@ -2654,9 +2803,108 @@
         if (moved) setCaptionMaskPanelOpen(true);
       };
 
-      els.captionMask.addEventListener("pointermove", handleDragMove);
-      els.captionMask.addEventListener("pointerup", finishDrag);
-      els.captionMask.addEventListener("pointercancel", finishDrag);
+      const beginResize = (event, handleEl) => {
+        if (!captionMaskState.visible) return;
+        if (!handleEl) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        const dir = String(handleEl.dataset.dir || "").toLowerCase();
+        if (!dir) return;
+        const stageRect = els.stage?.getBoundingClientRect?.();
+        const targetRect = getCaptionMaskTargetRect();
+        const maskRect = els.captionMask?.getBoundingClientRect?.();
+        if (!stageRect || !targetRect || !maskRect || !maskRect.width || !maskRect.height) return;
+        const targetLeftInStage = targetRect.left - stageRect.left;
+        const targetTopInStage = targetRect.top - stageRect.top;
+        const startLeft = clamp(maskRect.left - stageRect.left - targetLeftInStage, 0, targetRect.width);
+        const startTop = clamp(maskRect.top - stageRect.top - targetTopInStage, 0, targetRect.height);
+        captionMaskResizeState = {
+          active: true,
+          pointerId: event.pointerId,
+          direction: dir,
+          targetRect,
+          stageRect,
+          startLeft,
+          startTop,
+          startRight: clamp(startLeft + maskRect.width, 0, targetRect.width),
+          startBottom: clamp(startTop + maskRect.height, 0, targetRect.height),
+          moved: false
+        };
+        captionMaskDragState.moved = false;
+        els.captionMask.classList.add("is-resizing");
+        try { handleEl.setPointerCapture(event.pointerId); } catch (_) {}
+        event.preventDefault();
+        event.stopPropagation();
+      };
+
+      const handleResizeMove = (event) => {
+        if (!captionMaskResizeState.active || event.pointerId !== captionMaskResizeState.pointerId) return;
+        const { direction, targetRect, startLeft, startTop, startRight, startBottom } = captionMaskResizeState;
+        let left = startLeft;
+        let top = startTop;
+        let right = startRight;
+        let bottom = startBottom;
+        const minWidth = Math.min(Math.max(120, targetRect.width * 0.12), Math.max(120, targetRect.width));
+        const minHeight = Math.min(Math.max(40, targetRect.height * 0.06), Math.max(40, targetRect.height));
+        const x = clamp(event.clientX - targetRect.left, 0, targetRect.width);
+        const y = clamp(event.clientY - targetRect.top, 0, targetRect.height);
+
+        if (direction.includes("e")) right = clamp(x, left + minWidth, targetRect.width);
+        if (direction.includes("w")) left = clamp(x, 0, right - minWidth);
+        if (direction.includes("s")) bottom = clamp(y, top + minHeight, targetRect.height);
+        if (direction.includes("n")) top = clamp(y, 0, bottom - minHeight);
+
+        const width = Math.max(minWidth, right - left);
+        const height = Math.max(minHeight, bottom - top);
+        const centerX = left + width / 2;
+        const centerY = top + height / 2;
+        captionMaskState.widthRatio = clamp(width / Math.max(1, targetRect.width), 0.12, 0.96);
+        captionMaskState.heightRatio = clamp(height / Math.max(1, targetRect.height), 0.04, 0.6);
+        captionMaskState.centerXRatio = clamp(centerX / Math.max(1, targetRect.width), 0.08, 0.92);
+        captionMaskState.centerYRatio = clamp(centerY / Math.max(1, targetRect.height), 0.08, 0.92);
+        captionMaskResizeState.moved = true;
+        updateCaptionMaskLayout();
+        event.preventDefault();
+      };
+
+      const finishResize = (event) => {
+        if (!captionMaskResizeState.active || (event && event.pointerId !== undefined && event.pointerId !== captionMaskResizeState.pointerId)) return;
+        const moved = captionMaskResizeState.moved;
+        captionMaskResizeState.active = false;
+        captionMaskResizeState.pointerId = null;
+        captionMaskResizeState.direction = "";
+        els.captionMask.classList.remove("is-resizing");
+        const handleEl = event?.target?.closest?.(".caption-mask-resize-handle");
+        if (handleEl){
+          try { handleEl.releasePointerCapture(event.pointerId); } catch (_) {}
+        }
+        saveCaptionMaskState();
+        Promise.resolve(saveState()).catch(() => {});
+        if (moved) setCaptionMaskPanelOpen(true);
+      };
+
+      els.captionMask.addEventListener("pointermove", (event) => {
+        handleDragMove(event);
+        handleResizeMove(event);
+      });
+      els.captionMask.addEventListener("pointerup", (event) => {
+        finishDrag(event);
+        finishResize(event);
+      });
+      els.captionMask.addEventListener("pointercancel", (event) => {
+        finishDrag(event);
+        finishResize(event);
+      });
+
+      els.captionMask.querySelectorAll(".caption-mask-resize-handle").forEach(handleEl => {
+        handleEl.addEventListener("pointerdown", (event) => beginResize(event, handleEl));
+        handleEl.addEventListener("pointermove", handleResizeMove);
+        handleEl.addEventListener("pointerup", finishResize);
+        handleEl.addEventListener("pointercancel", finishResize);
+        handleEl.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+      });
 
       els.captionMaskPanel?.addEventListener("pointerdown", (event) => {
         event.stopPropagation();
@@ -4817,6 +5065,7 @@
       const editable = !!(options && (options.editable || options.focusEditor));
       const focusEditor = !!(options && options.focusEditor);
       noteModalEditable = editable;
+      ensureNoteModalHost(editable);
       els.noteModalTitle.textContent = `${editable ? "메모 편집" : "메모"} · ${getCurrentEntityLabel()}`;
       if (els.noteTextarea) els.noteTextarea.value = value;
       if (els.noteViewText){
@@ -4841,6 +5090,7 @@
       noteModalEditable = false;
       els.noteModal.classList.remove("open", "editing", "readonly");
       els.noteModal.setAttribute("aria-hidden", "true");
+      restoreNoteModalHost();
       if (document.fullscreenElement && els.stage){
         setTimeout(() => els.stage.focus?.(), 0);
       }
@@ -4962,6 +5212,7 @@
       if (!els.editModal) return;
       els.editModal.classList.remove("open");
       els.editModal.setAttribute("aria-hidden", "true");
+      restoreEditModalHost();
       if (document.fullscreenElement && els.stage){
         setTimeout(() => els.stage.focus?.(), 0);
       }
@@ -5074,6 +5325,7 @@
         return;
       }
       currentEditSession = config;
+      ensureEditModalHost(false);
       if (els.editModalTitle) els.editModalTitle.textContent = config.title || "내용 편집";
       if (els.editTextarea) els.editTextarea.value = safe(config.initialValue || "");
       els.editModal?.classList.add("open");
@@ -5181,18 +5433,76 @@
       const currentItem = getCurrentPoolItem();
       const currentRow = getRowObject(getCurrentEntityRowIndex());
       if (scope === "word"){
-        if (currentMode === "W" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
-        return normalizeClipRawValue(
+        const stored = normalizeClipRawValue(
           pickValue(currentRow, ["headwordClipEnd", "구간종료_표제어"]) || currentGroup?.wordClipEndRaw || currentGroup?.wordClipEnd || ""
         );
+        if (stored) return stored;
+        if (currentMode === "W" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
+        return "";
       }
       if (scope === "example"){
-        if (currentMode === "S" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
-        return normalizeClipRawValue(
+        const stored = normalizeClipRawValue(
           pickValue(currentRow, ["exampleClipEnd", "구간종료_용례"]) || currentItem?.clipEndRaw || currentItem?.clipEnd || ""
         );
+        if (stored) return stored;
+        if (currentMode === "S" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
+        return "";
       }
       return "";
+    }
+
+    function ensureNoteModalHost(fullscreenBottom = false){
+      const modal = els.noteModal;
+      if (!modal) return;
+      if (!noteModalOriginalParent) noteModalOriginalParent = modal.parentNode || document.body;
+      if (noteModalOriginalNextSibling === null) noteModalOriginalNextSibling = modal.nextSibling || null;
+      const host = document.fullscreenElement || noteModalOriginalParent || document.body;
+      if (host && modal.parentNode !== host){
+        host.appendChild(modal);
+      }
+      modal.classList.toggle("in-fullscreen-host", !!document.fullscreenElement);
+      modal.classList.toggle("fullscreen-bottom", !!document.fullscreenElement && !!fullscreenBottom);
+    }
+
+    function restoreNoteModalHost(){
+      const modal = els.noteModal;
+      if (!modal) return;
+      modal.classList.remove("in-fullscreen-host", "fullscreen-bottom");
+      const parent = noteModalOriginalParent || document.body;
+      if (modal.parentNode !== parent){
+        if (noteModalOriginalNextSibling && noteModalOriginalNextSibling.parentNode === parent){
+          parent.insertBefore(modal, noteModalOriginalNextSibling);
+        } else {
+          parent.appendChild(modal);
+        }
+      }
+    }
+
+    function ensureEditModalHost(fullscreenBottom = false){
+      const modal = els.editModal;
+      if (!modal) return;
+      if (!editModalOriginalParent) editModalOriginalParent = modal.parentNode || document.body;
+      if (editModalOriginalNextSibling === null) editModalOriginalNextSibling = modal.nextSibling || null;
+      const host = document.fullscreenElement || editModalOriginalParent || document.body;
+      if (host && modal.parentNode !== host){
+        host.appendChild(modal);
+      }
+      modal.classList.toggle("in-fullscreen-host", !!document.fullscreenElement);
+      modal.classList.toggle("fullscreen-bottom", !!document.fullscreenElement && !!fullscreenBottom);
+    }
+
+    function restoreEditModalHost(){
+      const modal = els.editModal;
+      if (!modal) return;
+      modal.classList.remove("in-fullscreen-host", "fullscreen-bottom");
+      const parent = editModalOriginalParent || document.body;
+      if (modal.parentNode !== parent){
+        if (editModalOriginalNextSibling && editModalOriginalNextSibling.parentNode === parent){
+          parent.insertBefore(modal, editModalOriginalNextSibling);
+        } else {
+          parent.appendChild(modal);
+        }
+      }
     }
 
     function ensureAddEntryModalHost(){
@@ -5205,12 +5515,13 @@
         host.appendChild(modal);
       }
       modal.classList.toggle("in-fullscreen-host", !!document.fullscreenElement);
+      modal.classList.remove("fullscreen-bottom");
     }
 
     function restoreAddEntryModalHost(){
       const modal = els.addEntryModal;
       if (!modal) return;
-      modal.classList.remove("in-fullscreen-host");
+      modal.classList.remove("in-fullscreen-host", "fullscreen-bottom");
       const parent = addEntryModalOriginalParent || document.body;
       if (modal.parentNode !== parent){
         if (addEntryModalOriginalNextSibling && addEntryModalOriginalNextSibling.parentNode === parent){
@@ -5219,6 +5530,81 @@
           parent.appendChild(modal);
         }
       }
+    }
+
+    function settleAddedEntryPauseAt(targetTime, attempts = 18){
+      const pauseAt = Number(targetTime);
+      if (!Number.isFinite(pauseAt)) return;
+      let remain = Math.max(1, Number(attempts) || 1);
+      const tick = () => {
+        seekActiveMediaTo(pauseAt);
+        pauseActiveMedia();
+        focusStageForShortcuts(0);
+        remain -= 1;
+        if (remain <= 0) return;
+        setTimeout(tick, 120);
+      };
+      setTimeout(tick, 40);
+    }
+
+    function remapNotesAfterRowDeletion(deletedRowIndices){
+      const deleted = new Set((Array.isArray(deletedRowIndices) ? deletedRowIndices : []).map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 0));
+      if (!deleted.size || !notesByKey || typeof notesByKey !== "object") return;
+      const nextNotes = {};
+      Object.entries(notesByKey).forEach(([key, value]) => {
+        const match = /^row:(\d+)$/.exec(safe(key));
+        if (!match){
+          nextNotes[key] = value;
+          return;
+        }
+        const oldIndex = Number(match[1]);
+        if (deleted.has(oldIndex)) return;
+        let shift = 0;
+        deleted.forEach((deletedIndex) => {
+          if (deletedIndex < oldIndex) shift += 1;
+        });
+        nextNotes[`row:${oldIndex - shift}`] = value;
+      });
+      notesByKey = nextNotes;
+    }
+
+    async function deleteCurrentHeadword(){
+      const group = getCurrentGroup();
+      if (!group) return;
+      const deleteRowIndices = [...new Set((Array.isArray(group.rowIndices) ? group.rowIndices : []).map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 0))].sort((a, b) => a - b);
+      if (!deleteRowIndices.length) return;
+
+      const fallbackGroupIndex = Math.max(0, currentIndex - 1);
+      rememberUndoSnapshot();
+      for (let i = deleteRowIndices.length - 1; i >= 0; i -= 1){
+        rows.splice(deleteRowIndices[i], 1);
+      }
+      rows.forEach((row, idx) => {
+        if (row && typeof row === "object") row.__rowIndex = idx;
+      });
+      remapNotesAfterRowDeletion(deleteRowIndices);
+      currentIndex = fallbackGroupIndex;
+      currentPoolIndex = 0;
+      abLoopStart = null;
+      abLoopEnd = null;
+      pendingClipFocus = null;
+      pendingRestoreTime = null;
+      currentVideoTime = 0;
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      suggestionCacheKey = "";
+      restoreSearchPreview();
+      await saveNotesCache();
+      await persistEditedRows("현재 표제어 삭제");
+      await applyFilter({ save:false });
+      currentIndex = Math.min(currentIndex, Math.max(filteredGroups.length - 1, 0));
+      if (isExampleMode()){
+        const fallbackPoolIndex = filteredExamplePool.findIndex(item => String(item.groupId || "") === String(getCurrentGroup()?.id || ""));
+        currentPoolIndex = fallbackPoolIndex >= 0 ? fallbackPoolIndex : Math.min(currentPoolIndex, Math.max(filteredExamplePool.length - 1, 0));
+      }
+      render(false);
+      await saveState();
+      showOverlay("현재 표제어를 삭제했습니다", 1200);
     }
 
     async function focusNewlyAddedEntry(options = {}){
@@ -5271,11 +5657,13 @@
       pendingRestoreTime = pauseTime;
       if (Number.isFinite(pauseTime)) currentVideoTime = pauseTime;
       render(false);
-      setTimeout(() => {
-        if (Number.isFinite(pauseTime)) seekActiveMediaTo(pauseTime);
-        pauseActiveMedia();
-        focusStageForShortcuts(0);
-      }, 80);
+      if (Number.isFinite(pauseTime)) settleAddedEntryPauseAt(pauseTime);
+      else {
+        setTimeout(() => {
+          pauseActiveMedia();
+          focusStageForShortcuts(0);
+        }, 40);
+      }
       await saveState();
       return true;
     }
@@ -7548,6 +7936,7 @@ function buildHelpText(){
     "Shift+A 용례문 편집",
     "Shift+C 부가그림 편집",
     "Shift+M 메모 편집",
+    "Delete 현재 표제어 삭제",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
@@ -10377,6 +10766,7 @@ ${match.label}${timeText}`, 1500);
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
 
       if (e.code === "Space"){
         e.preventDefault();
@@ -10873,6 +11263,25 @@ ${match.label}${timeText}`, 1500);
       els.zoomResetBtn?.addEventListener("click", () => { rememberUndoSnapshot(); resetImageZoom(); });
       els.abStartBtn?.addEventListener("click", () => { rememberUndoSnapshot(); setABStart(); });
       bindABEndLongPress();
+      document.addEventListener("fullscreenchange", () => {
+        if (els.noteModal?.classList.contains("open")){
+          ensureNoteModalHost(noteModalEditable);
+        } else {
+          restoreNoteModalHost();
+        }
+        if (els.editModal?.classList.contains("open")){
+          ensureEditModalHost(false);
+        } else {
+          restoreEditModalHost();
+        }
+        if (els.addEntryModal?.classList.contains("open")){
+          ensureAddEntryModalHost();
+        } else {
+          restoreAddEntryModalHost();
+        }
+        updateCaptionMaskLayout();
+      });
+
       els.rotateHotspot?.addEventListener("click", (e) => { e.preventDefault(); handleRotateHotspot(); });
 
       window.addEventListener("keydown", handleGlobalKeydown, true);
