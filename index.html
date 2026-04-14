@@ -1987,7 +1987,7 @@
     let bracketRightHoldTriggered = false;
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
-    let spaceToggleArmed = false;
+    let spaceTogglePressed = false;
     let spaceToggleCooldownUntil = 0;
     let pendingClipFocus = null;
     let ytPlayer = null;
@@ -2903,6 +2903,14 @@
                 const now = Number(ytPlayer?.getCurrentTime?.() || 0);
                 if (Number.isFinite(now)) currentVideoTime = now;
               } catch (_) {}
+              try {
+                const state = Number(ytPlayer?.getPlayerState?.());
+                const YTState = window.YT?.PlayerState || {};
+                if (state === YTState.PLAYING){
+                  alignYoutubeToActiveClip();
+                  startYoutubeClipWatcher();
+                }
+              } catch (_) {}
             }
           }
         };
@@ -3122,27 +3130,23 @@
     }
 
     function getRowClipInfo(row){
-      const genericStartSource = getRowClipFieldValue(row, ["clipStart", "구간시작"]);
-      const genericEndSource = getRowClipFieldValue(row, ["clipEnd", "구간종료"]);
-      const wordStartSource = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]) || genericStartSource;
-      const wordEndSource = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]) || genericEndSource;
-      const exampleStartSource = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]) || genericStartSource;
-      const exampleEndSource = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]) || genericEndSource;
-      const genericStart = parseTimeToSeconds(genericStartSource);
-      const genericEnd = parseTimeToSeconds(genericEndSource);
+      const wordStartSource = getRowClipFieldValue(row, ["headwordClipStart", "구간시작_표제어"]);
+      const wordEndSource = getRowClipFieldValue(row, ["headwordClipEnd", "구간종료_표제어"]);
+      const exampleStartSource = getRowClipFieldValue(row, ["exampleClipStart", "구간시작_용례"]);
+      const exampleEndSource = getRowClipFieldValue(row, ["exampleClipEnd", "구간종료_용례"]);
       const wordStart = parseTimeToSeconds(wordStartSource);
       const wordEnd = parseTimeToSeconds(wordEndSource);
       const exampleStart = parseTimeToSeconds(exampleStartSource);
       const exampleEnd = parseTimeToSeconds(exampleEndSource);
       return {
-        genericStartRaw: normalizeClipRawValue(genericStartSource),
-        genericEndRaw: normalizeClipRawValue(genericEndSource),
+        genericStartRaw: "",
+        genericEndRaw: "",
         wordStartRaw: normalizeClipRawValue(wordStartSource),
         wordEndRaw: normalizeClipRawValue(wordEndSource),
         exampleStartRaw: normalizeClipRawValue(exampleStartSource),
         exampleEndRaw: normalizeClipRawValue(exampleEndSource),
-        genericStart,
-        genericEnd,
+        genericStart: null,
+        genericEnd: null,
         wordStart,
         wordEnd,
         exampleStart,
@@ -3765,8 +3769,6 @@
       return !!(
         safe(entity?.wordClipStartRaw)
         || safe(entity?.wordClipEndRaw)
-        || safe(entity?.clipStartRaw)
-        || safe(entity?.clipEndRaw)
       );
     }
 
@@ -4902,7 +4904,38 @@
     function buildCurrentAddEntryPrefill(){
       const row = getRowObject(getCurrentEntityRowIndex()) || null;
       const group = getCurrentGroup();
+      const currentItem = getCurrentPoolItem();
       const baseId = safe(pickValue(row, ["sourceId", "ID", "id", "Id"]) || group?.sourceId || group?.id || "");
+      const templateRow = cloneAddEntryTemplateRow(row);
+
+      const prevHeadwordClipEnd = normalizeClipRawValue(
+        pickValue(row, ["headwordClipEnd", "구간종료_표제어"]) || group?.wordClipEndRaw || group?.wordClipEnd || ""
+      );
+      const prevExampleClipEnd = normalizeClipRawValue(
+        pickValue(row, ["exampleClipEnd", "구간종료_용례"]) || currentItem?.clipEndRaw || currentItem?.clipEnd || ""
+      );
+
+      if (templateRow){
+        if (prevHeadwordClipEnd){
+          setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", prevHeadwordClipEnd);
+        } else {
+          setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", "");
+        }
+        setPreferredFieldValue(templateRow, ["headwordClipEnd", "구간종료_표제어"], "headwordClipEnd", "");
+
+        if (prevExampleClipEnd){
+          setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", prevExampleClipEnd);
+        } else {
+          setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", "");
+        }
+        setPreferredFieldValue(templateRow, ["exampleClipEnd", "구간종료_용례"], "exampleClipEnd", "");
+
+        delete templateRow.clipStart;
+        delete templateRow.clipEnd;
+        delete templateRow["구간시작"];
+        delete templateRow["구간종료"];
+      }
+
       return {
         title: row ? "현재 내용 복제 추가" : "새 표제어 추가",
         sourceId: getNextAvailableSourceId(baseId),
@@ -4913,7 +4946,7 @@
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
         sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
         category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
-        templateRow: cloneAddEntryTemplateRow(row)
+        templateRow
       };
     }
 
@@ -4978,12 +5011,14 @@
         headwordClipStart: safe(templateRow.headwordClipStart || templateRow.구간시작_표제어 || ""),
         headwordClipEnd: safe(templateRow.headwordClipEnd || templateRow.구간종료_표제어 || ""),
         exampleClipStart: safe(templateRow.exampleClipStart || templateRow.구간시작_용례 || ""),
-        exampleClipEnd: safe(templateRow.exampleClipEnd || templateRow.구간종료_용례 || ""),
-        clipStart: safe(templateRow.clipStart || templateRow.구간시작 || ""),
-        clipEnd: safe(templateRow.clipEnd || templateRow.구간종료 || "")
+        exampleClipEnd: safe(templateRow.exampleClipEnd || templateRow.구간종료_용례 || "")
       };
 
       delete newRow.__rowIndex;
+      delete newRow.clipStart;
+      delete newRow.clipEnd;
+      delete newRow["구간시작"];
+      delete newRow["구간종료"];
 
       rememberUndoSnapshot();
       rows.push(newRow);
@@ -5038,8 +5073,6 @@
         { header: "부가정보", value: row => safe(row?.additionalInfo || row?.extraInfo || row?.부가정보 || "") },
         { header: "부가그림", value: row => safe(row?.additionalImage || row?.부가그림 || row?.["부가 그림"] || "") },
         { header: "메모", value: (row, rowIndex) => safe((notesByKey || {})[buildRowNoteKey(rowIndex)] || row?.["메모"] || row?.memo || "") },
-        { header: "구간시작", value: row => getPreferredExportClipValue(row, "start") },
-        { header: "구간종료", value: row => getPreferredExportClipValue(row, "end") },
         { header: "구간시작_표제어", value: row => normalizeClipRawValue(row?.headwordClipStart || row?.["구간시작_표제어"] || "") },
         { header: "구간종료_표제어", value: row => normalizeClipRawValue(row?.headwordClipEnd || row?.["구간종료_표제어"] || "") },
         { header: "구간시작_용례", value: row => normalizeClipRawValue(row?.exampleClipStart || row?.["구간시작_용례"] || "") },
@@ -7118,7 +7151,7 @@ function buildHelpText(){
     "Shift + 휠 아래 왼쪽 이동",
     "Shift + ? 도움말 열기/닫기",
     "← → 이전/다음",
-    "Space 재생/일시정지",
+    "Space 재생/일시정지(한 번 누르면 한 번만)",
     "< > 재생속도",
     ", . 프레임 이동",
     "0~9 영상 위치 이동"
@@ -8435,9 +8468,63 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return false;
     }
 
+
+    function getActivePlaybackClipRange(){
+      const clip = getCurrentModeClipRange();
+      if (!clip) return null;
+      const start = Number(clip.start);
+      const end = Number(clip.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+      return { start, end };
+    }
+
+    function alignMainVideoToActiveClip(options = {}){
+      if (!els.mainVideo?.src) return false;
+      const clip = getActivePlaybackClipRange();
+      if (!clip) return false;
+      const current = Number(els.mainVideo.currentTime || 0);
+      const tolerance = Number.isFinite(Number(options.tolerance)) ? Number(options.tolerance) : 0.08;
+      const force = !!options.force;
+      if (force || current < (clip.start - tolerance) || current >= (clip.end - tolerance)){
+        try {
+          els.mainVideo.currentTime = clip.start;
+          currentVideoTime = clip.start;
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      return false;
+    }
+
+    function alignYoutubeToActiveClip(options = {}){
+      if (!canControlYoutubePlayer()) return false;
+      const clip = getActivePlaybackClipRange();
+      if (!clip) return false;
+      let current = NaN;
+      try {
+        current = Number(ytPlayer.getCurrentTime?.() || 0);
+      } catch (_) {
+        current = NaN;
+      }
+      const tolerance = Number.isFinite(Number(options.tolerance)) ? Number(options.tolerance) : 0.08;
+      const force = !!options.force;
+      if (force || !Number.isFinite(current) || current < (clip.start - tolerance) || current >= (clip.end - tolerance)){
+        try {
+          ytPlayer.seekTo(clip.start, true);
+          currentVideoTime = clip.start;
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      return false;
+    }
+
     function playActiveMedia(){
       if (canControlYoutubePlayer()){
         try {
+          alignYoutubeToActiveClip();
           ytPlayer.playVideo();
           startYoutubeClipWatcher();
           return true;
@@ -8446,6 +8533,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         }
       }
       if (els.mainVideo?.src){
+        alignMainVideoToActiveClip();
         els.mainVideo.play().catch(() => {});
         return true;
       }
@@ -8610,9 +8698,15 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     function clearABLoop(){
-      if (abLoopStart === null && abLoopEnd === null){
+      const clipScope = getCurrentClipScope();
+      const hasStoredRange = !!(getCurrentModeClipRange() || clipScope);
+      if (abLoopStart === null && abLoopEnd === null && !hasStoredRange){
         showOverlay("구간 반복이 설정되지 않았습니다", 900);
         return;
+      }
+      if (clipScope){
+        updateActiveClipValue(clipScope, "start", null);
+        updateActiveClipValue(clipScope, "end", null);
       }
       abLoopStart = null;
       abLoopEnd = null;
@@ -8637,7 +8731,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
         const row = getRowObject(rowIndex);
         if (row){
           setPreferredFieldValue(row, [type === "start" ? "exampleClipStart" : "exampleClipEnd", type === "start" ? "구간시작_용례" : "구간종료_용례"], type === "start" ? "exampleClipStart" : "exampleClipEnd", rawValue);
-          setPreferredFieldValue(row, [type === "start" ? "clipStart" : "clipEnd", type === "start" ? "구간시작" : "구간종료"], type === "start" ? "clipStart" : "clipEnd", rawValue);
+          delete row.clipStart;
+          delete row.clipEnd;
+          delete row["구간시작"];
+          delete row["구간종료"];
         }
         const item = getCurrentPoolItem();
         if (item){
@@ -8660,7 +8757,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const row = getRowObject(rowIndex);
           if (!row) return;
           setPreferredFieldValue(row, [type === "start" ? "headwordClipStart" : "headwordClipEnd", type === "start" ? "구간시작_표제어" : "구간종료_표제어"], type === "start" ? "headwordClipStart" : "headwordClipEnd", rawValue);
-          setPreferredFieldValue(row, [type === "start" ? "clipStart" : "clipEnd", type === "start" ? "구간시작" : "구간종료"], type === "start" ? "clipStart" : "clipEnd", rawValue);
+          delete row.clipStart;
+          delete row.clipEnd;
+          delete row["구간시작"];
+          delete row["구간종료"];
         });
         if (group){
           if (type === "start"){
@@ -9851,8 +9951,14 @@ ${match.label}${timeText}`, 1500);
       if (e.code === "Space"){
         e.preventDefault();
         e.stopPropagation();
-        if (e.repeat) return;
-        spaceToggleArmed = true;
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        if (e.repeat || spaceTogglePressed) return;
+        spaceTogglePressed = true;
+        if (Date.now() >= spaceToggleCooldownUntil){
+          spaceToggleCooldownUntil = Date.now() + 180;
+          togglePlayPause();
+          focusStageForShortcuts(0);
+        }
         return;
       }
 
@@ -9948,13 +10054,8 @@ ${match.label}${timeText}`, 1500);
       if (e.code === "Space"){
         e.preventDefault();
         e.stopPropagation();
-        const armed = spaceToggleArmed;
-        spaceToggleArmed = false;
-        if (armed && Date.now() >= spaceToggleCooldownUntil){
-          spaceToggleCooldownUntil = Date.now() + 120;
-          togglePlayPause();
-          focusStageForShortcuts(0);
-        }
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        spaceTogglePressed = false;
         return;
       }
       if (finishHeldShortcut(key)) return;
@@ -10346,6 +10447,7 @@ ${match.label}${timeText}`, 1500);
 
       window.addEventListener("keydown", handleGlobalKeydown, true);
       window.addEventListener("keyup", handleGlobalKeyup, true);
+      window.addEventListener("blur", () => { spaceTogglePressed = false; }, true);
       window.addEventListener("blur", clearHeldShortcuts);
 
       els.mobileInfoBtn.addEventListener("click", () => openMobileSheet("info"));
@@ -10680,6 +10782,15 @@ ${match.label}${timeText}`, 1500);
           }
           pendingClipFocus = null;
         }
+      });
+
+      els.mainVideo.addEventListener("play", () => {
+        alignMainVideoToActiveClip();
+        focusStageForShortcuts(0);
+      });
+
+      els.mainVideo.addEventListener("pause", () => {
+        focusStageForShortcuts(0);
       });
 
       els.mainVideo.addEventListener("timeupdate", () => {
