@@ -2943,8 +2943,9 @@
 
       const shouldReload = ytCurrentVideoId !== videoId;
       ytCurrentVideoId = videoId;
+      // endSeconds를 payload에 함께 넘기면 일부 환경에서 클릭 재생/토글 직후
+      // 짧게 재생되었다가 멈추는 현상이 있어, 종료 시점은 watcher로만 관리합니다.
       const payload = { videoId, startSeconds: start };
-      if (Number.isFinite(end) && end > start) payload.endSeconds = end;
 
       try {
         if (shouldReload){
@@ -8598,6 +8599,17 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return false;
     }
 
+    function blurInteractiveFocusForSpaceToggle(){
+      const active = document.activeElement;
+      if (!active || active === document.body || active === els.stage) return;
+      if (active === els.searchInput || active === els.noteTextarea || active === els.editTextarea) return;
+      const tag = String(active.tagName || "").toUpperCase();
+      const interactive = tag === "BUTTON" || tag === "A" || tag === "SELECT" || tag === "VIDEO" || tag === "IFRAME";
+      if (interactive && typeof active.blur === "function"){
+        try { active.blur(); } catch (_) {}
+      }
+    }
+
     function togglePlayPause(){
       if (!isVideoMode()) return;
       if (isActiveMediaPlaying()){
@@ -9952,12 +9964,8 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-        if (e.repeat || spaceTogglePressed) return;
-        spaceTogglePressed = true;
-        if (Date.now() >= spaceToggleCooldownUntil){
-          spaceToggleCooldownUntil = Date.now() + 180;
-          togglePlayPause();
-          focusStageForShortcuts(0);
+        if (!spaceTogglePressed){
+          spaceTogglePressed = true;
         }
         return;
       }
@@ -10055,7 +10063,14 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        const shouldToggle = spaceTogglePressed && !e.repeat;
         spaceTogglePressed = false;
+        if (shouldToggle && Date.now() >= spaceToggleCooldownUntil){
+          spaceToggleCooldownUntil = Date.now() + 220;
+          blurInteractiveFocusForSpaceToggle();
+          togglePlayPause();
+          focusStageForShortcuts(0);
+        }
         return;
       }
       if (finishHeldShortcut(key)) return;
