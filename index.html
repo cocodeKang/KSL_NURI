@@ -995,7 +995,13 @@
       align-items:center;
       justify-content:center;
       padding:20px;
-      z-index:12000;
+      z-index:200000;
+    }
+
+    .note-modal.in-fullscreen-host{
+      position:fixed;
+      inset:0;
+      z-index:2147483647;
     }
 
     .note-modal.open{
@@ -1665,7 +1671,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v48_재생안정화_버전표시";
+  const HTML_VERSION = "v49_복제이동_전체화면추가창_표제어번호증가";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -1902,6 +1908,8 @@
     let mobileSheetMode = "info";
     let currentEditSession = null;
     let currentAddEntryTemplateRow = null;
+    let addEntryModalOriginalParent = null;
+    let addEntryModalOriginalNextSibling = null;
     const imageZoom = {
       scale: 1,
       x: 0,
@@ -4860,6 +4868,7 @@
       if (!els.addEntryModal) return;
       els.addEntryModal.classList.remove("open");
       els.addEntryModal.setAttribute("aria-hidden", "true");
+      restoreAddEntryModalHost();
       if (document.fullscreenElement && els.stage){
         setTimeout(() => els.stage.focus?.(), 0);
       }
@@ -4897,6 +4906,123 @@
       return String(next);
     }
 
+    function incrementHeadwordLabel(baseWord){
+      const word = safe(baseWord).trim();
+      if (!word) return "";
+      const match = word.match(/^(.*?)(\d+)$/);
+      if (!match) return `${word}1`;
+      const stem = safe(match[1]);
+      const numberText = safe(match[2]);
+      const nextNumber = Number(numberText);
+      if (!Number.isFinite(nextNumber)) return `${word}1`;
+      return `${stem}${nextNumber + 1}`;
+    }
+
+    function getDuplicateAnchorTime(scope){
+      const activeTime = getActiveMediaTime();
+      const currentGroup = getCurrentGroup();
+      const currentItem = getCurrentPoolItem();
+      const currentRow = getRowObject(getCurrentEntityRowIndex());
+      if (scope === "word"){
+        if (currentMode === "W" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
+        return normalizeClipRawValue(
+          pickValue(currentRow, ["headwordClipEnd", "구간종료_표제어"]) || currentGroup?.wordClipEndRaw || currentGroup?.wordClipEnd || ""
+        );
+      }
+      if (scope === "example"){
+        if (currentMode === "S" && Number.isFinite(activeTime)) return normalizeClipRawValue(activeTime);
+        return normalizeClipRawValue(
+          pickValue(currentRow, ["exampleClipEnd", "구간종료_용례"]) || currentItem?.clipEndRaw || currentItem?.clipEnd || ""
+        );
+      }
+      return "";
+    }
+
+    function ensureAddEntryModalHost(){
+      const modal = els.addEntryModal;
+      if (!modal) return;
+      if (!addEntryModalOriginalParent) addEntryModalOriginalParent = modal.parentNode || document.body;
+      if (addEntryModalOriginalNextSibling === null) addEntryModalOriginalNextSibling = modal.nextSibling || null;
+      const host = document.fullscreenElement || addEntryModalOriginalParent || document.body;
+      if (host && modal.parentNode !== host){
+        host.appendChild(modal);
+      }
+      modal.classList.toggle("in-fullscreen-host", !!document.fullscreenElement);
+    }
+
+    function restoreAddEntryModalHost(){
+      const modal = els.addEntryModal;
+      if (!modal) return;
+      modal.classList.remove("in-fullscreen-host");
+      const parent = addEntryModalOriginalParent || document.body;
+      if (modal.parentNode !== parent){
+        if (addEntryModalOriginalNextSibling && addEntryModalOriginalNextSibling.parentNode === parent){
+          parent.insertBefore(modal, addEntryModalOriginalNextSibling);
+        } else {
+          parent.appendChild(modal);
+        }
+      }
+    }
+
+    async function focusNewlyAddedEntry(options = {}){
+      const sourceId = safe(options.sourceId || "").trim();
+      if (!sourceId) return false;
+      const targetWord = safe(options.word || "").trim();
+      const preferredMode = safe(options.mode || currentMode || "W") || "W";
+      const pauseTimeValue = Number(options.pauseTime);
+      const pauseTime = Number.isFinite(pauseTimeValue) ? pauseTimeValue : null;
+
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      suggestionCacheKey = "";
+      searchFocusedIndex = -1;
+      searchIdMode = false;
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      if (els.searchInput) els.searchInput.value = targetWord;
+
+      await applyFilter({ save:false });
+
+      let targetGroup = filteredGroups.find(group => safe(group?.sourceId || "") === sourceId)
+        || groups.find(group => safe(group?.sourceId || "") === sourceId)
+        || null;
+      if (!targetGroup){
+        if (els.searchInput) els.searchInput.value = "";
+        await applyFilter({ save:false });
+        targetGroup = filteredGroups.find(group => safe(group?.sourceId || "") === sourceId)
+          || groups.find(group => safe(group?.sourceId || "") === sourceId)
+          || null;
+      }
+      if (!targetGroup) return false;
+
+      if (!filteredGroups.some(group => String(group?.id || "") === String(targetGroup.id))){
+        pendingRestoreGroupId = String(targetGroup.id || "");
+        await applyFilter({ save:false });
+      }
+
+      const groupIndex = filteredGroups.findIndex(group => String(group?.id || "") === String(targetGroup.id));
+      if (groupIndex >= 0) currentIndex = groupIndex;
+      currentMode = preferredMode;
+      if (preferredMode === "S"){
+        const exampleIndex = filteredExamplePool.findIndex(item => String(item?.groupId || "") === String(targetGroup.id));
+        if (exampleIndex >= 0) currentPoolIndex = exampleIndex;
+      }
+
+      abLoopStart = null;
+      abLoopEnd = null;
+      pendingClipFocus = null;
+      pendingRestoreTime = pauseTime;
+      if (Number.isFinite(pauseTime)) currentVideoTime = pauseTime;
+      render(false);
+      setTimeout(() => {
+        if (Number.isFinite(pauseTime)) seekActiveMediaTo(pauseTime);
+        pauseActiveMedia();
+        focusStageForShortcuts(0);
+      }, 80);
+      await saveState();
+      return true;
+    }
+
     function cloneAddEntryTemplateRow(row){
       if (!row || typeof row !== "object") return null;
       const cloned = { ...row };
@@ -4907,55 +5033,50 @@
     function buildCurrentAddEntryPrefill(){
       const row = getRowObject(getCurrentEntityRowIndex()) || null;
       const group = getCurrentGroup();
-      const currentItem = getCurrentPoolItem();
       const baseId = safe(pickValue(row, ["sourceId", "ID", "id", "Id"]) || group?.sourceId || group?.id || "");
       const templateRow = cloneAddEntryTemplateRow(row);
-
-      const prevHeadwordClipEnd = normalizeClipRawValue(
-        pickValue(row, ["headwordClipEnd", "구간종료_표제어"]) || group?.wordClipEndRaw || group?.wordClipEnd || ""
-      );
-      const prevExampleClipEnd = normalizeClipRawValue(
-        pickValue(row, ["exampleClipEnd", "구간종료_용례"]) || currentItem?.clipEndRaw || currentItem?.clipEnd || ""
-      );
+      const nextHeadwordClipStart = getDuplicateAnchorTime("word");
+      const nextExampleClipStart = getDuplicateAnchorTime("example");
 
       if (templateRow){
-        if (prevHeadwordClipEnd){
-          setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", prevHeadwordClipEnd);
-        } else {
-          setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", "");
-        }
+        setPreferredFieldValue(templateRow, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", nextHeadwordClipStart || "");
         setPreferredFieldValue(templateRow, ["headwordClipEnd", "구간종료_표제어"], "headwordClipEnd", "");
-
-        if (prevExampleClipEnd){
-          setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", prevExampleClipEnd);
-        } else {
-          setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", "");
-        }
+        setPreferredFieldValue(templateRow, ["exampleClipStart", "구간시작_용례"], "exampleClipStart", nextExampleClipStart || "");
         setPreferredFieldValue(templateRow, ["exampleClipEnd", "구간종료_용례"], "exampleClipEnd", "");
-
         delete templateRow.clipStart;
         delete templateRow.clipEnd;
         delete templateRow["구간시작"];
         delete templateRow["구간종료"];
       }
 
+      const currentWord = safe(pickValue(row, ["expression", "표제어", "word", "단어", "표현"]) || group?.word || "");
+      const pauseScope = currentMode === "S" ? "example" : "word";
+      const pauseAnchorRaw = pauseScope === "example" ? (nextExampleClipStart || nextHeadwordClipStart) : (nextHeadwordClipStart || nextExampleClipStart);
+      const pauseAnchor = parseTimeToSeconds(pauseAnchorRaw);
+
       return {
         title: row ? "현재 내용 복제 추가" : "새 표제어 추가",
         sourceId: getNextAvailableSourceId(baseId),
-        word: safe(pickValue(row, ["expression", "표제어", "word", "단어", "표현"]) || group?.word || ""),
+        word: incrementHeadwordLabel(currentWord),
         definition: safe(pickValue(row, ["definition", "뜻풀이"]) || group?.definition || ""),
         exampleText: safe(pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]) || getCurrentPoolItem()?.text || ""),
         memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
         sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
         category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
-        templateRow
+        templateRow,
+        preferredMode: currentMode,
+        pauseTime: Number.isFinite(pauseAnchor) ? pauseAnchor : null
       };
     }
 
     function openAddEntryModal(options = {}){
       const defaultWord = safe(options.word ?? els.searchInput?.value ?? "").trim();
       currentAddEntryTemplateRow = options.templateRow ? cloneAddEntryTemplateRow(options.templateRow) : null;
+      if (currentAddEntryTemplateRow){
+        currentAddEntryTemplateRow.__preferredMode = safe(options.preferredMode || currentMode || "W") || "W";
+        currentAddEntryTemplateRow.__pauseTime = Number.isFinite(Number(options.pauseTime)) ? Number(options.pauseTime) : null;
+      }
       if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = safe(options.title || "새 표제어 추가");
       if (els.addEntryId) els.addEntryId.value = safe(options.sourceId || getNextAvailableSourceId());
       if (els.addEntryWord) els.addEntryWord.value = defaultWord;
@@ -4963,6 +5084,7 @@
       if (els.addEntryExample) els.addEntryExample.value = safe(options.exampleText || "");
       if (els.addEntryMemo) els.addEntryMemo.value = safe(options.memo || "");
       if (els.addEntryExtraInfo) els.addEntryExtraInfo.value = safe(options.extraInfo || "");
+      ensureAddEntryModalHost();
       els.addEntryModal?.classList.add("open");
       els.addEntryModal?.setAttribute("aria-hidden", "false");
       setTimeout(() => (els.addEntryWord || els.addEntryId)?.focus(), 20);
@@ -4984,7 +5106,14 @@
       const memo = safe(els.addEntryMemo?.value || "");
       const extraInfo = safe(els.addEntryExtraInfo?.value || "");
 
+      const wasDuplicateAdd = !!currentAddEntryTemplateRow;
       const templateRow = currentAddEntryTemplateRow ? { ...currentAddEntryTemplateRow } : {};
+      const preferredMode = safe(templateRow.__preferredMode || currentMode || "W") || "W";
+      const preferredPauseTimeRaw = Number(templateRow.__pauseTime);
+      const preferredPauseTime = Number.isFinite(preferredPauseTimeRaw) ? preferredPauseTimeRaw : null;
+      delete templateRow.__preferredMode;
+      delete templateRow.__pauseTime;
+
       const currentGroup = getCurrentGroup();
       const sourceName = safe(templateRow.sourceName || templateRow.source || currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
       const category = safe(templateRow.category || currentGroup?.category || els.categorySelect?.value || "");
@@ -5025,9 +5154,9 @@
 
       rememberUndoSnapshot();
       rows.push(newRow);
-      closeAddEntryModal();
-      await persistEditedRows(currentAddEntryTemplateRow ? "현재 내용 복제 추가" : "새 표제어 추가");
       const newRowIndex = rows.length - 1;
+      closeAddEntryModal();
+      await persistEditedRows(wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가");
       const key = buildRowNoteKey(newRowIndex);
       if (key){
         if (memo) notesByKey[key] = memo;
@@ -5037,6 +5166,15 @@
       await saveNotesCache();
       updateNoteButtons();
       renderInfo();
+
+      const headwordPause = parseTimeToSeconds(safe(newRow.headwordClipStart || newRow["구간시작_표제어"] || ""));
+      const examplePause = parseTimeToSeconds(safe(newRow.exampleClipStart || newRow["구간시작_용례"] || ""));
+      const pauseTime = Number.isFinite(preferredPauseTime)
+        ? preferredPauseTime
+        : (preferredMode === "S"
+          ? (Number.isFinite(examplePause) ? examplePause : (Number.isFinite(headwordPause) ? headwordPause : null))
+          : (Number.isFinite(headwordPause) ? headwordPause : (Number.isFinite(examplePause) ? examplePause : null)));
+      await focusNewlyAddedEntry({ sourceId: cleanId, word: cleanWord, mode: preferredMode, pauseTime });
     }
 
     async function addNewHeadwordEntry(){
@@ -10442,7 +10580,7 @@ ${match.label}${timeText}`, 1500);
             saveAddEntryModal();
             return;
           }
-          if ((e.target === els.addEntryId || e.target === els.addEntryWord) && e.key === "Enter"){
+          if (e.key === "Enter" && !e.shiftKey){
             e.preventDefault();
             saveAddEntryModal();
           }
