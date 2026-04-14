@@ -8034,6 +8034,7 @@ function buildHelpText(){
     "Shift + 휠 아래 왼쪽 이동",
     "Shift + ? 도움말 열기/닫기",
     "← → 이전/다음",
+    "Shift+← / Shift+→ 영상 -1초 / +1초 이동",
     "Space 재생/일시정지(한 번 누르면 한 번만)",
     "< > 재생속도",
     ", . 프레임 이동",
@@ -11005,13 +11006,29 @@ ${match.label}${timeText}`, 1500);
 
       if (e.key === "ArrowRight"){
         e.preventDefault();
-        goNext(getShouldAutoplay());
+        if (e.shiftKey && !e.ctrlKey && !e.metaKey && isVideoMode()){
+          const now = getActiveMediaTime();
+          if (Number.isFinite(now) && seekActiveMediaTo(now + 1)){
+            saveState();
+            showOverlay(`+1초 이동`, 500);
+          }
+        } else {
+          goNext(getShouldAutoplay());
+        }
         return;
       }
 
       if (e.key === "ArrowLeft"){
         e.preventDefault();
-        goPrev(getShouldAutoplay());
+        if (e.shiftKey && !e.ctrlKey && !e.metaKey && isVideoMode()){
+          const now = getActiveMediaTime();
+          if (Number.isFinite(now) && seekActiveMediaTo(Math.max(0, now - 1))){
+            saveState();
+            showOverlay(`-1초 이동`, 500);
+          }
+        } else {
+          goPrev(getShouldAutoplay());
+        }
         return;
       }
 
