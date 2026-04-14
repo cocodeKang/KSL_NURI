@@ -1987,6 +1987,8 @@
     let bracketRightHoldTriggered = false;
     let pendingRestoreTime = null;
     let currentVideoTime = 0;
+    let spaceToggleArmed = false;
+    let spaceToggleCooldownUntil = 0;
     let pendingClipFocus = null;
     let ytPlayer = null;
     let ytPlayerReady = false;
@@ -8487,6 +8489,27 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return false;
     }
 
+    function focusStageForShortcuts(delay = 0){
+      const run = () => {
+        if (!els.stage || isTypingContext()) return;
+        try {
+          els.stage.focus({ preventScroll:true });
+        } catch (_) {
+          try { els.stage.focus(); } catch (_) {}
+        }
+      };
+      if (delay > 0) setTimeout(run, delay);
+      else run();
+    }
+
+    function shouldReclaimMediaFocus(target){
+      if (!target || !els.stage) return false;
+      if (target === els.mainVideo || target === els.mainFrame) return true;
+      if (target.tagName === "IFRAME" && els.stage.contains(target)) return true;
+      if (target.tagName === "VIDEO" && els.stage.contains(target)) return true;
+      return false;
+    }
+
     function togglePlayPause(){
       if (!isVideoMode()) return;
       if (isActiveMediaPlaying()){
@@ -9827,8 +9850,9 @@ ${match.label}${timeText}`, 1500);
 
       if (e.code === "Space"){
         e.preventDefault();
+        e.stopPropagation();
         if (e.repeat) return;
-        togglePlayPause();
+        spaceToggleArmed = true;
         return;
       }
 
@@ -9921,6 +9945,18 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeyup(e){
       const key = e.key ? e.key.toLowerCase() : "";
+      if (e.code === "Space"){
+        e.preventDefault();
+        e.stopPropagation();
+        const armed = spaceToggleArmed;
+        spaceToggleArmed = false;
+        if (armed && Date.now() >= spaceToggleCooldownUntil){
+          spaceToggleCooldownUntil = Date.now() + 120;
+          togglePlayPause();
+          focusStageForShortcuts(0);
+        }
+        return;
+      }
       if (finishHeldShortcut(key)) return;
       if (e.code !== "BracketRight") return;
       if (bracketRightHoldTimer){
@@ -9973,6 +10009,7 @@ ${match.label}${timeText}`, 1500);
 
       document.addEventListener("focusin", (e) => {
         if (e.target && e.target.closest && e.target.closest('.selection-panel, .preset-row, .header, .search-wrap')) markSyncUiBusy(1800);
+        if (shouldReclaimMediaFocus(e.target)) focusStageForShortcuts(0);
       });
       document.addEventListener("mousedown", (e) => {
         if (e.target && e.target.closest && e.target.closest('.selection-panel, .preset-row, .header, .search-wrap')) markSyncUiBusy(1400);
@@ -10615,6 +10652,19 @@ ${match.label}${timeText}`, 1500);
 
       els.mainImage.addEventListener("error", () => {
         showOverlay("이미지 자료를 불러오지 못했습니다", 1600);
+      });
+
+      els.stage?.addEventListener("pointerup", () => {
+        if (isTypingContext()) return;
+        focusStageForShortcuts(0);
+      }, true);
+
+      els.mainVideo.addEventListener("click", () => {
+        focusStageForShortcuts(0);
+      }, true);
+
+      els.mainFrame?.addEventListener("load", () => {
+        focusStageForShortcuts(40);
       });
 
       els.mainVideo.addEventListener("loadedmetadata", () => {
