@@ -1873,7 +1873,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v54_구간팝업_고정구간모드_가림막점숨김";
+  const HTML_VERSION = "v55_구간자유수정";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -9530,6 +9530,43 @@ ${getSelectionEntries().length}개 항목`, 1200);
       showOverlay(`재생속도 ${next}x`, 700);
     }
 
+    function getStoredClipRangeForCurrentMode(){
+      if (currentMode === "S"){
+        const item = getCurrentPoolItem();
+        const start = Number(item?.clipStart);
+        const end = Number(item?.clipEnd);
+        if (Number.isFinite(start) || Number.isFinite(end)){
+          return {
+            start: Number.isFinite(start) ? start : null,
+            end: Number.isFinite(end) ? end : null,
+            source: "example"
+          };
+        }
+      }
+      if (currentMode === "W"){
+        const group = getCurrentGroup();
+        const start = Number(group?.wordClipStart);
+        const end = Number(group?.wordClipEnd);
+        if (Number.isFinite(start) || Number.isFinite(end)){
+          return {
+            start: Number.isFinite(start) ? start : null,
+            end: Number.isFinite(end) ? end : null,
+            source: "word"
+          };
+        }
+      }
+      return { start:null, end:null, source:null };
+    }
+
+    function getEditableLoopRange(){
+      const stored = getStoredClipRangeForCurrentMode();
+      return {
+        start: Number.isFinite(abLoopStart) ? Number(abLoopStart) : stored.start,
+        end: Number.isFinite(abLoopEnd) ? Number(abLoopEnd) : stored.end,
+        source: Number.isFinite(abLoopStart) || Number.isFinite(abLoopEnd) ? "ab" : stored.source
+      };
+    }
+
     function setABStart(){
       if (!isVideoMode()) return;
       const current = getActiveMediaTime();
@@ -9537,22 +9574,35 @@ ${getSelectionEntries().length}개 항목`, 1200);
         showOverlay("현재 재생 위치를 읽지 못했습니다", 1200);
         return;
       }
+      const editableRange = getEditableLoopRange();
       abLoopStart = current;
-      if (abLoopEnd !== null && abLoopEnd <= abLoopStart){
+      if (editableRange.end !== null && editableRange.end > current){
+        abLoopEnd = editableRange.end;
+      } else if (abLoopEnd !== null && abLoopEnd > current){
+        // keep current AB end as-is
+      } else {
         abLoopEnd = null;
       }
       const clipScope = getCurrentClipScope();
       if (clipScope){
         updateActiveClipValue(clipScope, "start", current);
+        if (abLoopEnd !== null) updateActiveClipValue(clipScope, "end", abLoopEnd);
       }
       saveState();
-      showOverlay(`구간 시작 ${abLoopStart.toFixed(2)}초`, 900);
+      showOverlay(
+        abLoopEnd !== null
+          ? `구간 시작 ${abLoopStart.toFixed(2)}초
+구간 종료 유지 ${abLoopEnd.toFixed(2)}초`
+          : `구간 시작 ${abLoopStart.toFixed(2)}초`,
+        1000
+      );
     }
 
     function setABEnd(){
       if (!isVideoMode()) return;
-      if (abLoopStart === null){
-        showOverlay("먼저 [ 로 구간 시작을 지정해 주세요", 1200);
+      const editableRange = getEditableLoopRange();
+      if (editableRange.start === null){
+        showOverlay("구간 시작값이 없어 종료 시점을 먼저 저장할 수 없습니다", 1200);
         return;
       }
       const current = getActiveMediaTime();
@@ -9560,14 +9610,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
         showOverlay("현재 재생 위치를 읽지 못했습니다", 1200);
         return;
       }
+      abLoopStart = editableRange.start;
       abLoopEnd = current;
       if (abLoopEnd <= abLoopStart){
         showOverlay("구간 종료는 시작보다 뒤여야 합니다", 1200);
-        abLoopEnd = null;
+        abLoopEnd = editableRange.end !== null && editableRange.end > abLoopStart ? editableRange.end : null;
         return;
       }
       const clipScope = getCurrentClipScope();
       if (clipScope){
+        updateActiveClipValue(clipScope, "start", abLoopStart);
         updateActiveClipValue(clipScope, "end", current);
       }
       saveState();
