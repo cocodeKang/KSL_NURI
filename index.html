@@ -1872,7 +1872,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v56_CtrlN표제어편집";
+  const HTML_VERSION = "v57_I표제어ID순단축키";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -6482,28 +6482,48 @@ async function saveState(){
       updateExactMatchButton();
     }
 
+    function getAvailableCategoryValues(sourceValue = safe(els.sourceSelect?.value)){
+      const scopedGroups = sourceValue
+        ? groups.filter(g => safe(g.sourceName) === sourceValue)
+        : groups;
+      return [...new Set(scopedGroups.map(g => safe(g.category)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
+    }
+
+    function getAvailableSourceValues(categoryValue = safe(els.categorySelect?.value)){
+      const scopedGroups = categoryValue
+        ? groups.filter(g => safe(g.category) === categoryValue)
+        : groups;
+      return [...new Set(scopedGroups.map(g => safe(g.sourceName)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
+    }
+
     function updateCategoryOptions(){
-      const values = [...new Set(groups.map(g => safe(g.category)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
-      const current = els.categorySelect.value;
+      const values = getAvailableCategoryValues();
+      const current = safe(els.categorySelect.value);
       els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-      if (values.includes(current)) els.categorySelect.value = current;
+      if (values.includes(current)) {
+        els.categorySelect.value = current;
+      } else if (values.length === 1) {
+        els.categorySelect.value = values[0];
+      } else {
+        els.categorySelect.value = "";
+      }
       updateQuickButtons();
     }
 
     function updateSourceOptions(){
       if (!els.sourceSelect) return;
-      const values = [...new Set(groups.map(g => safe(g.sourceName)).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ko"));
+      const values = getAvailableSourceValues();
       const current = safe(els.sourceSelect.value);
       els.sourceSelect.innerHTML = `<option value="">전체 범주</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
 
       if (current && values.includes(current)) {
         els.sourceSelect.value = current;
-      } else if (values.includes("한국수어누리사전")) {
-        els.sourceSelect.value = "한국수어누리사전";
       } else if (values.length === 1) {
         els.sourceSelect.value = values[0];
+      } else if (!safe(els.categorySelect?.value) && values.includes("한국수어누리사전")) {
+        els.sourceSelect.value = "한국수어누리사전";
       } else {
         els.sourceSelect.value = "";
       }
@@ -7484,12 +7504,32 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       els.viewModeBtn.dataset.viewMode = viewMode;
     }
 
-    async function cycleViewMode(){
-      const idx = VIEW_MODES.indexOf(viewMode);
-      viewMode = VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "NORMAL";
+    async function setViewMode(nextMode, options = {}){
+      const targetMode = VIEW_MODES.includes(nextMode) ? nextMode : "NORMAL";
+      const {
+        toggleWithNormal = false,
+        showToast = true
+      } = options || {};
+
+      const resolvedMode = toggleWithNormal && viewMode === targetMode ? "NORMAL" : targetMode;
+      if (resolvedMode === viewMode){
+        if (showToast){
+          showOverlay(`보기 모드: ${VIEW_MODE_LABELS[viewMode] || viewMode}`, 900);
+        }
+        return;
+      }
+
+      viewMode = resolvedMode;
       updateViewModeButton();
       await applyFilter();
-      showOverlay(`보기 모드: ${VIEW_MODE_LABELS[viewMode] || viewMode}`, 900);
+      if (showToast){
+        showOverlay(`보기 모드: ${VIEW_MODE_LABELS[viewMode] || viewMode}`, 900);
+      }
+    }
+
+    async function cycleViewMode(){
+      const idx = VIEW_MODES.indexOf(viewMode);
+      await setViewMode(VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "NORMAL");
     }
 
     function sortFilteredGroupsByWordLength(list){
@@ -8146,6 +8186,7 @@ function buildHelpText(){
     "S 용례 영상 / 다시 누르면 처음부터 재시작",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
+    "I 표제어ID순 보기 / 다시 누르면 일반 보기",
     "B 가림막 켜기/숨기기 · 클릭 후 이동/투명도",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
@@ -10778,6 +10819,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         await saveNotesCache();
       }
 
+      updateSourceOptions();
       updateCategoryOptions();
       updateSourceOptions();
 
@@ -10788,6 +10830,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
         const state = await getPreferredInitialState();
         if (state) applyRestoredUIState(state);
       }
+      updateCategoryOptions();
+      updateSourceOptions();
       updateQuickButtons();
       updateViewModeButton();
 
@@ -10900,6 +10944,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       [...els.mobileSheetBody.querySelectorAll('[data-source-value]')].forEach(btn => {
         btn.addEventListener('click', () => {
           if (els.sourceSelect) els.sourceSelect.value = btn.dataset.sourceValue || "";
+          updateCategoryOptions();
+          updateSourceOptions();
           updateQuickButtons();
           applyFilter();
           closeMobileSheet();
@@ -11342,6 +11388,7 @@ ${match.label}${timeText}`, 1500);
       if (e.key === "?" && e.shiftKey){ e.preventDefault(); toggleHelpModal(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
+      if (key === "i"){ e.preventDefault(); setViewMode("WORD_ID", { toggleWithNormal: true }); return; }
       if (key === "c"){ e.preventDefault(); triggerMode("C"); return; }
       if (key === "v"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
@@ -11564,9 +11611,24 @@ ${match.label}${timeText}`, 1500);
         clearSelectedSearchPick();
         clearMultiSelectedSearch();
         suggestionCacheKey = "";
+        updateSourceOptions();
+        updateCategoryOptions();
         updateQuickButtons();
         applyFilter();
       });
+
+      if (els.sourceSelect){
+        els.sourceSelect.addEventListener("change", () => {
+          rememberUndoSnapshot();
+          clearSelectedSearchPick();
+          clearMultiSelectedSearch();
+          suggestionCacheKey = "";
+          updateCategoryOptions();
+          updateSourceOptions();
+          updateQuickButtons();
+          applyFilter();
+        });
+      }
 
       if (els.searchScopeQuickBtn){
         els.searchScopeQuickBtn.addEventListener("click", () => {
@@ -11598,6 +11660,8 @@ ${match.label}${timeText}`, 1500);
           if (els.sourceSelect){
             els.sourceSelect.value = options[(idx + 1) % options.length];
           }
+          updateCategoryOptions();
+          updateSourceOptions();
           updateQuickButtons();
           applyFilter();
         });
