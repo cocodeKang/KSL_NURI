@@ -3020,46 +3020,96 @@
       return v;
     }
 
-    function extractGoogleDriveFileId(url){
+    function extractGoogleDriveMeta(url){
       const raw = normalizeUrl(url);
-      if (!raw) return "";
+      if (!raw) return { raw:"", id:"", resourceKey:"", authUser:"" };
+      let id = "";
+      let resourceKey = "";
+      let authUser = "";
       try {
         const u = new URL(raw, location.href);
         const host = u.hostname.replace(/^www\./i, "").toLowerCase();
-        if (!["drive.google.com", "docs.google.com"].includes(host)) return "";
-        const idFromQuery = safe(u.searchParams.get("id"));
-        if (idFromQuery) return idFromQuery;
-        const parts = u.pathname.split("/").filter(Boolean);
-        const dIndex = parts.indexOf("d");
-        if (dIndex >= 0 && parts[dIndex + 1]) return safe(parts[dIndex + 1]);
+        if (!["drive.google.com", "docs.google.com", "drive.usercontent.google.com"].includes(host) && !/googleusercontent\.com$/i.test(host)){
+          return { raw, id:"", resourceKey:"", authUser:"" };
+        }
+        id = safe(u.searchParams.get("id"));
+        resourceKey = safe(u.searchParams.get("resourcekey") || u.searchParams.get("resourceKey"));
+        authUser = safe(u.searchParams.get("authuser"));
+        if (!id){
+          const parts = u.pathname.split("/").filter(Boolean);
+          const dIndex = parts.indexOf("d");
+          if (dIndex >= 0 && parts[dIndex + 1]) id = safe(parts[dIndex + 1]);
+        }
       } catch (_) {}
-      const fallback = raw.match(/(?:[?&]id=|\/d\/)([A-Za-z0-9_-]{10,})/);
-      return fallback?.[1] ? safe(fallback[1]) : "";
+      if (!id){
+        const fallback = raw.match(/(?:[?&]id=|\/d\/)([A-Za-z0-9_-]{10,})/);
+        if (fallback?.[1]) id = safe(fallback[1]);
+      }
+      if (!resourceKey){
+        const rk = raw.match(/[?&]resourcekey=([^&#]+)/i);
+        if (rk?.[1]) resourceKey = safe(decodeURIComponent(rk[1]));
+      }
+      if (!authUser){
+        const au = raw.match(/[?&]authuser=([^&#]+)/i);
+        if (au?.[1]) authUser = safe(decodeURIComponent(au[1]));
+      }
+      return { raw, id, resourceKey, authUser };
+    }
+
+    function extractGoogleDriveFileId(url){
+      return extractGoogleDriveMeta(url).id || "";
     }
 
     function buildGoogleDrivePreviewUrl(url, options = {}){
-      const driveId = extractGoogleDriveFileId(url);
+      const meta = extractGoogleDriveMeta(url);
+      const driveId = meta.id;
       if (!driveId) return "";
       const params = new URLSearchParams();
+      if (meta.resourceKey) params.set("resourcekey", meta.resourceKey);
+      if (meta.authUser) params.set("authuser", meta.authUser);
       if (options && options.autoPlay) params.set("autoplay", "1");
       const query = params.toString();
       return `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/preview${query ? `?${query}` : ""}`;
     }
 
+    function isGoogleDriveDirectStreamUrl(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return false;
+      if (/https?:\/\/drive\.usercontent\.google\.com\//i.test(raw)) return true;
+      if (/https?:\/\/(?:drive|docs)\.google\.com\/uc\?/i.test(raw)) return true;
+      if (/https?:\/\/[A-Za-z0-9.-]*googleusercontent\.com\//i.test(raw) && /(?:[?&](?:id|confirm|export)=|\/uc(?:\/|\?|$))/i.test(raw)) return true;
+      return false;
+    }
+
     function buildGoogleDriveStreamCandidates(url){
-      const driveId = extractGoogleDriveFileId(url);
+      const meta = extractGoogleDriveMeta(url);
+      const driveId = meta.id;
+      const raw = meta.raw;
       if (!driveId) return [];
       const id = encodeURIComponent(driveId);
-      return [
-        `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
-        `https://drive.google.com/uc?export=download&id=${id}&confirm=t`,
-        `https://docs.google.com/uc?export=download&id=${id}&confirm=t`,
-        `https://drive.google.com/uc?export=view&id=${id}`,
-        `https://docs.google.com/uc?export=view&id=${id}`,
-        `https://drive.google.com/uc?id=${id}&export=download`,
-        `https://docs.google.com/uc?export=download&id=${id}`,
-        `https://drive.google.com/uc?export=download&id=${id}`
-      ].filter((value, index, arr) => !!value && arr.indexOf(value) === index);
+      const querySuffix = [];
+      if (meta.resourceKey) querySuffix.push(`resourcekey=${encodeURIComponent(meta.resourceKey)}`);
+      if (meta.authUser) querySuffix.push(`authuser=${encodeURIComponent(meta.authUser)}`);
+      const extra = querySuffix.length ? `&${querySuffix.join("&")}` : "";
+      const list = [];
+      const pushUnique = (value) => {
+        const normalized = normalizeUrl(value || "");
+        if (!normalized) return;
+        if (!list.includes(normalized)) list.push(normalized);
+      };
+
+      if (isGoogleDriveDirectStreamUrl(raw)) pushUnique(raw);
+
+      pushUnique(`https://drive.usercontent.google.com/u/0/uc?id=${id}&export=download&confirm=t${extra}`);
+      pushUnique(`https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t${extra}`);
+      pushUnique(`https://drive.google.com/uc?export=download&id=${id}&confirm=t${extra}`);
+      pushUnique(`https://docs.google.com/uc?export=download&id=${id}&confirm=t${extra}`);
+      pushUnique(`https://drive.google.com/uc?export=view&id=${id}${extra}`);
+      pushUnique(`https://docs.google.com/uc?export=view&id=${id}${extra}`);
+      pushUnique(`https://drive.google.com/uc?id=${id}&export=download${extra}`);
+      pushUnique(`https://docs.google.com/uc?export=download&id=${id}${extra}`);
+      pushUnique(`https://drive.google.com/uc?export=download&id=${id}${extra}`);
+      return list;
     }
 
     function buildGoogleDriveStreamUrl(url){
@@ -3091,7 +3141,7 @@
       if (!raw) return false;
       if (/^(data:video\/|blob:)/i.test(raw)) return true;
       if (/signFile\/video\//i.test(raw)) return true;
-      if (/https?:\/\/(?:drive|docs)\.google\.com\/uc\?/i.test(raw)) return true;
+      if (isGoogleDriveDirectStreamUrl(raw)) return true;
       if (/https?:\/\/drive\.usercontent\.google\.com\/download/i.test(raw)) return true;
       if (/https?:\/\/[A-Za-z0-9.-]*googleusercontent\.com\/.+(?:export=download|confirm=t)/i.test(raw)) return true;
       if (/\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(\?|#|$)/i.test(raw)) return true;
