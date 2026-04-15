@@ -7669,6 +7669,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       }
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
+      if (isExampleMode()) syncCurrentIndexToCurrentExample();
 
       updateCount();
       resetWordAssetState();
@@ -8002,11 +8003,26 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function getCurrentGroup(){
+      if (isExampleMode()){
+        const item = filteredExamplePool[currentPoolIndex] || null;
+        if (item){
+          const matched = filteredGroups.find(group => String(group.id) === String(item.groupId));
+          if (matched) return matched;
+        }
+      }
       return filteredGroups[currentIndex] || null;
     }
 
     function getCurrentPoolItem(){
       return filteredExamplePool[currentPoolIndex] || null;
+    }
+
+    function syncCurrentIndexToCurrentExample(){
+      if (!isExampleMode()) return;
+      const item = getCurrentPoolItem();
+      if (!item) return;
+      const idx = filteredGroups.findIndex(group => String(group.id) === String(item.groupId));
+      if (idx >= 0) currentIndex = idx;
     }
 
     function getCurrentSourceUrl(){
@@ -8124,9 +8140,9 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const exampleTotal = filteredExamplePool.length;
       const exampleNow = exampleTotal ? currentPoolIndex + 1 : 0;
       return {
-        now: wordNow,
-        total: wordTotal,
-        title: `표제어 ${wordNow} / ${wordTotal} · 용례 ${exampleNow} / ${exampleTotal}`
+        now: exampleNow,
+        total: exampleTotal,
+        title: `용례 ${exampleNow} / ${exampleTotal} · 표제어 ${wordNow} / ${wordTotal}`
       };
     }
 
@@ -8186,7 +8202,7 @@ function buildHelpText(){
     "S 용례 영상 / 다시 누르면 처음부터 재시작",
     "D 용례 수어문자 / 모바일에서 다시 누르면 확대, 한 번 더 누르면 원래 크기",
     "R 전체 순서 섞기",
-    "I 표제어ID순 보기 / 다시 누르면 일반 보기",
+    "I 보기 모드 변경",
     "B 가림막 켜기/숨기기 · 클릭 후 이동/투명도",
     "Y 선택학습 시작/종료 (길게 눌러 처음부터 재시작)",
     "T 현재 항목 선택학습 추가",
@@ -8204,6 +8220,7 @@ function buildHelpText(){
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
+    "Shift+H 전체 기본 상태 (전체 카테고리 / 전체 범주 / 일반 보기)",
     "P 재생모드 변경",
     "Shift+P 재생: 구간 켜기/끄기",
     "F 전체화면",
@@ -9412,6 +9429,14 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       currentMode = mode;
+      if (nextIsExample){
+        const preservedToken = currentExampleToken || makeExampleSelectionToken(getCurrentPoolItem());
+        if (preservedToken && filteredExamplePool.length){
+          const preservedIdx = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === preservedToken);
+          if (preservedIdx >= 0) currentPoolIndex = preservedIdx;
+        }
+        syncCurrentIndexToCurrentExample();
+      }
       els.modeBtns.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.mode === getVisibleModeButton(mode));
       });
@@ -9453,6 +9478,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         if (!filteredExamplePool.length) return;
         if (currentPoolIndex < filteredExamplePool.length - 1){
           currentPoolIndex++;
+          syncCurrentIndexToCurrentExample();
           render(autoPlay);
           await saveState();
         } else {
@@ -9478,6 +9504,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         if (!filteredExamplePool.length) return;
         if (currentPoolIndex > 0){
           currentPoolIndex--;
+          syncCurrentIndexToCurrentExample();
           render(autoPlay);
           await saveState();
         } else {
@@ -9513,10 +9540,40 @@ ${getSelectionEntries().length}개 항목`, 1200);
       applyDeterministicShuffleOrder();
       currentIndex = 0;
       currentPoolIndex = 0;
+      if (isExampleMode()) syncCurrentIndexToCurrentExample();
 
       render(getShouldAutoplay());
       await saveState();
       showOverlay(`${MODES[keepMode] || "현재 모드"} 순서 섞기 완료`);
+    }
+
+    async function resetToBasicState(){
+      clearUndoSnapshot();
+      currentVideoTime = 0;
+      if (selectionModeActive) selectionModeActive = false;
+      if (els.selectionModeBtn) els.selectionModeBtn.classList.remove("active");
+      if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
+
+      if (els.searchInput) els.searchInput.value = "";
+      if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+      if (els.categorySelect) els.categorySelect.value = "";
+      if (els.sourceSelect) els.sourceSelect.value = "";
+      searchIdMode = false;
+      exactMatch = false;
+      viewMode = "NORMAL";
+      groupShuffleSeed = null;
+      exampleShuffleSeed = null;
+      currentIndex = 0;
+      currentPoolIndex = 0;
+      clearSelectedSearchPick();
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      updateViewModeButton();
+      updateCategoryOptions();
+      updateSourceOptions();
+      updateQuickButtons();
+      await applyFilter();
+      showOverlay("기본 상태로 초기화", 1000);
     }
 
     async function goHome(){
@@ -10780,6 +10837,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     function render(autoPlay = false){
+      if (isExampleMode()) syncCurrentIndexToCurrentExample();
       const mediaContextKey = getCurrentMediaContextKey();
       if (mediaContextKey !== lastRenderedMediaContextKey){
         resetTransientClipPlaybackState();
@@ -11388,10 +11446,11 @@ ${match.label}${timeText}`, 1500);
       if (e.key === "?" && e.shiftKey){ e.preventDefault(); toggleHelpModal(); return; }
       if (key === "f"){ e.preventDefault(); toggleFullscreen(); return; }
       if (key === "r"){ e.preventDefault(); shuffleCurrentOrder(); return; }
-      if (key === "i"){ e.preventDefault(); setViewMode("WORD_ID", { toggleWithNormal: true }); return; }
+      if (key === "i"){ e.preventDefault(); cycleViewMode(); return; }
       if (key === "c"){ e.preventDefault(); triggerMode("C"); return; }
       if (key === "v"){ e.preventDefault(); if (imageZoom.scale > 1.01) resetImageZoom(); else zoomImageFit("left"); return; }
       if (key === "p"){ e.preventDefault(); cyclePlaybackMode(); return; }
+      if (key === "h" && e.shiftKey){ e.preventDefault(); resetToBasicState(); return; }
       if (key === "h"){ e.preventDefault(); goHome(); return; }
       if (key === "o" && e.shiftKey){ e.preventDefault(); captureCurrentStage(); return; }
       if (key === "o"){ e.preventDefault(); triggerMode("O"); return; }
