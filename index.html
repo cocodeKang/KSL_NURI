@@ -2070,6 +2070,10 @@
     let multiSelectedSearchItems = [];
     let multiSelectedSearchKeys = new Set();
 
+    let ctrlJumpBuffer = "";
+    let ctrlJumpBufferTimer = null;
+    const CTRL_JUMP_BUFFER_TIMEOUT = 1800;
+
     // 모바일 S 버튼의 구간 반복 상태를 추적합니다.
     // 0 = 아직 시작 안함, 1 = 구간 시작 설정됨, 2 = 구간 종료 설정됨
     let mobileSCycleState = 0;
@@ -5487,6 +5491,30 @@
         return;
       }
       openEditModal(fieldCode);
+    }
+
+    function toggleEditFieldModal(fieldCode){
+      if (els.editModal?.classList.contains("open") && currentEditSession?.fieldCode === fieldCode){
+        closeEditModal();
+        return;
+      }
+      editCurrentField(fieldCode);
+    }
+
+    function toggleNoteEditModal(){
+      if (els.noteModal?.classList.contains("open") && noteModalEditable){
+        closeNoteModal();
+        return;
+      }
+      openNoteModal({ editable:true, focusEditor:true });
+    }
+
+    function toggleCtrlNHeadwordEditor(){
+      if (els.addEntryModal?.classList.contains("open")){
+        closeAddEntryModal();
+        return;
+      }
+      openCtrlNHeadwordEditor();
     }
 
     function makeManualSourceId(){
@@ -9726,6 +9754,55 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
     }
 
+    function clearCtrlJumpBuffer(){
+      ctrlJumpBuffer = "";
+      if (ctrlJumpBufferTimer){
+        clearTimeout(ctrlJumpBufferTimer);
+        ctrlJumpBufferTimer = null;
+      }
+    }
+
+    function bumpCtrlJumpBufferTimer(){
+      if (ctrlJumpBufferTimer) clearTimeout(ctrlJumpBufferTimer);
+      ctrlJumpBufferTimer = setTimeout(() => {
+        clearCtrlJumpBuffer();
+      }, CTRL_JUMP_BUFFER_TIMEOUT);
+    }
+
+    function appendCtrlJumpDigit(digit){
+      const next = `${ctrlJumpBuffer}${safe(digit)}`.replace(/\D+/g, "");
+      if (!next) return;
+      ctrlJumpBuffer = String(Number(next));
+      bumpCtrlJumpBufferTimer();
+      showOverlay(`이동 번호: ${ctrlJumpBuffer}`, 700);
+    }
+
+    function jumpToVisibleWordByNumber(rawValue){
+      const total = getCountableGroups(filteredGroups).length;
+      const target = Number(String(rawValue || "").replace(/\D+/g, ""));
+      clearCtrlJumpBuffer();
+      if (!Number.isFinite(target) || target < 1 || !total){
+        showOverlay("이동할 표제어가 없습니다", 900);
+        return;
+      }
+      if (target > total){
+        showOverlay(`이동 범위를 벗어났습니다
+1 ~ ${total}`, 1100);
+        return;
+      }
+      currentIndex = target - 1;
+      if (isExampleMode()){
+        const targetGroup = filteredGroups[currentIndex] || null;
+        if (targetGroup){
+          const exampleIdx = filteredExamplePool.findIndex(item => String(item.groupId) === String(targetGroup.id));
+          if (exampleIdx >= 0) currentPoolIndex = exampleIdx;
+        }
+      }
+      render(false);
+      saveState();
+      showOverlay(`${target} / ${total} 이동`, 900);
+    }
+
     function seekToPercent(n){
       if (!isVideoMode()) return;
       const duration = getActiveMediaDuration();
@@ -11122,8 +11199,26 @@ ${match.label}${timeText}`, 1500);
         }
       }
 
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && !/^[0-9]$/.test(key) && e.key !== "Enter"){
+        clearCtrlJumpBuffer();
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && /^[0-9]$/.test(key)){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        appendCtrlJumpDigit(key);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === "Enter"){
+        if (isTypingContext()) return;
+        if (ctrlJumpBuffer){
+          e.preventDefault();
+          jumpToVisibleWordByNumber(ctrlJumpBuffer);
+          return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z'){
         if (isTypingContext()) return;
+        clearCtrlJumpBuffer();
         e.preventDefault();
         if (dataUndoStack.length) undoDataHistory();
         else undoLastAction();
@@ -11138,18 +11233,48 @@ ${match.label}${timeText}`, 1500);
       }
       if ((e.ctrlKey || e.metaKey) && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'n'){
-        if (isTypingContext()) return;
+        if (isTypingContext() && !els.addEntryModal?.classList.contains("open")) return;
         e.preventDefault();
-        openCtrlNHeadwordEditor();
+        toggleCtrlNHeadwordEditor();
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){
+        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleEditFieldModal("Q");
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){
+        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleEditFieldModal("Z");
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'x'){
+        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleEditFieldModal("X");
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'm'){
+        if (isTypingContext() && !els.noteModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleNoteEditModal();
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){
+        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleEditFieldModal("A");
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){
+        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleEditFieldModal("C");
         return;
       }
       if (isTypingContext()) return;
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){ e.preventDefault(); editCurrentField("Q"); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){ e.preventDefault(); editCurrentField("Z"); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'x'){ e.preventDefault(); editCurrentField("X"); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'm'){ e.preventDefault(); openNoteModal({ editable:true, focusEditor:true }); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){ e.preventDefault(); editCurrentField("A"); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){ e.preventDefault(); editCurrentField("C"); return; }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
 
@@ -11277,6 +11402,9 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeyup(e){
       const key = e.key ? e.key.toLowerCase() : "";
+      if (key === "control" || key === "meta"){
+        clearCtrlJumpBuffer();
+      }
       if (e.code === "Space"){
         e.preventDefault();
         e.stopPropagation();
