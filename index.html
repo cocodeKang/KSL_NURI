@@ -6501,10 +6501,8 @@ async function saveState(){
       const current = safe(els.categorySelect.value);
       els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-      if (values.includes(current)) {
+      if (current && values.includes(current)) {
         els.categorySelect.value = current;
-      } else if (values.length === 1) {
-        els.categorySelect.value = values[0];
       } else {
         els.categorySelect.value = "";
       }
@@ -6520,10 +6518,6 @@ async function saveState(){
 
       if (current && values.includes(current)) {
         els.sourceSelect.value = current;
-      } else if (values.length === 1) {
-        els.sourceSelect.value = values[0];
-      } else if (!safe(els.categorySelect?.value) && values.includes("한국수어누리사전")) {
-        els.sourceSelect.value = "한국수어누리사전";
       } else {
         els.sourceSelect.value = "";
       }
@@ -9280,7 +9274,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       // 이전 검색/카테고리 조건 때문에 선택한 표제어 일부만 보이는 문제를 막습니다.
       els.searchInput.value = "";
       els.categorySelect.value = "";
-      if (els.sourceSelect) els.sourceSelect.value = [...(els.sourceSelect.options || [])].some(opt => opt.value === "한국수어누리사전") ? "한국수어누리사전" : "";
+      if (els.sourceSelect) els.sourceSelect.value = "";
       els.searchScopeSelect.value = "word";
       clearSelectedSearchPick();
       updateSearchPlaceholder();
