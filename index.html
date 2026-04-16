@@ -1802,6 +1802,7 @@
       <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
         <input id="addEntryId" class="preset-input" type="text" placeholder="ID" />
         <input id="addEntryWord" class="preset-input" type="text" placeholder="표제어" />
+        <input id="addEntryCategory" class="preset-input" type="text" placeholder="범주(의미범주)" />
         <textarea id="addEntryDefinition" class="note-textarea" placeholder="뜻풀이" style="min-height:110px;"></textarea>
         <textarea id="addEntryExample" class="note-textarea" placeholder="용례문" style="min-height:110px;"></textarea>
         <textarea id="addEntryMemo" class="note-textarea" placeholder="메모" style="min-height:110px;"></textarea>
@@ -1872,7 +1873,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v57_I표제어ID순단축키";
+  const HTML_VERSION = "v58_용례연결수정_편집창하단";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2011,6 +2012,7 @@
       addEntryModalTitle: document.getElementById("addEntryModalTitle"),
       addEntryId: document.getElementById("addEntryId"),
       addEntryWord: document.getElementById("addEntryWord"),
+      addEntryCategory: document.getElementById("addEntryCategory"),
       addEntryDefinition: document.getElementById("addEntryDefinition"),
       addEntryExample: document.getElementById("addEntryExample"),
       addEntryMemo: document.getElementById("addEntryMemo"),
@@ -5460,7 +5462,7 @@
         return;
       }
       currentEditSession = config;
-      ensureEditModalHost(false);
+      ensureEditModalHost(true);
       if (els.editModalTitle) els.editModalTitle.textContent = config.title || "내용 편집";
       if (els.editTextarea) els.editTextarea.value = safe(config.initialValue || "");
       els.editModal?.classList.add("open");
@@ -5886,6 +5888,7 @@
       if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = safe(options.title || "새 표제어 추가");
       if (els.addEntryId) els.addEntryId.value = safe(options.sourceId || getNextAvailableSourceId());
       if (els.addEntryWord) els.addEntryWord.value = defaultWord;
+      if (els.addEntryCategory) els.addEntryCategory.value = safe(options.category || "");
       if (els.addEntryDefinition) els.addEntryDefinition.value = safe(options.definition || "");
       if (els.addEntryExample) els.addEntryExample.value = safe(options.exampleText || "");
       if (els.addEntryMemo) els.addEntryMemo.value = safe(options.memo || "");
@@ -5907,6 +5910,7 @@
         showOverlay("ID를 입력해야 합니다", 1100);
         return;
       }
+      const cleanCategory = safe(els.addEntryCategory?.value || "").trim();
       const definition = safe(els.addEntryDefinition?.value || "");
       const exampleText = safe(els.addEntryExample?.value || "");
       const memo = safe(els.addEntryMemo?.value || "");
@@ -5922,7 +5926,7 @@
 
       const currentGroup = getCurrentGroup();
       const sourceName = safe(templateRow.sourceName || templateRow.source || currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
-      const category = safe(templateRow.category || currentGroup?.category || els.categorySelect?.value || "");
+      const category = cleanCategory || safe(templateRow.category || templateRow["의미범주"] || currentGroup?.category || els.categorySelect?.value || "");
 
       const newRow = {
         ...templateRow,
@@ -5931,6 +5935,7 @@
         sourceName,
         expression: cleanWord,
         category,
+        "의미범주": category,
         sourceUrl: safe(templateRow.sourceUrl || templateRow.원문 || ""),
         headwordVideo: safe(templateRow.headwordVideo || templateRow.표제어영상 || ""),
         signTextImage: safe(templateRow.signTextImage || templateRow.표제어수어문자 || ""),
@@ -9411,6 +9416,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       const nextIsExample = isExampleMode(mode);
       const currentExampleItem = prevWasExample ? getCurrentPoolItem() : null;
       const currentExampleToken = currentExampleItem ? makeExampleSelectionToken(currentExampleItem) : lastViewedExampleToken;
+      const currentHeadwordGroup = !prevWasExample ? (filteredGroups[currentIndex] || null) : null;
+      const targetHeadwordGroupId = safe(currentHeadwordGroup?.id);
 
       if (modeChanged){
         // 표제어 영상(W)과 용례 영상(S)은 저장 구간은 각각 유지하되,
@@ -9424,31 +9431,38 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       currentMode = mode;
       if (nextIsExample){
-        const preservedToken = currentExampleToken || makeExampleSelectionToken(getCurrentPoolItem());
-        if (preservedToken && filteredExamplePool.length){
-          const preservedIdx = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === preservedToken);
-          if (preservedIdx >= 0) currentPoolIndex = preservedIdx;
+        let resolvedExampleIndex = -1;
+
+        if (!prevWasExample && targetHeadwordGroupId){
+          // 표제어 → 용례 전환 시에는 직전에 보던 용례 토큰이 아니라
+          // 현재 표제어에 속한 용례를 기준으로 맞춥니다.
+          const rememberedToken = lastExampleTokenByGroup[targetHeadwordGroupId] || "";
+          if (rememberedToken && filteredExamplePool.length){
+            resolvedExampleIndex = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === rememberedToken);
+          }
+          if (resolvedExampleIndex < 0 && filteredExamplePool.length){
+            resolvedExampleIndex = filteredExamplePool.findIndex(item => String(item.groupId) === targetHeadwordGroupId);
+          }
+        } else {
+          const preservedToken = currentExampleToken || makeExampleSelectionToken(getCurrentPoolItem());
+          if (preservedToken && filteredExamplePool.length){
+            resolvedExampleIndex = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === preservedToken);
+          }
         }
-        syncCurrentIndexToCurrentExample();
+
+        if (resolvedExampleIndex >= 0){
+          currentPoolIndex = resolvedExampleIndex;
+          syncCurrentIndexToCurrentExample();
+        } else if (!prevWasExample && targetHeadwordGroupId){
+          const targetGroupIdx = filteredGroups.findIndex(g => String(g.id) === targetHeadwordGroupId);
+          if (targetGroupIdx >= 0) currentIndex = targetGroupIdx;
+        }
       }
       els.modeBtns.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.mode === getVisibleModeButton(mode));
       });
 
-      if (!prevWasExample && nextIsExample){
-        const group = getCurrentGroup();
-        if (group){
-          // 이전에 이 그룹에서 시청했던 예제가 있으면 그 위치를 기억하고, 없으면 첫 번째 예제로 이동합니다.
-          const rememberedToken = lastExampleTokenByGroup[String(group.id)] || "";
-          const rememberedIdx = rememberedToken ? filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === rememberedToken) : -1;
-          if (rememberedIdx >= 0) {
-            currentPoolIndex = rememberedIdx;
-          } else {
-            const idx = filteredExamplePool.findIndex(item => item.groupId === group.id);
-            if (idx >= 0) currentPoolIndex = idx;
-          }
-        }
-      } else if (prevWasExample && !nextIsExample){
+      if (prevWasExample && !nextIsExample){
         const item = currentExampleItem;
         if (item){
           // 현재 보고 있던 예제의 토큰을 기록합니다.
