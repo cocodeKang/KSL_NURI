@@ -1592,8 +1592,8 @@
           <option value="id">ID</option>
         </select>
 
-        <select id="categorySelect" class="category-select" title="카테고리 선택">
-          <option value="">전체 카테고리</option>
+        <select id="categorySelect" class="category-select" title="의미범주 선택">
+          <option value="">전체 의미범주</option>
         </select>
 
         <select id="sourceSelect" class="category-select" title="출처 범주 선택">
@@ -1802,7 +1802,7 @@
       <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
         <input id="addEntryId" class="preset-input" type="text" placeholder="ID" />
         <input id="addEntryWord" class="preset-input" type="text" placeholder="표제어" />
-        <input id="addEntryCategory" class="preset-input" type="text" placeholder="카테고리(의미범주)" />
+        <input id="addEntryCategory" class="preset-input" type="text" placeholder="의미범주" />
         <input id="addEntryScope" class="preset-input" type="text" placeholder="범주" />
         <textarea id="addEntryDefinition" class="note-textarea" placeholder="뜻풀이" style="min-height:110px;"></textarea>
         <textarea id="addEntryExample" class="note-textarea" placeholder="용례문" style="min-height:110px;"></textarea>
@@ -1874,7 +1874,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v63_카테고리범주분리";
+  const HTML_VERSION = "v64_범주의미범주정리";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -6298,8 +6298,7 @@
     function getFixedExportSchema(){
       return [
         { header: "원문", value: row => safe(row?.sourceUrl || row?.원문 || "") },
-        { header: "출처", value: row => safe(row?.source || row?.sourceName || row?.범주 || row?.출처 || "한국수어누리사전") },
-        { header: "범주", value: row => safe(row?.범주 || row?.source || row?.sourceName || row?.출처 || "") },
+        { header: "범주", value: row => safe(row?.범주 || row?.source || row?.sourceName || row?.출처 || "한국수어누리사전") },
         { header: "ID", value: row => safe(row?.sourceId || row?.ID || "") },
         { header: "표제어", value: row => safe(row?.expression || row?.표제어 || "") },
         { header: "의미범주", value: row => safe(row?.category || row?.의미범주 || "") },
@@ -6735,7 +6734,7 @@ async function saveState(){
     function updateCategoryOptions(){
       const values = getAvailableCategoryValues();
       const current = safe(els.categorySelect.value);
-      els.categorySelect.innerHTML = `<option value="">전체 카테고리</option>` +
+      els.categorySelect.innerHTML = `<option value="">전체 의미범주</option>` +
         values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
       if (current && values.includes(current)) {
         els.categorySelect.value = current;
@@ -8451,7 +8450,7 @@ function buildHelpText(){
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈",
-    "Shift+H 전체 기본 상태 (전체 카테고리 / 전체 범주 / 일반 보기)",
+    "Shift+H 전체 기본 상태 (전체 의미범주 / 전체 범주 / 일반 보기)",
     "P 재생모드 변경",
     "Shift+P 재생: 구간 켜기/끄기",
     "F 전체화면",
@@ -10701,7 +10700,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
               <div class="meta">
                 <span class="pill">${escapeHtml(MODES[currentMode])}</span>
                 <span class="pill">${currentPoolIndex + 1} / ${filteredExamplePool.length}</span>
-                <span class="pill">${escapeHtml(item.category || "카테고리 없음")}</span>
+                <span class="pill">${escapeHtml(item.category || "의미범주 없음")}</span>
                 <span class="pill">ID:${escapeHtml(item.sourceId || item.groupId)}</span>
                 ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
               </div>
@@ -10748,7 +10747,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
             <div class="meta">
               <span class="pill">${escapeHtml(MODES[currentMode])}</span>
               <span class="pill">${currentIndex + 1} / ${getCountableGroups(filteredGroups).length}</span>
-                <span class="pill">${escapeHtml(group.category || "카테고리 없음")}</span>
+                <span class="pill">${escapeHtml(group.category || "의미범주 없음")}</span>
                 <span class="pill">ID:${escapeHtml(group.sourceId || group.id)}</span>
                 ${selectionModeActive ? `<span class="pill">선택학습 중</span>` : ``}
             </div>
@@ -10759,7 +10758,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           ${buildOriginalLinkHtml(sourceUrl)}
           ${buildInfoLineHtml("표제어", escapeHtml(group.word || "없음"), { compact:true })}
           ${buildInfoLineHtml("뜻풀이", escapeHtml(group.definition || "뜻풀이 없음"), { compact:true })}
-          ${buildInfoLineHtml("카테고리", escapeHtml(group.category || "없음"), { compact:true })}
+          ${buildInfoLineHtml("의미범주", escapeHtml(group.category || "없음"), { compact:true })}
           ${buildInfoLineHtml("범주", escapeHtml(group.sourceName || "없음"), { compact:true })}
         </section>
 
@@ -11042,7 +11041,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           els.statusText.textContent = `검색 결과가 없습니다${selectionTag}`;
           return;
         }
-        els.statusText.textContent = `${item.word} | ${MODES[currentMode]} | ${currentPoolIndex + 1}/${filteredExamplePool.length} | ${item.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
+        els.statusText.textContent = `${item.word} | ${MODES[currentMode]} | ${currentPoolIndex + 1}/${filteredExamplePool.length} | ${item.category || "의미범주 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
         return;
       }
 
@@ -11052,7 +11051,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         return;
       }
 
-      els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${getCountableGroups(filteredGroups).length} | ${group.category || "카테고리 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
+      els.statusText.textContent = `${group.word} | ${MODES[currentMode]} | ${currentIndex + 1}/${getCountableGroups(filteredGroups).length} | ${group.category || "의미범주 없음"} | ${PLAYBACK_LABELS[playbackMode]}${selectionTag}${abTag}`;
     }
 
     function maybeShowVariantHint(force = false){
