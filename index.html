@@ -1802,7 +1802,8 @@
       <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
         <input id="addEntryId" class="preset-input" type="text" placeholder="ID" />
         <input id="addEntryWord" class="preset-input" type="text" placeholder="표제어" />
-        <input id="addEntryCategory" class="preset-input" type="text" placeholder="범주(의미범주)" />
+        <input id="addEntryCategory" class="preset-input" type="text" placeholder="카테고리(의미범주)" />
+        <input id="addEntryScope" class="preset-input" type="text" placeholder="범주" />
         <textarea id="addEntryDefinition" class="note-textarea" placeholder="뜻풀이" style="min-height:110px;"></textarea>
         <textarea id="addEntryExample" class="note-textarea" placeholder="용례문" style="min-height:110px;"></textarea>
         <textarea id="addEntryMemo" class="note-textarea" placeholder="메모" style="min-height:110px;"></textarea>
@@ -1873,7 +1874,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v60_복제범주프리필";
+  const HTML_VERSION = "v63_카테고리범주분리";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2013,6 +2014,7 @@
       addEntryId: document.getElementById("addEntryId"),
       addEntryWord: document.getElementById("addEntryWord"),
       addEntryCategory: document.getElementById("addEntryCategory"),
+      addEntryScope: document.getElementById("addEntryScope"),
       addEntryDefinition: document.getElementById("addEntryDefinition"),
       addEntryExample: document.getElementById("addEntryExample"),
       addEntryMemo: document.getElementById("addEntryMemo"),
@@ -2146,6 +2148,7 @@
     let mobileSheetMode = "info";
     let currentEditSession = null;
     let currentAddEntryTemplateRow = null;
+    let currentAddEntryContext = null;
     let addEntryModalOriginalParent = null;
     let addEntryModalOriginalNextSibling = null;
     let noteModalOriginalParent = null;
@@ -3876,6 +3879,7 @@
       "sourceUrl": "sourceUrl",
 
       "출처": "source",
+      "범주": "source",
       "source": "source",
       "sourceName": "source",
       "자료출처": "source",
@@ -4257,7 +4261,7 @@
       const sourceId = pickValue(row, ["sourceId", "ID", "id", "Id"]);
       const expressionRaw = pickValue(row, ["expression", "표제어", "word", "단어", "표현"]);
       const category = pickValue(row, ["category", "의미범주", "카테고리", "semantics"]);
-      const sourceName = pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || "한국수어누리사전";
+      const sourceName = pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || "한국수어누리사전";
       const variantLabel = pickValue(row, ["variantLabel", "변이범주"]) || "표제어";
       const { word, definition } = extractWordParts(
         expressionRaw,
@@ -5656,6 +5660,14 @@
       openCtrlNHeadwordEditor();
     }
 
+    function toggleCurrentEntryReviewModal(){
+      if (els.addEntryModal?.classList.contains("open") && currentAddEntryContext?.saveMode === "edit-existing"){
+        closeAddEntryModal();
+        return;
+      }
+      openCurrentEntryReviewModal();
+    }
+
     function makeManualSourceId(){
       const stamp = new Date();
       const parts = [
@@ -5673,6 +5685,8 @@
 
     function closeAddEntryModal(){
       currentAddEntryTemplateRow = null;
+      currentAddEntryContext = null;
+      if (els.addEntrySaveBtn) els.addEntrySaveBtn.textContent = "추가";
       if (!els.addEntryModal) return;
       els.addEntryModal.classList.remove("open");
       els.addEntryModal.setAttribute("aria-hidden", "true");
@@ -6008,7 +6022,8 @@
         exampleText: safe(pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]) || getCurrentPoolItem()?.text || ""),
         memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
-        sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        scope: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || pickValue(templateRow, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        sourceName: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
         category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || pickValue(templateRow, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
         templateRow,
         preferredMode: currentMode,
@@ -6016,8 +6031,56 @@
       };
     }
 
+    function buildCurrentEntryReviewPrefill(){
+      const rowIndex = getCurrentEntityRowIndex();
+      const row = getRowObject(rowIndex) || null;
+      const group = getCurrentGroup();
+      if (!row || rowIndex < 0){
+        return null;
+      }
+      const templateRow = cloneAddEntryTemplateRow(row);
+      const livePlaybackTime = getActiveMediaTime();
+      const currentWord = safe(pickValue(row, ["expression", "표제어", "word", "단어", "표현"]) || group?.word || "");
+      const currentSourceId = safe(pickValue(row, ["sourceId", "ID", "id", "Id"]) || group?.sourceId || group?.id || "");
+
+      return {
+        title: "현재 정보 확인 / 편집",
+        actionLabel: "저장",
+        saveMode: "edit-existing",
+        editRowIndex: rowIndex,
+        sourceId: currentSourceId || getNextAvailableSourceId(),
+        word: currentWord,
+        definition: safe(pickValue(row, ["definition", "뜻풀이"]) || group?.definition || ""),
+        exampleText: safe(pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]) || getCurrentPoolItem()?.text || ""),
+        memo: safe(pickValue(row, ["메모", "memo", "notes"]) || notesByKey[buildRowNoteKey(rowIndex)] || ""),
+        extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
+        scope: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        sourceName: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
+        templateRow,
+        preferredMode: currentMode,
+        pauseTime: Number.isFinite(livePlaybackTime) ? livePlaybackTime : null
+      };
+    }
+
+    async function openCurrentEntryReviewModal(){
+      const prefill = buildCurrentEntryReviewPrefill();
+      if (!prefill){
+        showOverlay("확인할 현재 항목이 없습니다", 1100);
+        return;
+      }
+      pauseActiveMedia();
+      openAddEntryModal(prefill);
+    }
+
     function openAddEntryModal(options = {}){
       const defaultWord = safe(options.word ?? els.searchInput?.value ?? "").trim();
+      const requestedRowIndex = Number(options.editRowIndex);
+      const saveMode = safe(options.saveMode || ((Number.isInteger(requestedRowIndex) && requestedRowIndex >= 0) ? "edit-existing" : "add")) || "add";
+      currentAddEntryContext = {
+        saveMode,
+        editRowIndex: Number.isInteger(requestedRowIndex) && requestedRowIndex >= 0 ? requestedRowIndex : -1
+      };
       currentAddEntryTemplateRow = options.templateRow ? cloneAddEntryTemplateRow(options.templateRow) : null;
       if (currentAddEntryTemplateRow){
         currentAddEntryTemplateRow.__preferredMode = safe(options.preferredMode || currentMode || "W") || "W";
@@ -6028,10 +6091,18 @@
         ?? pickValue(currentAddEntryTemplateRow, ["category", "의미범주", "카테고리", "semantics"])
         ?? ""
       );
+      const prefilledScope = safe(
+        options.scope
+        ?? options.sourceName
+        ?? pickValue(currentAddEntryTemplateRow, ["source", "출처", "범주", "sourceName", "자료출처"])
+        ?? "한국수어누리사전"
+      );
       if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = safe(options.title || "새 표제어 추가");
+      if (els.addEntrySaveBtn) els.addEntrySaveBtn.textContent = safe(options.actionLabel || (saveMode === "edit-existing" ? "저장" : "추가"));
       if (els.addEntryId) els.addEntryId.value = safe(options.sourceId || getNextAvailableSourceId());
       if (els.addEntryWord) els.addEntryWord.value = defaultWord;
       if (els.addEntryCategory) els.addEntryCategory.value = prefilledCategory;
+      if (els.addEntryScope) els.addEntryScope.value = prefilledScope;
       if (els.addEntryDefinition) els.addEntryDefinition.value = safe(options.definition || "");
       if (els.addEntryExample) els.addEntryExample.value = safe(options.exampleText || "");
       if (els.addEntryMemo) els.addEntryMemo.value = safe(options.memo || "");
@@ -6054,13 +6125,19 @@
         return;
       }
       const cleanCategory = safe(els.addEntryCategory?.value || "").trim();
+      const cleanScope = safe(els.addEntryScope?.value || "").trim();
       const definition = safe(els.addEntryDefinition?.value || "");
       const exampleText = safe(els.addEntryExample?.value || "");
       const memo = safe(els.addEntryMemo?.value || "");
       const extraInfo = safe(els.addEntryExtraInfo?.value || "");
 
-      const wasDuplicateAdd = !!currentAddEntryTemplateRow;
-      const templateRow = currentAddEntryTemplateRow ? { ...currentAddEntryTemplateRow } : {};
+      const addContext = currentAddEntryContext || {};
+      const editRowIndex = Number(addContext.editRowIndex);
+      const isEditExisting = addContext.saveMode === "edit-existing" && Number.isInteger(editRowIndex) && editRowIndex >= 0 && !!getRowObject(editRowIndex);
+      const wasDuplicateAdd = !isEditExisting && !!currentAddEntryTemplateRow;
+      const templateRow = currentAddEntryTemplateRow
+        ? { ...currentAddEntryTemplateRow }
+        : (isEditExisting ? { ...(getRowObject(editRowIndex) || {}) } : {});
       const preferredMode = safe(templateRow.__preferredMode || currentMode || "W") || "W";
       const preferredPauseTimeRaw = Number(templateRow.__pauseTime);
       const preferredPauseTime = Number.isFinite(preferredPauseTimeRaw) ? preferredPauseTimeRaw : null;
@@ -6068,7 +6145,7 @@
       delete templateRow.__pauseTime;
 
       const currentGroup = getCurrentGroup();
-      const sourceName = safe(templateRow.sourceName || templateRow.source || currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
+      const sourceName = cleanScope || safe(templateRow["범주"] || templateRow.sourceName || templateRow.source || currentGroup?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전";
       const category = cleanCategory || safe(templateRow.category || templateRow["의미범주"] || currentGroup?.category || els.categorySelect?.value || "");
 
       const newRow = {
@@ -6076,6 +6153,7 @@
         sourceId: cleanId,
         source: sourceName,
         sourceName,
+        "범주": sourceName,
         expression: cleanWord,
         category,
         "의미범주": category,
@@ -6107,17 +6185,25 @@
       delete newRow["구간종료"];
 
       rememberUndoSnapshot();
-      pushDataHistorySnapshot(wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가");
-      rows.push(newRow);
-      const newRowIndex = rows.length - 1;
+      pushDataHistorySnapshot(isEditExisting ? "현재 정보 확인 / 편집" : (wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가"));
+
+      let targetRowIndex = editRowIndex;
+      if (isEditExisting){
+        rows[targetRowIndex] = newRow;
+      } else {
+        rows.push(newRow);
+        targetRowIndex = rows.length - 1;
+      }
+
       closeAddEntryModal();
-      await persistEditedRows(wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가");
-      const key = buildRowNoteKey(newRowIndex);
+      await persistEditedRows(isEditExisting ? "현재 정보 저장" : (wasDuplicateAdd ? "현재 내용 복제 추가" : "새 표제어 추가"));
+      const key = buildRowNoteKey(targetRowIndex);
       if (key){
         if (memo) notesByKey[key] = memo;
         else delete notesByKey[key];
       }
       currentAddEntryTemplateRow = null;
+      currentAddEntryContext = null;
       await saveNotesCache();
       updateNoteButtons();
       renderInfo();
@@ -6187,7 +6273,8 @@
         exampleText: safe(pickValue(row, ["translation", "용례번역문", "용례 번역문", "exampleText", "번역문"]) || getCurrentPoolItem()?.text || ""),
         memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
-        sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        scope: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || pickValue(templateRow, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
+        sourceName: safe(pickValue(row, ["source", "출처", "범주", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
         category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || pickValue(templateRow, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
         templateRow,
         preferredMode: "W",
@@ -6211,7 +6298,8 @@
     function getFixedExportSchema(){
       return [
         { header: "원문", value: row => safe(row?.sourceUrl || row?.원문 || "") },
-        { header: "출처", value: row => safe(row?.source || row?.sourceName || row?.출처 || "한국수어누리사전") },
+        { header: "출처", value: row => safe(row?.source || row?.sourceName || row?.범주 || row?.출처 || "한국수어누리사전") },
+        { header: "범주", value: row => safe(row?.범주 || row?.source || row?.sourceName || row?.출처 || "") },
         { header: "ID", value: row => safe(row?.sourceId || row?.ID || "") },
         { header: "표제어", value: row => safe(row?.expression || row?.표제어 || "") },
         { header: "의미범주", value: row => safe(row?.category || row?.의미범주 || "") },
@@ -8358,6 +8446,7 @@ function buildHelpText(){
     "Shift+A 용례문 편집",
     "Shift+C 부가그림 편집",
     "Shift+M 메모 편집",
+    "Shift+V 현재 정보 확인 / 편집",
     "Delete 현재 표제어 삭제",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
@@ -10671,6 +10760,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           ${buildInfoLineHtml("표제어", escapeHtml(group.word || "없음"), { compact:true })}
           ${buildInfoLineHtml("뜻풀이", escapeHtml(group.definition || "뜻풀이 없음"), { compact:true })}
           ${buildInfoLineHtml("카테고리", escapeHtml(group.category || "없음"), { compact:true })}
+          ${buildInfoLineHtml("범주", escapeHtml(group.sourceName || "없음"), { compact:true })}
         </section>
 
         <section class="section">
@@ -11537,6 +11627,12 @@ ${match.label}${timeText}`, 1500);
         toggleEditFieldModal("C");
         return;
       }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'v'){
+        if (isTypingContext() && !els.addEntryModal?.classList.contains("open")) return;
+        e.preventDefault();
+        toggleCurrentEntryReviewModal();
+        return;
+      }
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
@@ -12070,7 +12166,7 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         saveEditModal();
       });
-      [els.addEntryId, els.addEntryWord, els.addEntryDefinition, els.addEntryExample, els.addEntryMemo, els.addEntryExtraInfo].filter(Boolean).forEach(input => {
+      [els.addEntryId, els.addEntryWord, els.addEntryCategory, els.addEntryScope, els.addEntryDefinition, els.addEntryExample, els.addEntryMemo, els.addEntryExtraInfo].filter(Boolean).forEach(input => {
         input?.addEventListener("keydown", (e) => {
           if (e.isComposing) return;
           if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
