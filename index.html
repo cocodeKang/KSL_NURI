@@ -2179,6 +2179,10 @@
     let noteModalEditable = false;
     let undoSnapshot = null;
     let redoSnapshot = null;
+    const NAV_HISTORY_LIMIT = 120;
+    let navigationBackStack = [];
+    let navigationForwardStack = [];
+    let isRestoringNavigationHistory = false;
     let dataUndoStack = [];
     let dataRedoStack = [];
     let isApplyingDataHistory = false;
@@ -5009,6 +5013,139 @@
       };
     }
 
+    function createNavigationSnapshot(){
+      return {
+        ...createUndoSnapshot(),
+        selectionModeActive: !!selectionModeActive
+      };
+    }
+
+    function getNavigationSnapshotKey(snapshot){
+      const snap = snapshot || {};
+      return JSON.stringify({
+        currentMode: safe(snap.currentMode || "Q"),
+        currentIndex: Number(snap.currentIndex) || 0,
+        currentPoolIndex: Number(snap.currentPoolIndex) || 0,
+        categoryValue: safe(snap.categoryValue || ""),
+        sourceValue: safe(snap.sourceValue || ""),
+        searchValue: safe(snap.searchValue || ""),
+        searchScope: safe(snap.searchScope || "word"),
+        searchIdMode: !!snap.searchIdMode,
+        groupShuffleSeed: snap.groupShuffleSeed ?? null,
+        exampleShuffleSeed: snap.exampleShuffleSeed ?? null,
+        viewMode: VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL",
+        selectionModeActive: !!snap.selectionModeActive
+      });
+    }
+
+    function pushNavigationHistorySnapshot(snapshot = createNavigationSnapshot(), options = {}){
+      if (isRestoringNavigationHistory) return false;
+      const snap = cloneHistoryValue(snapshot);
+      const snapKey = getNavigationSnapshotKey(snap);
+      if (!snapKey) return false;
+      const lastKey = navigationBackStack.length
+        ? getNavigationSnapshotKey(navigationBackStack[navigationBackStack.length - 1])
+        : "";
+      if (snapKey === lastKey) return false;
+      navigationBackStack.push(snap);
+      if (navigationBackStack.length > NAV_HISTORY_LIMIT) navigationBackStack.shift();
+      if (!options.preserveForward) navigationForwardStack = [];
+      return true;
+    }
+
+    function pushNavigationForwardSnapshot(snapshot){
+      const snap = cloneHistoryValue(snapshot);
+      const snapKey = getNavigationSnapshotKey(snap);
+      if (!snapKey) return false;
+      const lastKey = navigationForwardStack.length
+        ? getNavigationSnapshotKey(navigationForwardStack[navigationForwardStack.length - 1])
+        : "";
+      if (snapKey === lastKey) return false;
+      navigationForwardStack.push(snap);
+      if (navigationForwardStack.length > NAV_HISTORY_LIMIT) navigationForwardStack.shift();
+      return true;
+    }
+
+    async function restoreNavigationSnapshot(snapshot, overlayText = "학습 위치 이동"){
+      if (!snapshot) return false;
+      isRestoringNavigationHistory = true;
+      try {
+        currentMode = snapshot.currentMode || "Q";
+        playbackMode = snapshot.playbackMode || playbackMode;
+        if (els.searchInput) els.searchInput.value = snapshot.searchValue || "";
+        if (els.searchScopeSelect) els.searchScopeSelect.value = snapshot.searchScope || "word";
+        searchIdMode = !!snapshot.searchIdMode;
+        syncSearchModeWithScope();
+        if (els.categorySelect) els.categorySelect.value = snapshot.categoryValue || "";
+        if (els.sourceSelect) els.sourceSelect.value = snapshot.sourceValue || "";
+        groupShuffleSeed = snapshot.groupShuffleSeed ?? null;
+        exampleShuffleSeed = snapshot.exampleShuffleSeed ?? null;
+        viewMode = VIEW_MODES.includes(snapshot.viewMode) ? snapshot.viewMode : "NORMAL";
+        currentVideoTime = Number(snapshot.currentVideoTime) || 0;
+        abLoopStart = snapshot.abLoopStart ?? null;
+        abLoopEnd = snapshot.abLoopEnd ?? null;
+        selectionModeActive = !!snapshot.selectionModeActive && selectedGroupIds.length > 0;
+        searchFocusedIndex = -1;
+        selectionFocusedIndex = -1;
+        updateSearchIdButton();
+        updateSearchPlaceholder();
+        updateViewModeButton();
+        updateLiveSyncButton();
+        updateQuickButtons();
+        await applyFilter({ save:false });
+        currentIndex = clamp(Number(snapshot.currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
+        currentPoolIndex = clamp(Number(snapshot.currentPoolIndex) || 0, 0, Math.max(0, filteredExamplePool.length - 1));
+        if (isExampleMode()) syncCurrentIndexToCurrentExample();
+        updateModeButtons(currentMode);
+        applyVideoLoopState();
+        updatePlaybackButton();
+        render(false);
+        await saveState();
+        if (overlayText) showOverlay(overlayText, 900);
+        return true;
+      } finally {
+        isRestoringNavigationHistory = false;
+      }
+    }
+
+    async function goHistoryBack(){
+      const currentSnapshot = createNavigationSnapshot();
+      const currentKey = getNavigationSnapshotKey(currentSnapshot);
+      let target = null;
+      while (navigationBackStack.length){
+        const candidate = navigationBackStack.pop();
+        if (getNavigationSnapshotKey(candidate) !== currentKey){
+          target = candidate;
+          break;
+        }
+      }
+      if (!target){
+        showOverlay("이전 학습 위치가 없습니다", 900);
+        return false;
+      }
+      pushNavigationForwardSnapshot(currentSnapshot);
+      return restoreNavigationSnapshot(target, "이전 학습 위치로 이동");
+    }
+
+    async function goHistoryForward(){
+      const currentSnapshot = createNavigationSnapshot();
+      const currentKey = getNavigationSnapshotKey(currentSnapshot);
+      let target = null;
+      while (navigationForwardStack.length){
+        const candidate = navigationForwardStack.pop();
+        if (getNavigationSnapshotKey(candidate) !== currentKey){
+          target = candidate;
+          break;
+        }
+      }
+      if (!target){
+        showOverlay("이후 학습 위치가 없습니다", 900);
+        return false;
+      }
+      pushNavigationHistorySnapshot(currentSnapshot, { preserveForward:true });
+      return restoreNavigationSnapshot(target, "이후 학습 위치로 이동");
+    }
+
     function cloneHistoryValue(value){
       try {
         if (typeof structuredClone === "function") return structuredClone(value);
@@ -5771,6 +5908,7 @@
     }
 
     async function focusNewlyAddedEntry(options = {}){
+      pushNavigationHistorySnapshot(createNavigationSnapshot());
       const sourceId = safe(options.sourceId || "").trim();
       if (!sourceId) return false;
       const targetWord = safe(options.word || "").trim();
@@ -9415,7 +9553,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
     async function setMode(mode, options = {}){
       const { preserveWordAssetState = false } = options;
       const modeChanged = mode !== currentMode;
-      if (modeChanged) rememberUndoSnapshot();
+      if (modeChanged){
+        rememberUndoSnapshot();
+        pushNavigationHistorySnapshot(createNavigationSnapshot());
+      }
       if (modeChanged && !preserveWordAssetState) resetWordAssetState();
       const prevWasExample = isExampleMode(currentMode);
       const nextIsExample = isExampleMode(mode);
@@ -9490,6 +9631,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (isExampleMode()){
         if (!filteredExamplePool.length) return;
         if (currentPoolIndex < filteredExamplePool.length - 1){
+          pushNavigationHistorySnapshot(createNavigationSnapshot());
           currentPoolIndex++;
           syncCurrentIndexToCurrentExample();
           render(autoPlay);
@@ -9502,6 +9644,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       if (!filteredGroups.length) return;
       if (currentIndex < filteredGroups.length - 1){
+        pushNavigationHistorySnapshot(createNavigationSnapshot());
         currentIndex++;
         render(autoPlay);
         await saveState();
@@ -9516,6 +9659,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (isExampleMode()){
         if (!filteredExamplePool.length) return;
         if (currentPoolIndex > 0){
+          pushNavigationHistorySnapshot(createNavigationSnapshot());
           currentPoolIndex--;
           syncCurrentIndexToCurrentExample();
           render(autoPlay);
@@ -9528,6 +9672,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
       if (!filteredGroups.length) return;
       if (currentIndex > 0){
+        pushNavigationHistorySnapshot(createNavigationSnapshot());
         currentIndex--;
         render(autoPlay);
         await saveState();
@@ -9591,6 +9736,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
 
     async function goHome(){
       clearUndoSnapshot();
+      pushNavigationHistorySnapshot(createNavigationSnapshot());
       els.searchInput.value = "";
       els.categorySelect.value = "";
       els.searchScopeSelect.value = "word";
@@ -11406,6 +11552,18 @@ ${match.label}${timeText}`, 1500);
           togglePlayPause();
           focusStageForShortcuts(0);
         }
+        return;
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === "ArrowRight"){
+        e.preventDefault();
+        goHistoryForward();
+        return;
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === "ArrowLeft"){
+        e.preventDefault();
+        goHistoryBack();
         return;
       }
 
