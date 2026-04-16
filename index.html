@@ -1873,7 +1873,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v58_용례연결수정_편집창하단";
+  const HTML_VERSION = "v60_복제범주프리필";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5871,7 +5871,7 @@
         memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
         sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
-        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
+        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || pickValue(templateRow, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
         templateRow,
         preferredMode: currentMode,
         pauseTime: Number.isFinite(pauseAnchor) ? pauseAnchor : null
@@ -5885,10 +5885,15 @@
         currentAddEntryTemplateRow.__preferredMode = safe(options.preferredMode || currentMode || "W") || "W";
         currentAddEntryTemplateRow.__pauseTime = Number.isFinite(Number(options.pauseTime)) ? Number(options.pauseTime) : null;
       }
+      const prefilledCategory = safe(
+        options.category
+        ?? pickValue(currentAddEntryTemplateRow, ["category", "의미범주", "카테고리", "semantics"])
+        ?? ""
+      );
       if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = safe(options.title || "새 표제어 추가");
       if (els.addEntryId) els.addEntryId.value = safe(options.sourceId || getNextAvailableSourceId());
       if (els.addEntryWord) els.addEntryWord.value = defaultWord;
-      if (els.addEntryCategory) els.addEntryCategory.value = safe(options.category || "");
+      if (els.addEntryCategory) els.addEntryCategory.value = prefilledCategory;
       if (els.addEntryDefinition) els.addEntryDefinition.value = safe(options.definition || "");
       if (els.addEntryExample) els.addEntryExample.value = safe(options.exampleText || "");
       if (els.addEntryMemo) els.addEntryMemo.value = safe(options.memo || "");
@@ -6045,7 +6050,7 @@
         memo: safe((row && pickValue(row, ["메모", "memo", "notes"])) || notesByKey[buildRowNoteKey(getCurrentEntityRowIndex())] || ""),
         extraInfo: safe(pickValue(row, ["additionalInfo", "부가정보", "부가 정보", "info", "부가"]) || group?.extraInfo || ""),
         sourceName: safe(pickValue(row, ["source", "출처", "sourceName", "자료출처"]) || group?.sourceName || els.sourceSelect?.value || "한국수어누리사전") || "한국수어누리사전",
-        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
+        category: safe(pickValue(row, ["category", "의미범주", "카테고리", "semantics"]) || pickValue(templateRow, ["category", "의미범주", "카테고리", "semantics"]) || group?.category || els.categorySelect?.value || ""),
         templateRow,
         preferredMode: "W",
         pauseTime: Number.isFinite(pauseAnchor) ? pauseAnchor : null
