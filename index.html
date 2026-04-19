@@ -523,12 +523,27 @@
       line-height:1.5;
       white-space:pre-wrap;
       word-break:keep-all;
+      overflow-wrap:break-word;
       color:#f7f9ff;
       background:
         radial-gradient(circle at 18% 20%, rgba(110,168,255,.18), transparent 28%),
         radial-gradient(circle at 82% 28%, rgba(142,240,194,.12), transparent 28%),
         linear-gradient(180deg, #0b0f17 0%, #101725 100%);
       font-size:clamp(28px,4.2vw,68px);
+      overflow:auto;
+      max-width:100%;
+      max-height:100%;
+    }
+
+    .main-text.mode-extra-info{
+      align-items:flex-start;
+      justify-content:flex-start;
+      text-align:left;
+      font-size:clamp(18px,2.8vw,42px);
+      line-height:1.65;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      padding:clamp(18px,3vw,44px);
     }
 
     .caption-mask{
@@ -1874,7 +1889,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v64_범주의미범주정리";
+  const HTML_VERSION = "v64_범주의미범주정리_extraInfoWrap";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5455,6 +5470,53 @@
       row[targetKey] = value;
     }
 
+
+    async function copyCurrentExampleVideoToHeadwordVideo(){
+      const group = getCurrentGroup();
+      if (!group){
+        showOverlay("현재 표제어를 찾지 못했습니다", 1200);
+        return;
+      }
+
+      const exampleRowIndex = getCurrentEditableExampleRowIndex();
+      const exampleRow = getRowObject(exampleRowIndex);
+      const currentItem = getCurrentPoolItem();
+      const exampleVideoUrl = safe(
+        currentItem?.video
+        || currentItem?.exampleVideo
+        || pickValue(exampleRow, ["exampleVideo", "용례영상", "용례 영상"])
+        || ""
+      );
+
+      if (!exampleVideoUrl){
+        showOverlay("현재 용례영상 링크가 없습니다", 1200);
+        return;
+      }
+
+      let baseRowIndices = getEditableBaseRowIndices(group);
+      if (!baseRowIndices.length){
+        const fallbackIndex = getGroupPrimaryRowIndex(group);
+        if (Number.isInteger(fallbackIndex) && fallbackIndex >= 0) baseRowIndices = [fallbackIndex];
+      }
+      if (!baseRowIndices.length){
+        showOverlay("표제어 영상링크를 저장할 행을 찾지 못했습니다", 1300);
+        return;
+      }
+
+      rememberUndoSnapshot();
+      pushDataHistorySnapshot("용례영상 → 표제어영상 덮어쓰기");
+
+      baseRowIndices.forEach(idx => {
+        const row = getRowObject(idx);
+        if (!row) return;
+        setPreferredFieldValue(row, ["headwordVideo", "표제어영상", "표제어 영상", "wordVideo", "영상"], "headwordVideo", exampleVideoUrl);
+      });
+
+      group.wordVideo = exampleVideoUrl;
+
+      await persistEditedRows("표제어 영상링크 덮어쓰기");
+    }
+
     function getEditableBaseRowIndices(group){
       if (!group) return [];
       const indices = Array.isArray(group.baseRowIndices) ? group.baseRowIndices : [];
@@ -7972,7 +8034,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       els.mainText.style.display = "none";
     }
 
-    function showMainText(text){
+    function showMainText(text, options = {}){
       resetImageZoom();
       els.mainVideo.pause();
       els.mainVideo.removeAttribute("src");
@@ -7982,7 +8044,13 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       // 이후 비디오 모드 전환 시 재설정되도록 합니다.
       els.mainVideo.dataset.currentSrc = "";
       hideAllMainPanels();
+      els.mainText.classList.remove("mode-extra-info");
+      if (options && options.variant === "extra-info"){
+        els.mainText.classList.add("mode-extra-info");
+      }
       els.mainText.textContent = text || "";
+      els.mainText.scrollTop = 0;
+      els.mainText.scrollLeft = 0;
       els.mainText.style.display = "flex";
       applyCaptionMaskState();
     }
@@ -8328,7 +8396,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       } else if (currentMode === "X"){
         // 부가정보를 표시합니다.
         const info = group.extraInfo || "부가정보가 없습니다.";
-        showMainText(info);
+        showMainText(info, { variant: "extra-info" });
       } else if (currentMode === "C"){
         if (group.additionalImage) showMainImage(group.additionalImage, "부가그림");
         else showMainText("부가그림이 없습니다.");
@@ -8443,6 +8511,7 @@ function buildHelpText(){
     "Shift+Z 뜻풀이 편집",
     "Shift+X 부가정보 편집",
     "Shift+A 용례문 편집",
+    "Shift+S 현재 용례영상링크를 표제어영상링크로 덮어쓰기",
     "Shift+C 부가그림 편집",
     "Shift+M 메모 편집",
     "Shift+V 현재 정보 확인 / 편집",
@@ -11618,6 +11687,12 @@ ${match.label}${timeText}`, 1500);
         if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
         e.preventDefault();
         toggleEditFieldModal("A");
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 's'){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        copyCurrentExampleVideoToHeadwordVideo();
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){
