@@ -2166,6 +2166,8 @@
     let currentAddEntryContext = null;
     let addEntryModalOriginalParent = null;
     let addEntryModalOriginalNextSibling = null;
+    let addEntryFocusSelectPending = false;
+    let addEntryOpenSelectTarget = null;
     let noteModalOriginalParent = null;
     let noteModalOriginalNextSibling = null;
     let editModalOriginalParent = null;
@@ -5759,6 +5761,8 @@
       currentAddEntryTemplateRow = null;
       currentAddEntryContext = null;
       if (els.addEntrySaveBtn) els.addEntrySaveBtn.textContent = "추가";
+      addEntryFocusSelectPending = false;
+      addEntryOpenSelectTarget = null;
       if (!els.addEntryModal) return;
       els.addEntryModal.classList.remove("open");
       els.addEntryModal.setAttribute("aria-hidden", "true");
@@ -6151,6 +6155,38 @@
       openAddEntryModal(prefill);
     }
 
+    function getAddEntryFields(){
+      return [els.addEntryId, els.addEntryWord, els.addEntryCategory, els.addEntryScope, els.addEntryDefinition, els.addEntryExample, els.addEntryMemo, els.addEntryExtraInfo].filter(Boolean);
+    }
+
+    function selectEntireFieldValue(field){
+      if (!field) return;
+      try{
+        field.focus({ preventScroll: true });
+      } catch(_err){
+        try{ field.focus(); } catch(__err){}
+      }
+      try{
+        const value = typeof field.value === "string" ? field.value : "";
+        if (typeof field.setSelectionRange === "function"){
+          field.setSelectionRange(0, value.length);
+        } else if (typeof field.select === "function"){
+          field.select();
+        }
+      } catch(_err){}
+    }
+
+    function scheduleAddEntryFieldSelect(field){
+      if (!field) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!els.addEntryModal?.classList.contains("open")) return;
+          if (document.activeElement !== field) return;
+          selectEntireFieldValue(field);
+        });
+      });
+    }
+
     function openAddEntryModal(options = {}){
       const defaultWord = safe(options.word ?? els.searchInput?.value ?? "").trim();
       const requestedRowIndex = Number(options.editRowIndex);
@@ -6188,7 +6224,13 @@
       ensureAddEntryModalHost();
       els.addEntryModal?.classList.add("open");
       els.addEntryModal?.setAttribute("aria-hidden", "false");
-      setTimeout(() => (els.addEntryWord || els.addEntryId)?.focus(), 20);
+      addEntryOpenSelectTarget = els.addEntryWord || els.addEntryId || null;
+      addEntryFocusSelectPending = false;
+      setTimeout(() => {
+        const target = addEntryOpenSelectTarget || els.addEntryWord || els.addEntryId || null;
+        if (!target) return;
+        selectEntireFieldValue(target);
+      }, 20);
     }
 
     async function saveAddEntryModal(){
@@ -12262,9 +12304,14 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         saveEditModal();
       });
-      [els.addEntryId, els.addEntryWord, els.addEntryCategory, els.addEntryScope, els.addEntryDefinition, els.addEntryExample, els.addEntryMemo, els.addEntryExtraInfo].filter(Boolean).forEach(input => {
+      getAddEntryFields().forEach(input => {
         input?.addEventListener("keydown", (e) => {
           if (e.isComposing) return;
+          if (e.key === "Tab"){
+            addEntryFocusSelectPending = true;
+            addEntryOpenSelectTarget = null;
+            return;
+          }
           if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
             e.preventDefault();
             saveAddEntryModal();
@@ -12274,6 +12321,18 @@ ${match.label}${timeText}`, 1500);
             e.preventDefault();
             saveAddEntryModal();
           }
+        });
+        input?.addEventListener("focus", () => {
+          if (!els.addEntryModal?.classList.contains("open")) return;
+          const shouldSelect = addEntryFocusSelectPending || addEntryOpenSelectTarget === input;
+          if (!shouldSelect) return;
+          addEntryFocusSelectPending = false;
+          addEntryOpenSelectTarget = null;
+          scheduleAddEntryFieldSelect(input);
+        });
+        input?.addEventListener("pointerdown", () => {
+          addEntryFocusSelectPending = false;
+          addEntryOpenSelectTarget = null;
         });
       });
       els.helpCloseBtn?.addEventListener("click", closeHelpModal);
