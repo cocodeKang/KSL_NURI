@@ -5033,9 +5033,12 @@
     }
 
     function createNavigationSnapshot(){
+      const currentGroup = getCurrentGroup();
       return {
         ...createUndoSnapshot(),
-        selectionModeActive: !!selectionModeActive
+        selectionModeActive: !!selectionModeActive,
+        currentGroupId: safe(currentGroup?.id || ""),
+        currentGroupWord: safe(currentGroup?.word || "")
       };
     }
 
@@ -5055,6 +5058,13 @@
         viewMode: VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL",
         selectionModeActive: !!snap.selectionModeActive
       });
+    }
+
+    function getNavigationSnapshotHeadwordKey(snapshot){
+      const snap = snapshot || {};
+      const groupId = safe(snap.currentGroupId || "");
+      if (groupId) return `group:${groupId}`;
+      return getNavigationSnapshotKey(snap);
     }
 
     function pushNavigationHistorySnapshot(snapshot = createNavigationSnapshot(), options = {}){
@@ -5129,40 +5139,40 @@
 
     async function goHistoryBack(){
       const currentSnapshot = createNavigationSnapshot();
-      const currentKey = getNavigationSnapshotKey(currentSnapshot);
+      const currentHeadwordKey = getNavigationSnapshotHeadwordKey(currentSnapshot);
       let target = null;
       while (navigationBackStack.length){
         const candidate = navigationBackStack.pop();
-        if (getNavigationSnapshotKey(candidate) !== currentKey){
+        if (getNavigationSnapshotHeadwordKey(candidate) !== currentHeadwordKey){
           target = candidate;
           break;
         }
       }
       if (!target){
-        showOverlay("이전 학습 위치가 없습니다", 900);
+        showOverlay("이전 표제어 학습 위치가 없습니다", 900);
         return false;
       }
       pushNavigationForwardSnapshot(currentSnapshot);
-      return restoreNavigationSnapshot(target, "이전 학습 위치로 이동");
+      return restoreNavigationSnapshot(target, "이전 표제어 학습 위치로 이동");
     }
 
     async function goHistoryForward(){
       const currentSnapshot = createNavigationSnapshot();
-      const currentKey = getNavigationSnapshotKey(currentSnapshot);
+      const currentHeadwordKey = getNavigationSnapshotHeadwordKey(currentSnapshot);
       let target = null;
       while (navigationForwardStack.length){
         const candidate = navigationForwardStack.pop();
-        if (getNavigationSnapshotKey(candidate) !== currentKey){
+        if (getNavigationSnapshotHeadwordKey(candidate) !== currentHeadwordKey){
           target = candidate;
           break;
         }
       }
       if (!target){
-        showOverlay("이후 학습 위치가 없습니다", 900);
+        showOverlay("이후 표제어 학습 위치가 없습니다", 900);
         return false;
       }
       pushNavigationHistorySnapshot(currentSnapshot, { preserveForward:true });
-      return restoreNavigationSnapshot(target, "이후 학습 위치로 이동");
+      return restoreNavigationSnapshot(target, "이후 표제어 학습 위치로 이동");
     }
 
     function cloneHistoryValue(value){
@@ -5991,6 +6001,7 @@
       const preferredMode = safe(options.mode || currentMode || "W") || "W";
       const pauseTimeValue = Number(options.pauseTime);
       const pauseTime = Number.isFinite(pauseTimeValue) ? pauseTimeValue : null;
+      const targetSourceValue = safe(options.sourceValue || options.scope || options.source || "").trim();
 
       clearSelectedSearchPick();
       clearMultiSelectedSearch();
@@ -6000,6 +6011,11 @@
       updateSearchIdButton();
       updateSearchPlaceholder();
       if (els.searchInput) els.searchInput.value = targetWord;
+
+      if (targetSourceValue && els.sourceSelect){
+        const hasExactSourceOption = [...(els.sourceSelect.options || [])].some(opt => safe(opt.value) === targetSourceValue);
+        if (hasExactSourceOption) els.sourceSelect.value = targetSourceValue;
+      }
 
       await applyFilter({ save:false });
 
@@ -6277,7 +6293,13 @@
         : (preferredMode === "S"
           ? (Number.isFinite(examplePause) ? examplePause : (Number.isFinite(headwordPause) ? headwordPause : null))
           : (Number.isFinite(headwordPause) ? headwordPause : (Number.isFinite(examplePause) ? examplePause : null)));
-      await focusNewlyAddedEntry({ sourceId: cleanId, word: cleanWord, mode: preferredMode, pauseTime });
+      await focusNewlyAddedEntry({
+        sourceId: cleanId,
+        word: cleanWord,
+        mode: preferredMode,
+        pauseTime,
+        sourceValue: sourceName
+      });
     }
 
     async function addNewHeadwordEntry(){
