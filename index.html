@@ -4792,6 +4792,8 @@
           baseWord: g.word,
           id: g.id,
           sourceId: g.sourceId,
+          sourceName: g.sourceName || "",
+          category: g.category || "",
           norm,
           len: cleaned.length,
           isVariant: false,
@@ -4809,6 +4811,8 @@
         word: item.word,
         id: item.groupId,
         sourceId: item.sourceId,
+        sourceName: item.sourceName || "",
+        category: item.category || "",
         norm: item.textNorm || "",
         len: (item.text || "").length || item.word.length,
         textLen: (item.text || "").length
@@ -9163,6 +9167,8 @@ async function initFirebaseSync(){
             baseWord: g.word,
             id: g.id,
             sourceId: g.sourceId || g.id,
+            sourceName: g.sourceName || "",
+            category: g.category || "",
             len: String(g.sourceId || "").length,
             textLen: g.word.length,
             isVariant: false,
@@ -9205,6 +9211,8 @@ async function initFirebaseSync(){
             baseWord: item.baseWord || item.word,
             id: item.id,
             sourceId: item.sourceId || item.id,
+            sourceName: item.sourceName || "",
+            category: item.category || "",
             len: item.len,
             textLen: item.textLen || 0,
             isVariant: !!item.isVariant,
@@ -9263,6 +9271,21 @@ async function initFirebaseSync(){
       requestAnimationFrame(applySearchInputValue);
       setTimeout(applySearchInputValue, 0);
       setTimeout(applySearchInputValue, 30);
+      if (els.sourceSelect && item.sourceName){
+        const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
+        if (sourceOptions.includes(safe(item.sourceName))){
+          els.sourceSelect.value = item.sourceName;
+        }
+      }
+      updateCategoryOptions();
+      if (els.categorySelect && item.category){
+        const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
+        if (categoryOptions.includes(safe(item.category))){
+          els.categorySelect.value = item.category;
+        }
+      }
+      updateSourceOptions();
+      updateQuickButtons();
       if (typeof els.searchInput.setSelectionRange === "function"){
         const end = suggestionValue.length;
         requestAnimationFrame(() => {
@@ -9285,20 +9308,31 @@ async function initFirebaseSync(){
       const item = pendingSearchPick;
       if (!item) return;
       pendingSearchPick = null;
+      let moved = false;
       if (item.type === "word" && item.id){
         const idx = filteredGroups.findIndex(g => String(g.id) === String(item.id));
         if (idx >= 0){
           currentIndex = idx;
           if (isExampleMode()) currentMode = "Q";
+          moved = true;
         }
       } else if (item.type === "example"){
         const idx2 = filteredExamplePool.findIndex(row => String(row.groupId) === String(item.id) && row.text === item.text);
         if (idx2 >= 0){
           currentPoolIndex = idx2;
           if (!isExampleMode()) currentMode = "D";
+          moved = true;
         }
       }
       updateModeButtons(currentMode);
+      if (moved){
+        const popupLines = [];
+        const popupTitle = item.type === "example" ? (item.word || item.text || "이동") : (item.word || item.text || "이동");
+        popupLines.push(popupTitle);
+        if (item.sourceName) popupLines.push(`범주: ${item.sourceName}`);
+        if (item.category) popupLines.push(`의미범주: ${item.category}`);
+        showOverlay(popupLines.join("\n"), 1400);
+      }
     }
 
     function renderSearchSuggestions(){
@@ -9323,11 +9357,14 @@ async function initFirebaseSync(){
         const itemClasses = ["suggestion-item"];
         if (idx === searchFocusedIndex) itemClasses.push("active");
         if (isMultiSelected) itemClasses.push("selected");
-        const subLabel = searchIdMode
-          ? `<span class="suggestion-sub">표제어: ${escapeHtml(item.word)}</span>`
-          : (item.type === "example"
-            ? `<span class="suggestion-sub">표제어: ${escapeHtml(wordDisplay)}</span>`
-            : ``);
+        const metaParts = [];
+        if (!searchIdMode && item.type === "example") metaParts.push(`표제어: ${escapeHtml(wordDisplay)}`);
+        else if (searchIdMode) metaParts.push(`표제어: ${escapeHtml(item.word)}`);
+        if (item.sourceName) metaParts.push(`범주: ${escapeHtml(item.sourceName)}`);
+        if (item.category) metaParts.push(`의미범주: ${escapeHtml(item.category)}`);
+        const subLabel = metaParts.length
+          ? `<span class="suggestion-sub">${metaParts.join(" · ")}</span>`
+          : ``;
         return `
           <div class="${itemClasses.join(" ")}" data-idx="${idx}">
             ${displayText}
