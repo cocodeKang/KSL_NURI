@@ -1831,6 +1831,33 @@
     </div>
   </div>
 
+  <div id="clipEditorModal" class="note-modal" aria-hidden="true">
+    <div class="note-dialog">
+      <div class="note-head">
+        <strong id="clipEditorModalTitle">구간 시작/종료 편집</strong>
+        <button id="clipEditorCloseBtn" class="icon-btn" type="button">닫기</button>
+      </div>
+      <div class="range-form" style="display:flex;flex-direction:column;gap:10px;">
+        <div id="clipEditorScopeInfo" class="content" style="font-size:14px;color:var(--sub);">현재 영상 구간 정보를 불러오는 중...</div>
+        <div id="clipEditorCurrentTime" class="content" style="font-size:14px;color:#d9e7ff;">현재 재생시간: -</div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+          <input id="clipEditorStartInput" class="preset-input" type="text" placeholder="구간 시작 0:14" />
+          <button id="clipEditorUseCurrentStartBtn" class="icon-btn" type="button" title="현재 재생시간을 시작값으로 넣기">시작=현재</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+          <input id="clipEditorEndInput" class="preset-input" type="text" placeholder="구간 종료 0:21" />
+          <button id="clipEditorUseCurrentEndBtn" class="icon-btn" type="button" title="현재 재생시간을 종료값으로 넣기">종료=현재</button>
+        </div>
+        <div style="font-size:13px;color:var(--sub);line-height:1.6;">시간은 <code>14</code>, <code>0:14</code>, <code>1:02:03</code> 형식 모두 입력할 수 있습니다.</div>
+      </div>
+      <div class="note-actions">
+        <button id="clipEditorRefreshBtn" class="icon-btn" type="button">현재값</button>
+        <button id="clipEditorClearBtn" class="icon-btn" type="button">초기화</button>
+        <button id="clipEditorSaveBtn" class="select-btn" type="button">적용</button>
+      </div>
+    </div>
+  </div>
+
   <div id="rangeLookupModal" class="note-modal" aria-hidden="true">
     <div class="note-dialog">
       <div class="note-head">
@@ -1889,7 +1916,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v64_범주의미범주정리_extraInfoWrap";
+  const HTML_VERSION = "v67_captureL_fullscreenShiftL";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2037,6 +2064,18 @@
       addEntrySaveBtn: document.getElementById("addEntrySaveBtn"),
       addEntryCancelBtn: document.getElementById("addEntryCancelBtn"),
       addEntryCloseBtn: document.getElementById("addEntryCloseBtn"),
+      clipEditorModal: document.getElementById("clipEditorModal"),
+      clipEditorModalTitle: document.getElementById("clipEditorModalTitle"),
+      clipEditorScopeInfo: document.getElementById("clipEditorScopeInfo"),
+      clipEditorCurrentTime: document.getElementById("clipEditorCurrentTime"),
+      clipEditorStartInput: document.getElementById("clipEditorStartInput"),
+      clipEditorEndInput: document.getElementById("clipEditorEndInput"),
+      clipEditorUseCurrentStartBtn: document.getElementById("clipEditorUseCurrentStartBtn"),
+      clipEditorUseCurrentEndBtn: document.getElementById("clipEditorUseCurrentEndBtn"),
+      clipEditorRefreshBtn: document.getElementById("clipEditorRefreshBtn"),
+      clipEditorClearBtn: document.getElementById("clipEditorClearBtn"),
+      clipEditorSaveBtn: document.getElementById("clipEditorSaveBtn"),
+      clipEditorCloseBtn: document.getElementById("clipEditorCloseBtn"),
       rangeLookupModal: document.getElementById("rangeLookupModal"),
       rangeLookupUrl: document.getElementById("rangeLookupUrl"),
       rangeLookupStart: document.getElementById("rangeLookupStart"),
@@ -8599,6 +8638,7 @@ function buildHelpText(){
     "M 메모 팝업 / 길게 눌러 편집",
     "N 새 표제어 추가",
     "Ctrl+N 표제어 추가 / 편집 (현재 재생 시점=표제어 시작, 용례 시작 동기화, 용례 종료 유지, 저장 후 W 화면 정지)",
+    "Ctrl+P 현재 영상의 구간 시작/종료 확인 · 직접 편집 팝업",
     "Shift+N 현재 내용 복제 추가",
     "Shift+Q 표제어 편집",
     "Shift+Z 뜻풀이 편집",
@@ -8617,7 +8657,10 @@ function buildHelpText(){
     "P 재생모드 변경",
     "Shift+P 재생: 구간 켜기/끄기",
     "F 전체화면",
-    "O 현재 화면 캡처",
+    "O 입 모양 영상",
+    "Shift+O 현재 화면 캡처",
+    "L 현재 보고 있는 영상 캡처",
+    "Shift+L 전체화면 스크린샷 캡처(권한 필요)",
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
@@ -9834,6 +9877,133 @@ ${getSelectionEntries().length}개 항목`, 1200);
       showOverlay(`${stored.scopeLabel} 구간 시간\n시작 ${startText}\n종료 ${endText}`, 1800);
     }
 
+
+    function getClipEditorScopeInfoText(){
+      const clipScope = getCurrentClipScope();
+      if (!clipScope) return "현재 모드는 구간 편집을 지원하지 않습니다.";
+      const stored = getStoredClipRangeForMode(currentMode);
+      const label = stored?.scopeLabel || (clipScope === "example" ? "용례" : "표제어");
+      const sourceText = clipScope === "example" ? "용례 영상(S)" : "표제어 영상(W)";
+      return `${sourceText} · ${label} 구간 시작/종료를 직접 수정할 수 있습니다.`;
+    }
+
+    function refreshClipEditorCurrentTime(){
+      if (!els.clipEditorCurrentTime) return;
+      const now = getActiveMediaTime();
+      els.clipEditorCurrentTime.textContent = `현재 재생시간: ${Number.isFinite(now) ? formatClipTime(now) : "-"}`;
+    }
+
+    function fillClipEditorWithCurrentValues(){
+      const clipScope = getCurrentClipScope();
+      const stored = getStoredClipRangeForMode(currentMode);
+      const editable = getEditableLoopRange();
+      const label = stored?.scopeLabel || (clipScope === "example" ? "용례" : "표제어");
+      if (els.clipEditorModalTitle) els.clipEditorModalTitle.textContent = `${label} 구간 시작/종료 편집`;
+      if (els.clipEditorScopeInfo) els.clipEditorScopeInfo.textContent = getClipEditorScopeInfoText();
+      if (els.clipEditorStartInput) els.clipEditorStartInput.value = editable.start == null ? "" : formatClipTime(editable.start);
+      if (els.clipEditorEndInput) els.clipEditorEndInput.value = editable.end == null ? "" : formatClipTime(editable.end);
+      refreshClipEditorCurrentTime();
+    }
+
+    function openClipEditorModal(){
+      const clipScope = getCurrentClipScope();
+      if (!clipScope || !isVideoMode()){
+        showOverlay("표제어 영상(W) 또는 용례 영상(S)에서만 구간 편집이 가능합니다", 1400);
+        return;
+      }
+      if (!els.clipEditorModal) return;
+      fillClipEditorWithCurrentValues();
+      els.clipEditorModal.classList.add("open");
+      els.clipEditorModal.setAttribute("aria-hidden", "false");
+      setTimeout(() => {
+        refreshClipEditorCurrentTime();
+        els.clipEditorStartInput?.focus();
+        els.clipEditorStartInput?.select?.();
+      }, 20);
+    }
+
+    function closeClipEditorModal(){
+      if (!els.clipEditorModal) return;
+      els.clipEditorModal.classList.remove("open");
+      els.clipEditorModal.setAttribute("aria-hidden", "true");
+    }
+
+    function setClipEditorInputToCurrent(which){
+      const now = getActiveMediaTime();
+      if (!Number.isFinite(now)){
+        showOverlay("현재 재생 위치를 읽지 못했습니다", 1200);
+        return;
+      }
+      const target = which === "end" ? els.clipEditorEndInput : els.clipEditorStartInput;
+      if (!target) return;
+      target.value = formatClipTime(now);
+      refreshClipEditorCurrentTime();
+      try { target.focus(); target.select?.(); } catch(_) {}
+    }
+
+    function clearClipEditorInputs(){
+      if (els.clipEditorStartInput) els.clipEditorStartInput.value = "";
+      if (els.clipEditorEndInput) els.clipEditorEndInput.value = "";
+      refreshClipEditorCurrentTime();
+    }
+
+    async function saveClipEditorModal(){
+      const clipScope = getCurrentClipScope();
+      if (!clipScope){
+        showOverlay("현재 모드는 구간 편집을 지원하지 않습니다", 1200);
+        return;
+      }
+      const startRaw = safe(els.clipEditorStartInput?.value).trim();
+      const endRaw = safe(els.clipEditorEndInput?.value).trim();
+      const start = startRaw ? parseTimeToSeconds(startRaw) : null;
+      const end = endRaw ? parseTimeToSeconds(endRaw) : null;
+
+      if (startRaw && start == null){
+        showOverlay("구간 시작 시간 형식을 확인해 주세요", 1400);
+        els.clipEditorStartInput?.focus();
+        els.clipEditorStartInput?.select?.();
+        return;
+      }
+      if (endRaw && end == null){
+        showOverlay("구간 종료 시간 형식을 확인해 주세요", 1400);
+        els.clipEditorEndInput?.focus();
+        els.clipEditorEndInput?.select?.();
+        return;
+      }
+      if (start != null && start < 0){
+        showOverlay("구간 시작은 0초 이상이어야 합니다", 1400);
+        return;
+      }
+      if (end != null && end < 0){
+        showOverlay("구간 종료는 0초 이상이어야 합니다", 1400);
+        return;
+      }
+      if (start != null && end != null && end <= start){
+        showOverlay("구간 종료는 시작보다 뒤여야 합니다", 1400);
+        els.clipEditorEndInput?.focus();
+        els.clipEditorEndInput?.select?.();
+        return;
+      }
+
+      rememberUndoSnapshot();
+      updateActiveClipValue(clipScope, "start", start);
+      updateActiveClipValue(clipScope, "end", end);
+      abLoopStart = start;
+      abLoopEnd = end;
+      renderStatus();
+      applyVideoLoopState();
+      await saveState();
+      scheduleFirebaseStatePush();
+      closeClipEditorModal();
+
+      const scopeLabel = clipScope === "example" ? "용례" : "표제어";
+      const startText = start == null ? "없음" : formatClipTime(start);
+      const endText = end == null ? "없음" : formatClipTime(end);
+      showOverlay(`${scopeLabel} 구간 저장
+시작 ${startText}
+종료 ${endText}`, 1500);
+    }
+
     async function setMode(mode, options = {}){
       const { preserveWordAssetState = false } = options;
       const modeChanged = mode !== currentMode;
@@ -10692,22 +10862,143 @@ ${getSelectionEntries().length}개 항목`, 1200);
       btn.addEventListener("click", (e) => e.preventDefault());
     }
 
+    function buildCaptureTimestamp(){
+      const now = new Date();
+      return `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
+    }
+
+    function downloadCanvasAsPng(canvas, prefix = "ksl_capture"){
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = `${prefix}_${buildCaptureTimestamp()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    async function captureCurrentViewedVideoFrame(){
+      try {
+        const stage = els.stage;
+        if (!stage){
+          showOverlay("캡처할 화면이 없습니다", 1200);
+          return false;
+        }
+
+        if (els.mainVideo.style.display !== "block"){
+          if (isYoutubePlayerVisible() || els.mainFrame?.style.display === "block"){
+            showOverlay("이 영상은 직접 캡처가 어려워요 · Shift+L로 전체화면 캡처를 사용하세요", 1900);
+          } else {
+            showOverlay("현재 보고 있는 영상이 없습니다", 1200);
+          }
+          return false;
+        }
+
+        if (!els.mainVideo.videoWidth || !els.mainVideo.videoHeight){
+          showOverlay("영상이 아직 준비되지 않아 캡처할 수 없습니다", 1400);
+          return false;
+        }
+
+        const stageRect = stage.getBoundingClientRect();
+        const videoRect = els.mainVideo.getBoundingClientRect();
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(stageRect.width));
+        canvas.height = Math.max(1, Math.round(stageRect.height));
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        try {
+          ctx.drawImage(
+            els.mainVideo,
+            Math.round(videoRect.left - stageRect.left),
+            Math.round(videoRect.top - stageRect.top),
+            Math.round(videoRect.width),
+            Math.round(videoRect.height)
+          );
+        } catch (err) {
+          console.warn("현재 영상 프레임 캡처 실패", err);
+          showOverlay("직접 영상 캡처에 실패했습니다 · Shift+L로 전체화면 캡처를 사용하세요", 1900);
+          return false;
+        }
+
+        downloadCanvasAsPng(canvas, "ksl_video_capture");
+        showOverlay("현재 영상 캡처 완료", 1000);
+        return true;
+      } catch (err){
+        console.error(err);
+        showOverlay("영상 캡처에 실패했습니다", 1400);
+        return false;
+      }
+    }
+
+    async function captureFullscreenScreenshot(){
+      let stream = null;
+      let tempVideo = null;
+      try {
+        if (!navigator.mediaDevices?.getDisplayMedia){
+          showOverlay("이 브라우저는 전체화면 캡처를 지원하지 않습니다", 1700);
+          return false;
+        }
+
+        showOverlay("권한 창에서 현재 탭 또는 전체 화면을 선택하세요", 1600);
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+          preferCurrentTab: true,
+          selfBrowserSurface: "include",
+          surfaceSwitching: "exclude"
+        });
+
+        tempVideo = document.createElement("video");
+        tempVideo.playsInline = true;
+        tempVideo.muted = true;
+        tempVideo.srcObject = stream;
+
+        await new Promise((resolve, reject) => {
+          const onLoaded = () => resolve();
+          const onError = () => reject(new Error("화면 캡처 영상을 불러오지 못했습니다"));
+          tempVideo.onloadedmetadata = onLoaded;
+          tempVideo.onerror = onError;
+        });
+
+        try {
+          await tempVideo.play();
+        } catch (_) {}
+
+        await new Promise(resolve => setTimeout(resolve, 180));
+
+        const track = stream.getVideoTracks?.()[0] || null;
+        const settings = track?.getSettings?.() || {};
+        const width = Math.max(1, Math.round(tempVideo.videoWidth || settings.width || window.innerWidth || 1280));
+        const height = Math.max(1, Math.round(tempVideo.videoHeight || settings.height || window.innerHeight || 720));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(tempVideo, 0, 0, width, height);
+        downloadCanvasAsPng(canvas, "ksl_fullscreen_capture");
+        showOverlay("전체화면 스크린샷 캡처 완료", 1100);
+        return true;
+      } catch (err){
+        console.error(err);
+        if (err?.name === "NotAllowedError" || err?.name === "AbortError"){
+          showOverlay("전체화면 캡처가 취소되었습니다", 1200);
+        } else {
+          showOverlay("전체화면 캡처에 실패했습니다", 1500);
+        }
+        return false;
+      } finally {
+        try { tempVideo?.pause?.(); } catch (_) {}
+        try { if (tempVideo) tempVideo.srcObject = null; } catch (_) {}
+        try { stream?.getTracks?.().forEach(track => track.stop()); } catch (_) {}
+      }
+    }
+
     async function captureCurrentStage(){
       try {
         const stage = els.stage;
         if (!stage) return;
-
-        const downloadCanvas = (canvas) => {
-          const a = document.createElement("a");
-          const now = new Date();
-          const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
-          a.href = canvas.toDataURL("image/png");
-          a.download = `ksl_capture_${ts}.png`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          showOverlay("현재 화면 캡처 완료", 900);
-        };
 
         if (window.html2canvas){
           try{
@@ -10721,7 +11012,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
                 return el === els.tapPrevZone || el === els.tapNextZone || el === els.dropHint || el === els.rotateHotspot || el === els.overlayMsg || el === els.captionMaskPanel;
               }
             });
-            downloadCanvas(canvas);
+            downloadCanvasAsPng(canvas, "ksl_capture");
+            showOverlay("현재 화면 캡처 완료", 900);
             return;
           }catch(err){
             console.warn("html2canvas 캡처 실패, 수동 캔버스로 재시도", err);
@@ -10766,7 +11058,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const totalHeight = lines.length * lineHeight;
           let y = height / 2 - totalHeight / 2 + lineHeight / 2;
           lines.forEach(line => { ctx.fillText(line, width / 2, y, width * 0.88); y += lineHeight; });
-          downloadCanvas(canvas);
+          downloadCanvasAsPng(canvas, "ksl_capture");
+          showOverlay("현재 화면 캡처 완료", 900);
           return;
         }
 
@@ -10777,14 +11070,16 @@ ${getSelectionEntries().length}개 항목`, 1200);
             const box = drawElementBox(img);
             if (box) ctx.drawImage(img, box.x, box.y, box.w, box.h);
           }
-          downloadCanvas(canvas);
+          downloadCanvasAsPng(canvas, "ksl_capture");
+          showOverlay("현재 화면 캡처 완료", 900);
           return;
         }
 
         if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
           const box = drawElementBox(els.mainImage);
           ctx.drawImage(els.mainImage, box.x, box.y, box.w, box.h);
-          downloadCanvas(canvas);
+          downloadCanvasAsPng(canvas, "ksl_capture");
+          showOverlay("현재 화면 캡처 완료", 900);
           return;
         }
 
@@ -10792,7 +11087,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const box = drawElementBox(els.mainVideo);
           try {
             ctx.drawImage(els.mainVideo, box.x, box.y, box.w, box.h);
-            downloadCanvas(canvas);
+            downloadCanvasAsPng(canvas, "ksl_capture");
+            showOverlay("현재 화면 캡처 완료", 900);
             return;
           } catch (err) {
             showOverlay("영상 캡처는 브라우저 보안 정책으로 제한될 수 있습니다", 1600);
@@ -11735,6 +12031,11 @@ ${match.label}${timeText}`, 1500);
           closeAddEntryModal();
           return;
         }
+        if (els.clipEditorModal?.classList.contains("open")){
+          e.preventDefault();
+          closeClipEditorModal();
+          return;
+        }
         if (els.rangeLookupModal?.classList.contains("open")){
           e.preventDefault();
           closeRangeLookupModal();
@@ -11777,6 +12078,12 @@ ${match.label}${timeText}`, 1500);
         e.preventDefault();
         if (dataRedoStack.length) redoDataHistory();
         else redoSelectionHistory();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === 'p'){
+        if (isTypingContext() && !els.clipEditorModal?.classList.contains("open")) return;
+        e.preventDefault();
+        openClipEditorModal();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
@@ -11909,6 +12216,8 @@ ${match.label}${timeText}`, 1500);
 
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'p'){ e.preventDefault(); toggleFixedClipPlaybackMode(); return; }
       if (key === "b" && !e.shiftKey && !e.ctrlKey && !e.metaKey){ e.preventDefault(); toggleCaptionMask(); return; }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === "l"){ e.preventDefault(); captureFullscreenScreenshot(); return; }
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && key === "l"){ e.preventDefault(); captureCurrentViewedVideoFrame(); return; }
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
@@ -12347,6 +12656,29 @@ ${match.label}${timeText}`, 1500);
       els.addEntryCancelBtn?.addEventListener("click", closeAddEntryModal);
       els.addEntryCloseBtn?.addEventListener("click", closeAddEntryModal);
       els.addEntryModal?.addEventListener("click", (e) => { if (e.target === els.addEntryModal) closeAddEntryModal(); });
+
+      els.clipEditorCloseBtn?.addEventListener("click", closeClipEditorModal);
+      els.clipEditorModal?.addEventListener("click", (e) => { if (e.target === els.clipEditorModal) closeClipEditorModal(); });
+      els.clipEditorRefreshBtn?.addEventListener("click", fillClipEditorWithCurrentValues);
+      els.clipEditorClearBtn?.addEventListener("click", clearClipEditorInputs);
+      els.clipEditorSaveBtn?.addEventListener("click", () => { saveClipEditorModal(); });
+      els.clipEditorUseCurrentStartBtn?.addEventListener("click", () => { setClipEditorInputToCurrent("start"); });
+      els.clipEditorUseCurrentEndBtn?.addEventListener("click", () => { setClipEditorInputToCurrent("end"); });
+      [els.clipEditorStartInput, els.clipEditorEndInput].forEach(input => {
+        input?.addEventListener("focus", refreshClipEditorCurrentTime);
+        input?.addEventListener("keydown", (e) => {
+          if (e.isComposing) return;
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+            e.preventDefault();
+            saveClipEditorModal();
+            return;
+          }
+          if (e.key === "Enter" && !e.shiftKey){
+            e.preventDefault();
+            saveClipEditorModal();
+          }
+        });
+      });
 
       els.rangeLookupBtn?.addEventListener("click", openRangeLookupModal);
       els.rangeLookupCloseBtn?.addEventListener("click", closeRangeLookupModal);
