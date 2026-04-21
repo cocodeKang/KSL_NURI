@@ -1916,7 +1916,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v67_captureL_fullscreenShiftL";
+  const HTML_VERSION = "v68_fullscreenL_noPromptStageCapture";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -8659,8 +8659,8 @@ function buildHelpText(){
     "F 전체화면",
     "O 입 모양 영상",
     "Shift+O 현재 화면 캡처",
-    "L 현재 보고 있는 영상 캡처",
-    "Shift+L 전체화면 스크린샷 캡처(권한 필요)",
+    "L 현재 보고 있는 영상 캡처 / 전체화면에서는 현재 학습화면 즉시 캡처",
+    "Shift+L 전체화면에서는 현재 학습화면 즉시 캡처, 일반 화면에서는 권한 기반 스크린샷",
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
@@ -10867,6 +10867,52 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
     }
 
+    function isStageFullscreenActive(){
+      const fs = document.fullscreenElement;
+      const stage = els.stage;
+      if (!fs || !stage) return false;
+      return fs === stage || fs.contains?.(stage) || stage.contains?.(fs);
+    }
+
+    function drawVisibleCaptionMaskToCanvas(ctx, stageRect){
+      try {
+        if (!ctx || !stageRect || !els.captionMask) return;
+        const mask = els.captionMask;
+        const style = getComputedStyle(mask);
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity || "1") <= 0) return;
+        const r = mask.getBoundingClientRect();
+        if (!r.width || !r.height) return;
+        const x = Math.round(r.left - stageRect.left);
+        const y = Math.round(r.top - stageRect.top);
+        const w = Math.max(1, Math.round(r.width));
+        const h = Math.max(1, Math.round(r.height));
+        const radius = Math.max(12, Math.min(18, Math.round(Math.min(w, h) * 0.18)));
+
+        ctx.save();
+        ctx.beginPath();
+        const rr = typeof ctx.roundRect === "function";
+        if (rr){
+          ctx.roundRect(x, y, w, h, radius);
+        } else {
+          const rds = radius;
+          ctx.moveTo(x + rds, y);
+          ctx.arcTo(x + w, y, x + w, y + h, rds);
+          ctx.arcTo(x + w, y + h, x, y + h, rds);
+          ctx.arcTo(x, y + h, x, y, rds);
+          ctx.arcTo(x, y, x + w, y, rds);
+        }
+        ctx.closePath();
+        ctx.fillStyle = style.backgroundColor || "rgba(8,10,14,.96)";
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = style.borderColor || "rgba(255,255,255,.14)";
+        ctx.stroke();
+        ctx.restore();
+      } catch (err){
+        console.warn("caption mask draw skipped", err);
+      }
+    }
+
     function downloadCanvasAsPng(canvas, prefix = "ksl_capture"){
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
@@ -10884,9 +10930,14 @@ ${getSelectionEntries().length}개 항목`, 1200);
           return false;
         }
 
+        if (isStageFullscreenActive()){
+          await captureCurrentStage();
+          return true;
+        }
+
         if (els.mainVideo.style.display !== "block"){
           if (isYoutubePlayerVisible() || els.mainFrame?.style.display === "block"){
-            showOverlay("이 영상은 직접 캡처가 어려워요 · Shift+L로 전체화면 캡처를 사용하세요", 1900);
+            showOverlay("이 영상은 직접 캡처가 어려워요 · 전체화면에서는 L로 현재 학습화면을 바로 캡처할 수 있습니다", 2100);
           } else {
             showOverlay("현재 보고 있는 영상이 없습니다", 1200);
           }
@@ -10915,9 +10966,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
             Math.round(videoRect.width),
             Math.round(videoRect.height)
           );
+          drawVisibleCaptionMaskToCanvas(ctx, stageRect);
         } catch (err) {
           console.warn("현재 영상 프레임 캡처 실패", err);
-          showOverlay("직접 영상 캡처에 실패했습니다 · Shift+L로 전체화면 캡처를 사용하세요", 1900);
+          showOverlay("직접 영상 캡처에 실패했습니다", 1600);
           return false;
         }
 
@@ -10935,6 +10987,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
       let stream = null;
       let tempVideo = null;
       try {
+        if (isStageFullscreenActive()){
+          await captureCurrentStage();
+          return true;
+        }
+
         if (!navigator.mediaDevices?.getDisplayMedia){
           showOverlay("이 브라우저는 전체화면 캡처를 지원하지 않습니다", 1700);
           return false;
@@ -11058,6 +11115,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const totalHeight = lines.length * lineHeight;
           let y = height / 2 - totalHeight / 2 + lineHeight / 2;
           lines.forEach(line => { ctx.fillText(line, width / 2, y, width * 0.88); y += lineHeight; });
+          drawVisibleCaptionMaskToCanvas(ctx, rect);
           downloadCanvasAsPng(canvas, "ksl_capture");
           showOverlay("현재 화면 캡처 완료", 900);
           return;
@@ -11070,6 +11128,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
             const box = drawElementBox(img);
             if (box) ctx.drawImage(img, box.x, box.y, box.w, box.h);
           }
+          drawVisibleCaptionMaskToCanvas(ctx, rect);
           downloadCanvasAsPng(canvas, "ksl_capture");
           showOverlay("현재 화면 캡처 완료", 900);
           return;
@@ -11078,6 +11137,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
         if (els.mainImage.style.display === "block" && els.mainImage.naturalWidth){
           const box = drawElementBox(els.mainImage);
           ctx.drawImage(els.mainImage, box.x, box.y, box.w, box.h);
+          drawVisibleCaptionMaskToCanvas(ctx, rect);
           downloadCanvasAsPng(canvas, "ksl_capture");
           showOverlay("현재 화면 캡처 완료", 900);
           return;
@@ -11087,6 +11147,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           const box = drawElementBox(els.mainVideo);
           try {
             ctx.drawImage(els.mainVideo, box.x, box.y, box.w, box.h);
+            drawVisibleCaptionMaskToCanvas(ctx, rect);
             downloadCanvasAsPng(canvas, "ksl_capture");
             showOverlay("현재 화면 캡처 완료", 900);
             return;
@@ -11094,6 +11155,11 @@ ${getSelectionEntries().length}개 항목`, 1200);
             showOverlay("영상 캡처는 브라우저 보안 정책으로 제한될 수 있습니다", 1600);
             return;
           }
+        }
+
+        if (isYoutubePlayerVisible() || els.mainFrame.style.display === "block" || els.youtubePlayerWrap.style.display === "block"){
+          showOverlay("외부 iframe 영상은 권한 없는 즉시 캡처가 제한됩니다", 1900);
+          return;
         }
 
         showOverlay("캡처할 화면이 없습니다", 1200);
