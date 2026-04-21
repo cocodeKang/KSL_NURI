@@ -8660,7 +8660,7 @@ function buildHelpText(){
     "O 입 모양 영상",
     "Shift+O 현재 화면 캡처",
     "L 현재 보고 있는 사이트 화면 즉시 캡처",
-    "Shift+L 현재 보고 있는 사이트 화면 즉시 캡처",
+    "L / Shift+L 권한 창에서 현재 탭을 선택해 화면 캡처",
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
@@ -12282,7 +12282,7 @@ ${match.label}${timeText}`, 1500);
 
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'p'){ e.preventDefault(); toggleFixedClipPlaybackMode(); return; }
       if (key === "b" && !e.shiftKey && !e.ctrlKey && !e.metaKey){ e.preventDefault(); toggleCaptionMask(); return; }
-      if ((key === "l") && !e.ctrlKey && !e.metaKey){ e.preventDefault(); captureCurrentStage(); return; }
+      if ((key === "l") && !e.ctrlKey && !e.metaKey){ e.preventDefault(); captureFullscreenScreenshot(); return; }
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
