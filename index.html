@@ -5487,7 +5487,8 @@
     }
 
 
-    async function copyCurrentExampleVideoToHeadwordVideo(){
+    async function copyCurrentExampleVideoToHeadwordVideo(options = {}){
+      const includeClipRange = !!options.includeClipRange;
       const group = getCurrentGroup();
       if (!group){
         showOverlay("현재 표제어를 찾지 못했습니다", 1200);
@@ -5509,6 +5510,19 @@
         return;
       }
 
+      const exampleClipStartRaw = normalizeClipRawValue(
+        currentItem?.clipStartRaw
+        || pickValue(exampleRow, ["exampleClipStart", "구간시작_용례"])
+        || ""
+      );
+      const exampleClipEndRaw = normalizeClipRawValue(
+        currentItem?.clipEndRaw
+        || pickValue(exampleRow, ["exampleClipEnd", "구간종료_용례"])
+        || ""
+      );
+      const exampleClipStart = parseTimeToSeconds(exampleClipStartRaw);
+      const exampleClipEnd = parseTimeToSeconds(exampleClipEndRaw);
+
       let baseRowIndices = getEditableBaseRowIndices(group);
       if (!baseRowIndices.length){
         const fallbackIndex = getGroupPrimaryRowIndex(group);
@@ -5520,17 +5534,28 @@
       }
 
       rememberUndoSnapshot();
-      pushDataHistorySnapshot("용례영상 → 표제어영상 덮어쓰기");
+      pushDataHistorySnapshot(includeClipRange ? "용례영상+구간 → 표제어영상 덮어쓰기" : "용례영상 → 표제어영상 덮어쓰기");
 
       baseRowIndices.forEach(idx => {
         const row = getRowObject(idx);
         if (!row) return;
         setPreferredFieldValue(row, ["headwordVideo", "표제어영상", "표제어 영상", "wordVideo", "영상"], "headwordVideo", exampleVideoUrl);
+        if (includeClipRange){
+          setPreferredFieldValue(row, ["headwordClipStart", "구간시작_표제어"], "headwordClipStart", exampleClipStartRaw);
+          setPreferredFieldValue(row, ["headwordClipEnd", "구간종료_표제어"], "headwordClipEnd", exampleClipEndRaw);
+        }
       });
 
       group.wordVideo = exampleVideoUrl;
+      if (includeClipRange){
+        group.wordClipStartRaw = exampleClipStartRaw;
+        group.wordClipEndRaw = exampleClipEndRaw;
+        group.wordClipStart = Number.isFinite(exampleClipStart) ? exampleClipStart : null;
+        group.wordClipEnd = Number.isFinite(exampleClipEnd) ? exampleClipEnd : null;
+      }
 
-      await persistEditedRows("표제어 영상링크 덮어쓰기");
+      await persistEditedRows(includeClipRange ? "표제어 영상링크+구간 덮어쓰기" : "표제어 영상링크 덮어쓰기");
+      showOverlay(includeClipRange ? "표제어 영상과 구간을 용례 기준으로 덮어썼습니다" : "표제어 영상링크를 용례영상으로 덮어썼습니다", 1400);
     }
 
     function getEditableBaseRowIndices(group){
@@ -8580,6 +8605,7 @@ function buildHelpText(){
     "Shift+X 부가정보 편집",
     "Shift+A 용례문 편집",
     "Shift+S 현재 용례영상링크를 표제어영상링크로 덮어쓰기",
+    "Alt+S 현재 용례영상링크와 용례 구간 시작/종료를 표제어영상으로 덮어쓰기",
     "Shift+C 부가그림 편집",
     "Shift+M 메모 편집",
     "Shift+V 현재 정보 확인 / 편집",
@@ -11794,6 +11820,12 @@ ${match.label}${timeText}`, 1500);
         if (isTypingContext()) return;
         e.preventDefault();
         copyCurrentExampleVideoToHeadwordVideo();
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && key === 's'){
+        if (isTypingContext()) return;
+        e.preventDefault();
+        copyCurrentExampleVideoToHeadwordVideo({ includeClipRange: true });
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){
