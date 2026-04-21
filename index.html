@@ -1916,7 +1916,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v68_fullscreenL_noPromptStageCapture";
+  const HTML_VERSION = "v69_L_directStageCapture_noPrompt";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -8659,8 +8659,8 @@ function buildHelpText(){
     "F 전체화면",
     "O 입 모양 영상",
     "Shift+O 현재 화면 캡처",
-    "L 현재 보고 있는 영상 캡처 / 전체화면에서는 현재 학습화면 즉시 캡처",
-    "Shift+L 전체화면에서는 현재 학습화면 즉시 캡처, 일반 화면에서는 권한 기반 스크린샷",
+    "L 현재 보고 있는 사이트 화면 즉시 캡처",
+    "Shift+L 현재 보고 있는 사이트 화면 즉시 캡처",
     "[ 구간 시작 (데스크톱)",
     "] 구간 종료 (데스크톱)",
     "\\ 구간 초기화 (데스크톱)",
@@ -12282,8 +12282,7 @@ ${match.label}${timeText}`, 1500);
 
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'p'){ e.preventDefault(); toggleFixedClipPlaybackMode(); return; }
       if (key === "b" && !e.shiftKey && !e.ctrlKey && !e.metaKey){ e.preventDefault(); toggleCaptionMask(); return; }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === "l"){ e.preventDefault(); captureFullscreenScreenshot(); return; }
-      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && key === "l"){ e.preventDefault(); captureCurrentViewedVideoFrame(); return; }
+      if ((key === "l") && !e.ctrlKey && !e.metaKey){ e.preventDefault(); captureCurrentStage(); return; }
       if (key === "w"){ e.preventDefault(); triggerMode("W"); return; }
       if (key === "e"){ e.preventDefault(); triggerMode("E"); return; }
       if (key === "s"){ e.preventDefault(); triggerMode("S"); return; }
