@@ -1175,18 +1175,31 @@
     .note-modal.fullscreen-bottom{
       align-items:flex-end;
       justify-content:center;
-      padding:0 12px calc(12px + env(safe-area-inset-bottom));
+      padding:0 8px calc(8px + env(safe-area-inset-bottom));
     }
 
     .note-modal.fullscreen-bottom .note-dialog{
-      width:min(96vw, 1800px);
-      min-height:20vh;
-      max-height:20vh;
+      width:min(98vw, 1900px);
+      min-height:32vh;
+      max-height:32vh;
       margin:0 auto;
-      gap:8px;
+      padding:10px 12px;
+      gap:6px;
       border-bottom-left-radius:0;
       border-bottom-right-radius:0;
       box-shadow:0 -10px 30px rgba(0,0,0,.35);
+    }
+
+    .note-modal.fullscreen-bottom .note-head,
+    .note-modal.fullscreen-bottom .note-actions{
+      flex:0 0 auto;
+      min-height:38px;
+      gap:8px;
+    }
+
+    .note-modal.fullscreen-bottom .note-head strong{
+      font-size:15px;
+      line-height:1.2;
     }
 
     .note-modal.fullscreen-bottom .note-textarea,
@@ -1195,11 +1208,17 @@
       max-height:none;
       height:100%;
       flex:1 1 auto;
+      padding:10px 12px;
+      line-height:1.5;
     }
 
-    .note-modal.fullscreen-bottom .note-head,
-    .note-modal.fullscreen-bottom .note-actions{
-      flex:0 0 auto;
+    .note-modal.fullscreen-bottom .note-actions .icon-btn,
+    .note-modal.fullscreen-bottom .note-actions .select-btn,
+    .note-modal.fullscreen-bottom .note-head .icon-btn{
+      height:36px;
+      min-width:36px;
+      padding:0 12px;
+      font-size:14px;
     }
 
     .note-modal.open{
@@ -5491,11 +5510,17 @@
       noteModalEditable = editable;
       ensureNoteModalHost(editable);
       els.noteModalTitle.textContent = `${editable ? "메모 편집" : "메모"} · ${getCurrentEntityLabel()}`;
-      if (els.noteTextarea) els.noteTextarea.value = value;
+      if (els.noteTextarea){
+        els.noteTextarea.value = value;
+        els.noteTextarea.scrollTop = 0;
+        els.noteTextarea.scrollLeft = 0;
+      }
       if (els.noteViewText){
         els.noteViewText.textContent = value || "저장된 메모가 없습니다.";
         els.noteViewText.classList.toggle("is-empty", !safe(value));
         els.noteViewText.style.display = editable ? "none" : "block";
+        els.noteViewText.scrollTop = 0;
+        els.noteViewText.scrollLeft = 0;
       }
       if (els.noteTextarea) els.noteTextarea.style.display = editable ? "block" : "none";
       if (els.noteEditBtn) els.noteEditBtn.style.display = editable ? "none" : "inline-flex";
@@ -5506,7 +5531,25 @@
       els.noteModal.classList.toggle("readonly", !editable);
       els.noteModal.classList.add("open");
       els.noteModal.setAttribute("aria-hidden", "false");
-      if (focusEditor) setTimeout(() => els.noteTextarea?.focus(), 20);
+      const resetNoteEditorViewport = () => {
+        if (els.noteTextarea){
+          try { els.noteTextarea.setSelectionRange(0, 0); } catch (_) {}
+          els.noteTextarea.scrollTop = 0;
+          els.noteTextarea.scrollLeft = 0;
+        }
+        if (els.noteViewText){
+          els.noteViewText.scrollTop = 0;
+          els.noteViewText.scrollLeft = 0;
+        }
+      };
+      resetNoteEditorViewport();
+      if (focusEditor){
+        setTimeout(() => {
+          els.noteTextarea?.focus();
+          resetNoteEditorViewport();
+        }, 20);
+        requestAnimationFrame(() => requestAnimationFrame(resetNoteEditorViewport));
+      }
     }
 
     function closeNoteModal(){
