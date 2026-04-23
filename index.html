@@ -2105,6 +2105,8 @@
     let lastRenderedMediaContextKey = "";
     let groupShuffleSeed = null;
     let exampleShuffleSeed = null;
+    let preservedGroupShuffleOrderKeys = null;
+    let preservedExampleShuffleOrderKeys = null;
     let viewMode = "NORMAL";
 
     let selectionModeActive = false;
@@ -3890,6 +3892,61 @@
       }
     }
 
+    function getGroupShuffleOrderKey(group){
+      const primaryRowIndex = Number(getGroupPrimaryRowIndex(group));
+      if (Number.isInteger(primaryRowIndex) && primaryRowIndex >= 0) return `row:${primaryRowIndex}`;
+      return `gid:${safe(group?.id || "")}`;
+    }
+
+    function getExampleShuffleOrderKey(item){
+      const rowIndex = Number(item?.rowIndex);
+      if (Number.isInteger(rowIndex) && rowIndex >= 0) return `row:${rowIndex}`;
+      return `ex:${safe(item?.groupId)}::${safe(item?.text)}::${safe(item?.video)}`;
+    }
+
+    function applyStoredShuffleOrder(list, storedKeys, getKey){
+      if (!Array.isArray(list) || list.length <= 1 || !Array.isArray(storedKeys) || !storedKeys.length || typeof getKey !== "function") return;
+      const orderMap = new Map();
+      storedKeys.forEach((key, idx) => {
+        const normalized = String(key || "");
+        if (!normalized || orderMap.has(normalized)) return;
+        orderMap.set(normalized, idx);
+      });
+      list.sort((a, b) => {
+        const aKey = String(getKey(a) || "");
+        const bKey = String(getKey(b) || "");
+        const aOrder = orderMap.has(aKey) ? orderMap.get(aKey) : Number.MAX_SAFE_INTEGER;
+        const bOrder = orderMap.has(bKey) ? orderMap.get(bKey) : Number.MAX_SAFE_INTEGER;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return 0;
+      });
+    }
+
+    function applyPreservedShuffleOrder(){
+      if (groupShuffleSeed !== null && Array.isArray(preservedGroupShuffleOrderKeys) && preservedGroupShuffleOrderKeys.length){
+        applyStoredShuffleOrder(filteredGroups, preservedGroupShuffleOrderKeys, getGroupShuffleOrderKey);
+      }
+      if (exampleShuffleSeed !== null && Array.isArray(preservedExampleShuffleOrderKeys) && preservedExampleShuffleOrderKeys.length){
+        applyStoredShuffleOrder(filteredExamplePool, preservedExampleShuffleOrderKeys, getExampleShuffleOrderKey);
+      }
+    }
+
+    function captureCurrentShuffleOrders(){
+      preservedGroupShuffleOrderKeys = groupShuffleSeed !== null
+        ? filteredGroups.map(getGroupShuffleOrderKey).filter(Boolean)
+        : null;
+      preservedExampleShuffleOrderKeys = exampleShuffleSeed !== null
+        ? filteredExamplePool.map(getExampleShuffleOrderKey).filter(Boolean)
+        : null;
+    }
+
+    function clearStoredShuffleOrders(options = {}){
+      const clearGroups = options.groups !== false;
+      const clearExamples = options.examples !== false;
+      if (clearGroups) preservedGroupShuffleOrderKeys = null;
+      if (clearExamples) preservedExampleShuffleOrderKeys = null;
+    }
+
     function parseCSV(text){
       const rows = [];
       let row = [];
@@ -5080,6 +5137,8 @@
         abLoopEnd,
         groupShuffleSeed,
         exampleShuffleSeed,
+        preservedGroupShuffleOrderKeys: Array.isArray(preservedGroupShuffleOrderKeys) ? [...preservedGroupShuffleOrderKeys] : null,
+        preservedExampleShuffleOrderKeys: Array.isArray(preservedExampleShuffleOrderKeys) ? [...preservedExampleShuffleOrderKeys] : null,
         viewMode
       };
     }
@@ -5803,6 +5862,32 @@
         return;
       }
       openNoteModal({ editable:true, focusEditor:true });
+    }
+
+    function handleEditableShortcutTarget(targetCode){
+      const code = String(targetCode || "").toUpperCase();
+      if (!code) return;
+
+      if (code === "M") {
+        if (els.noteModal?.classList.contains("open")) {
+          closeNoteModal();
+          return;
+        }
+        if (els.editModal?.classList.contains("open")) closeEditModal();
+        openNoteModal({ editable:true, focusEditor:true });
+        return;
+      }
+
+      if (els.noteModal?.classList.contains("open")) {
+        closeNoteModal();
+      }
+
+      if (els.editModal?.classList.contains("open") && currentEditSession?.fieldCode === code){
+        closeEditModal();
+        return;
+      }
+
+      openEditModal(code);
     }
 
     function toggleCtrlNHeadwordEditor(){
@@ -6909,6 +6994,14 @@ async function saveState(){
       if (typeof state.exactMatch === "boolean") exactMatch = state.exactMatch;
       if (typeof state.groupShuffleSeed === "string" || state.groupShuffleSeed === null) groupShuffleSeed = state.groupShuffleSeed;
       if (typeof state.exampleShuffleSeed === "string" || state.exampleShuffleSeed === null) exampleShuffleSeed = state.exampleShuffleSeed;
+      preservedGroupShuffleOrderKeys = Array.isArray(state.preservedGroupShuffleOrderKeys)
+        ? state.preservedGroupShuffleOrderKeys.map(v => String(v || "")).filter(Boolean)
+        : (groupShuffleSeed === null ? null : preservedGroupShuffleOrderKeys);
+      preservedExampleShuffleOrderKeys = Array.isArray(state.preservedExampleShuffleOrderKeys)
+        ? state.preservedExampleShuffleOrderKeys.map(v => String(v || "")).filter(Boolean)
+        : (exampleShuffleSeed === null ? null : preservedExampleShuffleOrderKeys);
+      if (groupShuffleSeed === null && !Array.isArray(state.preservedGroupShuffleOrderKeys)) preservedGroupShuffleOrderKeys = null;
+      if (exampleShuffleSeed === null && !Array.isArray(state.preservedExampleShuffleOrderKeys)) preservedExampleShuffleOrderKeys = null;
       if (typeof state.viewMode === "string" && VIEW_MODES.includes(state.viewMode)) viewMode = state.viewMode;
       updateViewModeButton();
       if (state.activeWordAssetState && typeof state.activeWordAssetState === "object") {
@@ -8080,6 +8173,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         : exampleCandidates;
       filteredExamplePool = applyViewModeToExamples(filteredExamplePool);
       applyDeterministicShuffleOrder();
+      applyPreservedShuffleOrder();
 
       if (previousGroupId && filteredGroups.length){
         const groupIdx = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
@@ -8855,6 +8949,8 @@ function buildStatePayload(){
     exactMatch,
     groupShuffleSeed,
     exampleShuffleSeed,
+    preservedGroupShuffleOrderKeys: Array.isArray(preservedGroupShuffleOrderKeys) ? [...preservedGroupShuffleOrderKeys] : null,
+    preservedExampleShuffleOrderKeys: Array.isArray(preservedExampleShuffleOrderKeys) ? [...preservedExampleShuffleOrderKeys] : null,
     viewMode,
     activeWordAssetState: {
       groupId: safe(activeWordAssetState?.groupId || ""),
@@ -10160,6 +10256,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
 
       applyDeterministicShuffleOrder();
+      captureCurrentShuffleOrders();
       currentIndex = 0;
       currentPoolIndex = 0;
       if (isExampleMode()) syncCurrentIndexToCurrentExample();
@@ -10185,6 +10282,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       viewMode = "NORMAL";
       groupShuffleSeed = null;
       exampleShuffleSeed = null;
+      clearStoredShuffleOrders();
       currentIndex = 0;
       currentPoolIndex = 0;
       clearSelectedSearchPick();
@@ -10223,6 +10321,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       lastRenderedMediaContextKey = "";
       groupShuffleSeed = null;
       exampleShuffleSeed = null;
+      clearStoredShuffleOrders();
 
       els.modeBtns.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.mode === "Q");
@@ -12237,33 +12336,33 @@ ${match.label}${timeText}`, 1500);
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){
-        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleEditFieldModal("Q");
+        handleEditableShortcutTarget("Q");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){
-        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleEditFieldModal("Z");
+        handleEditableShortcutTarget("Z");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'x'){
-        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleEditFieldModal("X");
+        handleEditableShortcutTarget("X");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'm'){
-        if (isTypingContext() && !els.noteModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.noteModal?.classList.contains("open") || els.editModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleNoteEditModal();
+        handleEditableShortcutTarget("M");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){
-        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleEditFieldModal("A");
+        handleEditableShortcutTarget("A");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 's'){
@@ -12279,9 +12378,9 @@ ${match.label}${timeText}`, 1500);
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){
-        if (isTypingContext() && !els.editModal?.classList.contains("open")) return;
+        if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
-        toggleEditFieldModal("C");
+        handleEditableShortcutTarget("C");
         return;
       }
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'v'){
