@@ -5247,8 +5247,16 @@
         if (els.searchScopeSelect) els.searchScopeSelect.value = snapshot.searchScope || "word";
         searchIdMode = !!snapshot.searchIdMode;
         syncSearchModeWithScope();
-        if (els.categorySelect) els.categorySelect.value = snapshot.categoryValue || "";
-        if (els.sourceSelect) els.sourceSelect.value = snapshot.sourceValue || "";
+        const snapshotCategoryValue = safe(snapshot.categoryValue || "");
+        const snapshotSourceValue = safe(snapshot.sourceValue || "");
+        if (snapshotCategoryValue || snapshotSourceValue){
+          applySearchFilterPair(snapshotCategoryValue, snapshotSourceValue);
+        } else {
+          if (els.categorySelect) els.categorySelect.value = "";
+          if (els.sourceSelect) els.sourceSelect.value = "";
+          updateCategoryOptions();
+          updateSourceOptions();
+        }
         groupShuffleSeed = snapshot.groupShuffleSeed ?? null;
         exampleShuffleSeed = snapshot.exampleShuffleSeed ?? null;
         viewMode = VIEW_MODES.includes(snapshot.viewMode) ? snapshot.viewMode : "NORMAL";
@@ -6255,6 +6263,7 @@
       const preferredMode = safe(options.mode || currentMode || "W") || "W";
       const pauseTimeValue = Number(options.pauseTime);
       const pauseTime = Number.isFinite(pauseTimeValue) ? pauseTimeValue : null;
+      const targetCategoryValue = safe(options.categoryValue || options.category || "").trim();
       const targetSourceValue = safe(options.sourceValue || options.scope || options.source || "").trim();
 
       clearSelectedSearchPick();
@@ -6266,9 +6275,11 @@
       updateSearchPlaceholder();
       if (els.searchInput) els.searchInput.value = targetWord;
 
-      if (targetSourceValue && els.sourceSelect){
-        const hasExactSourceOption = [...(els.sourceSelect.options || [])].some(opt => safe(opt.value) === targetSourceValue);
-        if (hasExactSourceOption) els.sourceSelect.value = targetSourceValue;
+      if (targetCategoryValue || targetSourceValue){
+        applySearchFilterPair(targetCategoryValue, targetSourceValue);
+      } else {
+        updateCategoryOptions();
+        updateSourceOptions();
       }
 
       await applyFilter({ save:false });
@@ -6590,6 +6601,7 @@
         word: cleanWord,
         mode: preferredMode,
         pauseTime,
+        categoryValue: category,
         sourceValue: sourceName
       });
     }
@@ -7100,8 +7112,16 @@ async function saveState(){
         selectedGroupIds = state.selectedWords.slice(0, MAX_SELECTION_ITEMS).map(normalizeSelectionToken).filter(Boolean);
       }
       selectionModeActive = !!state.selectionModeActive;
-      if (typeof state.categoryValue === "string") els.categorySelect.value = state.categoryValue;
-      if (els.sourceSelect && typeof state.sourceValue === "string") els.sourceSelect.value = state.sourceValue;
+      const restoredCategoryValue = typeof state.categoryValue === "string" ? state.categoryValue : "";
+      const restoredSourceValue = (els.sourceSelect && typeof state.sourceValue === "string") ? state.sourceValue : "";
+      if (restoredCategoryValue || restoredSourceValue){
+        applySearchFilterPair(restoredCategoryValue, restoredSourceValue);
+      } else {
+        if (els.categorySelect) els.categorySelect.value = "";
+        if (els.sourceSelect) els.sourceSelect.value = "";
+        updateCategoryOptions();
+        updateSourceOptions();
+      }
       if (typeof state.searchValue === "string") els.searchInput.value = state.searchValue;
       if (typeof state.searchScope === "string") els.searchScopeSelect.value = state.searchScope;
       if (typeof state.searchIdMode === "boolean") searchIdMode = state.searchIdMode;
@@ -8427,8 +8447,10 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           && !filteredExamplePool.length){
         const autoTargetGroup = findBestSearchAutoTarget({ q, qNorm, qId, scope, selectedPick });
         if (autoTargetGroup){
+          const navigationSnapshotBeforeAutoSwitch = createNavigationSnapshot();
           const switched = applySearchFilterPair(autoTargetGroup.category || "", autoTargetGroup.sourceName || "");
           if (switched){
+            pushNavigationHistorySnapshot(navigationSnapshotBeforeAutoSwitch);
             return applyFilter({ save, autoSwitched: true });
           }
         }
@@ -9719,6 +9741,7 @@ async function initFirebaseSync(){
 
     function applySuggestionPick(item){
       if (!item) return;
+      pushNavigationHistorySnapshot(createNavigationSnapshot());
       clearUndoSnapshot();
       const suggestionValue = searchIdMode
         ? String(item.sourceId || "").replace(/\D+/g, "")
