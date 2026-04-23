@@ -1916,7 +1916,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v74_L_shortcutCodeFix_rowRestore";
+  const HTML_VERSION = "v78_L_altEditShortcuts_noShiftModalInput";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -6989,7 +6989,7 @@ async function saveState(){
     }
 
     function getEditableShortcutCodeFromEvent(e){
-      if (!e?.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return "";
+      if (!e?.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return "";
       const key = getShortcutKeyFromEvent(e);
       const map = { q: "Q", z: "Z", x: "X", a: "A", m: "M", c: "C" };
       return map[key] || "";
@@ -8893,14 +8893,14 @@ function buildHelpText(){
     "Ctrl+N 표제어 추가 / 편집 (현재 재생 시점=표제어 시작, 용례 시작 동기화, 용례 종료 유지, 저장 후 W 화면 정지)",
     "Ctrl+P 현재 영상의 구간 시작/종료 확인 · 직접 편집 팝업",
     "Shift+N 현재 내용 복제 추가",
-    "Shift+Q 표제어 편집",
-    "Shift+Z 뜻풀이 편집",
-    "Shift+X 부가정보 편집",
-    "Shift+A 용례문 편집",
+    "Alt+Q 표제어 편집",
+    "Alt+Z 뜻풀이 편집",
+    "Alt+X 부가정보 편집",
+    "Alt+A 용례문 편집",
     "Shift+S 현재 용례영상링크를 표제어영상링크로 덮어쓰기",
     "Alt+S 현재 용례영상링크와 용례 구간 시작/종료를 표제어영상으로 덮어쓰기",
-    "Shift+C 부가그림 편집",
-    "Shift+M 메모 편집",
+    "Alt+C 부가그림 편집",
+    "Alt+M 메모 편집",
     "Shift+V 현재 정보 확인 / 편집",
     "Delete 현재 표제어 삭제",
     "` 연결",
@@ -12484,7 +12484,7 @@ ${match.label}${timeText}`, 1500);
         toggleCtrlNHeadwordEditor();
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'q'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'q'){
         if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
@@ -12493,7 +12493,7 @@ ${match.label}${timeText}`, 1500);
         handleEditableShortcutTarget("Q");
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'z'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'z'){
         if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
@@ -12502,7 +12502,7 @@ ${match.label}${timeText}`, 1500);
         handleEditableShortcutTarget("Z");
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'x'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'x'){
         if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
@@ -12511,7 +12511,7 @@ ${match.label}${timeText}`, 1500);
         handleEditableShortcutTarget("X");
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'm'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'm'){
         if (isTypingContext() && !(els.noteModal?.classList.contains("open") || els.editModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
@@ -12520,7 +12520,7 @@ ${match.label}${timeText}`, 1500);
         handleEditableShortcutTarget("M");
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'a'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'a'){
         if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
@@ -12541,7 +12541,7 @@ ${match.label}${timeText}`, 1500);
         copyCurrentExampleVideoToHeadwordVideo({ includeClipRange: true });
         return;
       }
-      if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'c'){
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'c'){
         if (isTypingContext() && !(els.editModal?.classList.contains("open") || els.noteModal?.classList.contains("open"))) return;
         e.preventDefault();
         e.stopPropagation();
