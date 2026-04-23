@@ -8213,16 +8213,19 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       const selectedPick = getActiveSelectedSearchPick(q, scope);
       const selectedGroupId = selectedPick?.id ? String(selectedPick.id) : "";
       const selectedExampleText = selectedPick?.type === "example" ? safe(selectedPick.text) : "";
-      const multiGroupSet = hasActiveMultiSearchSelection() ? new Set(multiSelectedSearchItems.map(item => String(item.id || "")).filter(Boolean)) : null;
-      const multiExampleKeySet = hasActiveMultiSearchSelection() ? new Set(multiSelectedSearchItems.filter(item => item.type === "example").map(item => `${String(item.id || "")}::${safe(item.text)}`)) : null;
-      const multiHasWord = hasActiveMultiSearchSelection() ? multiSelectedSearchItems.some(item => item.type !== "example") : false;
+      const multiSearchActive = hasActiveMultiSearchSelection();
+      const multiGroupSet = multiSearchActive ? new Set(multiSelectedSearchItems.map(item => String(item.id || "")).filter(Boolean)) : null;
+      const multiExampleKeySet = multiSearchActive ? new Set(multiSelectedSearchItems.filter(item => item.type === "example").map(item => `${String(item.id || "")}::${safe(item.text)}`)) : null;
+      const multiHasWord = multiSearchActive ? multiSelectedSearchItems.some(item => item.type !== "example") : false;
 
-      const groupBase = groupsByCategory.get(cat) || [];
-      const exampleBase = examplesByCategory.get(cat) || [];
+      // 검색창에서 표제어를 다중 선택한 경우에는 범주/출처가 서로 달라도
+      // 선택된 항목만 정확히 불러올 수 있도록 전체 목록을 기준으로 필터링합니다.
+      const groupBase = multiSearchActive ? groups : (groupsByCategory.get(cat) || []);
+      const exampleBase = multiSearchActive ? examplePool : (examplesByCategory.get(cat) || []);
 
       filteredGroups = [];
       for (const g of groupBase){
-        if (sourceFilter && safe(g.sourceName) !== sourceFilter) continue;
+        if (!multiSearchActive && sourceFilter && safe(g.sourceName) !== sourceFilter) continue;
         if (selectionSet && !selectionSet.has(g.id)) continue;
         if (multiGroupSet && multiGroupSet.size){
           if (!multiGroupSet.has(String(g.id))) continue;
@@ -8240,7 +8243,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
       const exampleCandidates = [];
       for (const item of exampleBase){
-        if (sourceFilter && safe(item.sourceName) !== sourceFilter) continue;
+        if (!multiSearchActive && sourceFilter && safe(item.sourceName) !== sourceFilter) continue;
         if (selectionModeActive){
           const exToken = makeExampleSelectionToken(item);
           const groupSelected = selectionGroupTokenSet && selectionGroupTokenSet.has(String(item.groupId));
@@ -12213,6 +12216,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           showOverlay(`다중 선택 적용
 ${multiSelectedSearchItems.length}개`, 1000);
           try { e.target?.blur?.(); } catch(_) {}
+          setTimeout(() => focusStageForShortcuts(0), 0);
           return;
         }
         const item = items[Math.max(searchFocusedIndex, 0)];
@@ -12804,6 +12808,16 @@ ${match.label}${timeText}`, 1500);
         }
         clearMultiSelectedSearch();
         applySuggestionPick(item);
+        try { els.searchInput?.blur?.(); } catch (_) {}
+        setTimeout(() => {
+          try {
+            if (typeof window.getSelection === "function") {
+              const sel = window.getSelection();
+              sel && sel.removeAllRanges && sel.removeAllRanges();
+            }
+          } catch (_) {}
+          focusStageForShortcuts(0);
+        }, 0);
       };
 
       els.searchSuggestions.addEventListener("touchend", (e) => {
