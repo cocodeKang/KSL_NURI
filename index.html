@@ -1916,7 +1916,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v72_L_preserveGroupAfterTextEdit";
+  const HTML_VERSION = "v74_L_shortcutCodeFix_rowRestore";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2319,7 +2319,9 @@
     let ytClipTimer = null;
     let ytWarmupRequested = false;
     let pendingRestoreGroupId = "";
+    let pendingRestoreGroupRowIndex = -1;
     let pendingRestoreExampleToken = "";
+    let pendingRestoreExampleRowIndex = -1;
     const FRAME_STEP = 1 / 30;
     const MAX_SELECTION_ITEMS = 50;
 
@@ -5145,11 +5147,15 @@
 
     function createNavigationSnapshot(){
       const currentGroup = getCurrentGroup();
+      const currentExample = getCurrentPoolItem();
       return {
         ...createUndoSnapshot(),
         selectionModeActive: !!selectionModeActive,
         currentGroupId: safe(currentGroup?.id || ""),
-        currentGroupWord: safe(currentGroup?.word || "")
+        currentGroupRowIndex: getGroupPrimaryRowIndex(currentGroup),
+        currentGroupWord: safe(currentGroup?.word || ""),
+        currentExampleToken: currentExample ? makeExampleSelectionToken(currentExample) : "",
+        currentExampleRowIndex: Number.isInteger(Number(currentExample?.rowIndex)) ? Number(currentExample.rowIndex) : -1
       };
     }
 
@@ -6939,13 +6945,21 @@ async function saveState(){
       return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
     }
 
+    function getShortcutKeyFromEvent(e){
+      const code = String(e?.code || "");
+      if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+      return String(e?.key || "").toLowerCase();
+    }
+
     function applyRestoredUIState(state){
       if (!state) return;
       if (state.currentMode && MODES[state.currentMode]) currentMode = state.currentMode;
       if (typeof state.currentIndex === "number") currentIndex = state.currentIndex;
       if (typeof state.currentPoolIndex === "number") currentPoolIndex = state.currentPoolIndex;
       pendingRestoreGroupId = safe(state.currentGroupId || "");
+      pendingRestoreGroupRowIndex = Number.isInteger(Number(state.currentGroupRowIndex)) ? Number(state.currentGroupRowIndex) : -1;
       pendingRestoreExampleToken = safe(state.currentExampleToken || "");
+      pendingRestoreExampleRowIndex = Number.isInteger(Number(state.currentExampleRowIndex)) ? Number(state.currentExampleRowIndex) : -1;
       if (typeof state.selectionResumeIndex === "number") selectionResumeIndex = Math.max(0, Number(state.selectionResumeIndex));
       if (typeof state.selectionResumePoolIndex === "number") selectionResumePoolIndex = Math.max(0, Number(state.selectionResumePoolIndex));
       if (state.playbackMode && PLAYBACK_MODES.includes(state.playbackMode)) playbackMode = state.playbackMode;
@@ -8101,10 +8115,20 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
     async function applyFilter(options = {}){
       const { save = true } = options;
-      const previousGroupId = safe(pendingRestoreGroupId || getCurrentGroup()?.id || "");
-      const previousExampleToken = safe(pendingRestoreExampleToken || (isExampleMode() ? makeExampleSelectionToken(getCurrentPoolItem()) : lastViewedExampleToken));
+      const currentGroup = getCurrentGroup();
+      const currentExample = getCurrentPoolItem();
+      const previousGroupId = safe(pendingRestoreGroupId || currentGroup?.id || "");
+      const previousGroupRowIndex = Number.isInteger(Number(pendingRestoreGroupRowIndex)) && Number(pendingRestoreGroupRowIndex) >= 0
+        ? Number(pendingRestoreGroupRowIndex)
+        : getGroupPrimaryRowIndex(currentGroup);
+      const previousExampleToken = safe(pendingRestoreExampleToken || (isExampleMode() ? makeExampleSelectionToken(currentExample) : lastViewedExampleToken));
+      const previousExampleRowIndex = Number.isInteger(Number(pendingRestoreExampleRowIndex)) && Number(pendingRestoreExampleRowIndex) >= 0
+        ? Number(pendingRestoreExampleRowIndex)
+        : (Number.isInteger(Number(currentExample?.rowIndex)) ? Number(currentExample.rowIndex) : -1);
       pendingRestoreGroupId = "";
+      pendingRestoreGroupRowIndex = -1;
       pendingRestoreExampleToken = "";
+      pendingRestoreExampleRowIndex = -1;
       const q = safe(els.searchInput.value).trim();
       const qId = searchIdMode ? q.replace(/\D+/g, "") : "";
       const qNorm = (!searchIdMode && q) ? normalizeHangulString(q.toLowerCase()).toLowerCase() : "";
@@ -8175,26 +8199,47 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       applyDeterministicShuffleOrder();
       applyPreservedShuffleOrder();
 
-      if (previousGroupId && filteredGroups.length){
-        const groupIdx = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
-        if (groupIdx >= 0) currentIndex = groupIdx;
-      }
-      if (previousExampleToken && filteredExamplePool.length){
-        const exIdx = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === previousExampleToken);
-        if (exIdx >= 0) currentPoolIndex = exIdx;
-      }
+      const findPreviousGroupIndex = () => {
+        if (!filteredGroups.length) return -1;
+        if (previousGroupId){
+          const byId = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
+          if (byId >= 0) return byId;
+        }
+        if (previousGroupRowIndex >= 0){
+          const byRow = filteredGroups.findIndex(g => {
+            if (getGroupPrimaryRowIndex(g) === previousGroupRowIndex) return true;
+            return Array.isArray(g?.rowIndices) && g.rowIndices.includes(previousGroupRowIndex);
+          });
+          if (byRow >= 0) return byRow;
+        }
+        return -1;
+      };
+
+      const findPreviousExampleIndex = () => {
+        if (!filteredExamplePool.length) return -1;
+        if (previousExampleToken){
+          const byToken = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === previousExampleToken);
+          if (byToken >= 0) return byToken;
+        }
+        if (previousExampleRowIndex >= 0){
+          const byRow = filteredExamplePool.findIndex(item => Number(item?.rowIndex) === previousExampleRowIndex);
+          if (byRow >= 0) return byRow;
+        }
+        return -1;
+      };
+
+      const previousGroupIndex = findPreviousGroupIndex();
+      if (previousGroupIndex >= 0) currentIndex = previousGroupIndex;
+      const previousExampleIndex = findPreviousExampleIndex();
+      if (previousExampleIndex >= 0) currentPoolIndex = previousExampleIndex;
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
 
       applyPendingSearchPickToResults();
-      if (previousGroupId && filteredGroups.length){
-        const groupIdx2 = filteredGroups.findIndex(g => String(g.id) === previousGroupId);
-        if (groupIdx2 >= 0) currentIndex = groupIdx2;
-      }
-      if (previousExampleToken && filteredExamplePool.length){
-        const exIdx2 = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === previousExampleToken);
-        if (exIdx2 >= 0) currentPoolIndex = exIdx2;
-      }
+      const previousGroupIndexAfterPick = findPreviousGroupIndex();
+      if (previousGroupIndexAfterPick >= 0) currentIndex = previousGroupIndexAfterPick;
+      const previousExampleIndexAfterPick = findPreviousExampleIndex();
+      if (previousExampleIndexAfterPick >= 0) currentPoolIndex = previousExampleIndexAfterPick;
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
       if (isExampleMode()) syncCurrentIndexToCurrentExample();
@@ -12250,7 +12295,7 @@ ${match.label}${timeText}`, 1500);
 
     function handleGlobalKeydown(e){
       if (e.defaultPrevented) return;
-      const key = e.key.toLowerCase();
+      const key = getShortcutKeyFromEvent(e);
 
       if (e.key === "Escape"){
         if (els.helpModal?.classList.contains("open")){
