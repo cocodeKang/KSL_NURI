@@ -5682,15 +5682,35 @@
     }
 
     function getCurrentEditableExampleRowIndex(){
-      const currentItem = getCurrentPoolItem();
-      if (currentItem && Number.isInteger(currentItem.rowIndex) && currentItem.rowIndex >= 0){
-        return currentItem.rowIndex;
+      if (isExampleMode()){
+        const currentItem = getCurrentPoolItem();
+        if (currentItem && Number.isInteger(currentItem.rowIndex) && currentItem.rowIndex >= 0){
+          return currentItem.rowIndex;
+        }
       }
+
       const group = getCurrentGroup();
+      if (!group) return -1;
+
+      const rememberedToken = lastExampleTokenByGroup[String(group.id)] || "";
+      if (rememberedToken){
+        const rememberedItem = findExampleBySelectionToken(rememberedToken);
+        const rememberedRowIndex = Number(rememberedItem?.rowIndex ?? -1);
+        if (String(rememberedItem?.groupId || "") === String(group.id) && Number.isInteger(rememberedRowIndex) && rememberedRowIndex >= 0){
+          return rememberedRowIndex;
+        }
+      }
+
       if (group?.examples?.length){
         const idx = Number(group.examples[0]?.rowIndex ?? -1);
         if (Number.isInteger(idx) && idx >= 0) return idx;
       }
+
+      const fallbackFromPool = examplePool.find(item => String(item.groupId) === String(group.id) && Number.isInteger(Number(item?.rowIndex)) && Number(item.rowIndex) >= 0);
+      if (fallbackFromPool){
+        return Number(fallbackFromPool.rowIndex);
+      }
+
       return getGroupPrimaryRowIndex(group);
     }
 
