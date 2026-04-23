@@ -7202,6 +7202,59 @@ async function saveState(){
       updateQuickButtons();
     }
 
+    function applySearchFilterPair(targetCategory = "", targetSourceValue = ""){
+      const nextCategory = safe(targetCategory);
+      const nextSource = safe(targetSourceValue);
+      let changed = false;
+
+      if (els.sourceSelect && safe(els.sourceSelect.value)){
+        els.sourceSelect.value = "";
+        changed = true;
+      }
+      updateCategoryOptions();
+
+      if (els.categorySelect && nextCategory){
+        const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
+        if (categoryOptions.includes(nextCategory) && safe(els.categorySelect.value) !== nextCategory){
+          els.categorySelect.value = nextCategory;
+          changed = true;
+        }
+      }
+
+      updateSourceOptions();
+
+      if (els.sourceSelect && nextSource){
+        const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
+        if (sourceOptions.includes(nextSource) && safe(els.sourceSelect.value) !== nextSource){
+          els.sourceSelect.value = nextSource;
+          changed = true;
+        }
+      }
+
+      updateCategoryOptions();
+
+      if (els.categorySelect && nextCategory){
+        const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
+        if (categoryOptions.includes(nextCategory) && safe(els.categorySelect.value) !== nextCategory){
+          els.categorySelect.value = nextCategory;
+          changed = true;
+        }
+      }
+
+      updateSourceOptions();
+
+      if (els.sourceSelect && nextSource){
+        const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
+        if (sourceOptions.includes(nextSource) && safe(els.sourceSelect.value) !== nextSource){
+          els.sourceSelect.value = nextSource;
+          changed = true;
+        }
+      }
+
+      updateQuickButtons();
+      return changed;
+    }
+
     function decodeSelectionGroupId(value){
       const raw = safe(value);
       if (!raw) return "";
@@ -8244,8 +8297,37 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       return exactMatch ? (item.wordNorm === qNorm || item.textNorm === qNorm) : item.searchBlob.includes(qNorm);
     }
 
+    function findBestSearchAutoTarget({ q = "", qNorm = "", qId = "", scope = "word", selectedPick = null } = {}){
+      const picked = selectedPick || pendingSearchPick;
+      if (picked?.id){
+        const pickedGroup = groupById.get(String(picked.id));
+        if (pickedGroup) return pickedGroup;
+      }
+
+      if (searchIdMode){
+        if (!qId) return null;
+        const idMatches = groups.filter(g => String(g.sourceId || "").includes(qId));
+        return idMatches.length === 1 ? idMatches[0] : null;
+      }
+
+      const rawQuery = safe(q).trim();
+      if (!rawQuery || !qNorm) return null;
+
+      const exactWordMatches = groups.filter(g => g.wordNorm === qNorm || safe(g.word) === rawQuery);
+      if (exactWordMatches.length === 1) return exactWordMatches[0];
+
+      if (scope !== "word"){
+        const exactExampleMatches = examplePool.filter(item => item.textNorm === qNorm || safe(item.text) === rawQuery);
+        if (exactExampleMatches.length === 1){
+          return groupById.get(String(exactExampleMatches[0].groupId || "")) || null;
+        }
+      }
+
+      return null;
+    }
+
     async function applyFilter(options = {}){
-      const { save = true } = options;
+      const { save = true, autoSwitched = false } = options;
       const currentGroup = getCurrentGroup();
       const currentExample = getCurrentPoolItem();
       const previousGroupId = safe(pendingRestoreGroupId || currentGroup?.id || "");
@@ -8336,6 +8418,21 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       filteredExamplePool = applyViewModeToExamples(filteredExamplePool);
       applyDeterministicShuffleOrder();
       applyPreservedShuffleOrder();
+
+      if (!autoSwitched
+          && !multiSearchActive
+          && !selectionModeActive
+          && (qNorm || qId)
+          && !filteredGroups.length
+          && !filteredExamplePool.length){
+        const autoTargetGroup = findBestSearchAutoTarget({ q, qNorm, qId, scope, selectedPick });
+        if (autoTargetGroup){
+          const switched = applySearchFilterPair(autoTargetGroup.category || "", autoTargetGroup.sourceName || "");
+          if (switched){
+            return applyFilter({ save, autoSwitched: true });
+          }
+        }
+      }
 
       const findPreviousGroupIndex = () => {
         if (!filteredGroups.length) return -1;
@@ -9637,21 +9734,7 @@ async function initFirebaseSync(){
       requestAnimationFrame(applySearchInputValue);
       setTimeout(applySearchInputValue, 0);
       setTimeout(applySearchInputValue, 30);
-      if (els.sourceSelect && item.sourceName){
-        const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
-        if (sourceOptions.includes(safe(item.sourceName))){
-          els.sourceSelect.value = item.sourceName;
-        }
-      }
-      updateCategoryOptions();
-      if (els.categorySelect && item.category){
-        const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
-        if (categoryOptions.includes(safe(item.category))){
-          els.categorySelect.value = item.category;
-        }
-      }
-      updateSourceOptions();
-      updateQuickButtons();
+      applySearchFilterPair(item.category || "", item.sourceName || "");
       if (typeof els.searchInput.setSelectionRange === "function"){
         const end = suggestionValue.length;
         requestAnimationFrame(() => {
