@@ -1763,6 +1763,74 @@
       pointer-events:none !important;
     }
 
+    .stage-gesture-layer{
+      display:none;
+      position:absolute;
+      inset:0;
+      z-index:49;
+      background:transparent;
+      pointer-events:none;
+      touch-action:none;
+      -webkit-tap-highlight-color:transparent;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+
+    body.mobile-landscape-focus .stage-gesture-layer{
+      display:none;
+      pointer-events:none;
+    }
+
+    body.mobile-landscape-focus.external-video-active .stage-gesture-layer{
+      display:block;
+      pointer-events:auto;
+    }
+
+    @media (orientation: landscape) and (hover:none) and (pointer:coarse){
+      body.mobile-landscape-focus .header,
+      body.mobile-landscape-focus .footer,
+      body.mobile-landscape-focus .info,
+      body.mobile-landscape-focus .viewer-bottom,
+      body.mobile-landscape-focus .mobile-sheet{
+        display:none !important;
+      }
+      body.mobile-landscape-focus .app{
+        position:fixed !important;
+        inset:0 !important;
+        width:100vw !important;
+        height:100dvh !important;
+        grid-template-rows:minmax(0,1fr) !important;
+        background:#000 !important;
+        overflow:hidden !important;
+      }
+      body.mobile-landscape-focus .main,
+      body.mobile-landscape-focus .viewer,
+      body.mobile-landscape-focus .card,
+      body.mobile-landscape-focus .stage,
+      body.mobile-landscape-focus video,
+      body.mobile-landscape-focus .main-frame,
+      body.mobile-landscape-focus #youtubePlayerWrap,
+      body.mobile-landscape-focus #youtubePlayer,
+      body.mobile-landscape-focus #youtubePlayer iframe,
+      body.mobile-landscape-focus #mainFrame{
+        width:100vw !important;
+        height:100dvh !important;
+        max-width:none !important;
+        max-height:none !important;
+        padding:0 !important;
+        margin:0 !important;
+        border:0 !important;
+        border-radius:0 !important;
+        background:#000 !important;
+      }
+      body.mobile-landscape-focus .main{
+        grid-template-columns:1fr !important;
+      }
+      body.mobile-landscape-focus .overlay-msg{
+        display:none !important;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -1842,6 +1910,7 @@
           <img id="mainImage" class="main-image" alt="학습 이미지" />
           <div id="mainGallery" class="main-gallery" aria-label="표제어 수형그림 모음"></div>
           <div id="mainText" class="main-text"></div>
+          <div id="stageGestureLayer" class="stage-gesture-layer" aria-hidden="true"></div>
           <button id="tapPrevZone" class="stage-tap-zone left mobile-only" aria-label="이전"><span class="tap-arrow">‹</span></button>
           <button id="tapNextZone" class="stage-tap-zone right mobile-only" aria-label="다음"><span class="tap-arrow">›</span></button>
           <div id="captionMask" class="caption-mask" aria-hidden="true">
@@ -2188,6 +2257,7 @@
       mobileSheetTitle: document.getElementById("mobileSheetTitle"),
       mobileSheetClose: document.getElementById("mobileSheetClose"),
       stage: document.getElementById("stage"),
+      stageGestureLayer: document.getElementById("stageGestureLayer"),
       tapPrevZone: document.getElementById("tapPrevZone"),
       tapNextZone: document.getElementById("tapNextZone"),
       captionMask: document.getElementById("captionMask"),
@@ -3853,6 +3923,7 @@
         els.mainFrame.dataset.currentSrc = "";
       }
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "block";
+      document.body.classList.add("external-video-active");
       const config = { videoId, autoPlay: !!autoPlay, start, end };
       ytPendingConfig = config;
       try {
@@ -3938,6 +4009,7 @@
       if (!els.mainFrame) return;
       hideAllMainPanels();
       els.mainFrame.style.display = "block";
+      document.body.classList.add("external-video-active");
       const nextSrc = safe(url);
       const prevSrc = els.mainFrame.dataset.currentSrc || "";
       if (!nextSrc) return;
@@ -7798,8 +7870,14 @@ function getSearchScope(){
 
     function isMobileViewport(){
       const coarse = window.matchMedia("(hover:none) and (pointer:coarse)").matches;
-      const narrowSide = Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 760;
-      return window.matchMedia("(max-width: 760px)").matches || (coarse && narrowSide);
+      const uaMobile = /Android|iPhone|iPad|iPod|Mobile|SamsungBrowser/i.test(navigator.userAgent || "");
+      const w = window.innerWidth || 0;
+      const h = window.innerHeight || 0;
+      const narrowSide = Math.min(w, h);
+      const longSide = Math.max(w, h);
+      return window.matchMedia("(max-width: 760px)").matches
+        || uaMobile
+        || (coarse && (narrowSide <= 920 || longSide <= 1400));
     }
 
     function isLandscapeViewport(){
@@ -7832,17 +7910,9 @@ function getSearchScope(){
       document.body.classList.add("mobile-landscape-focus");
       landscapeFocusActive = true;
       try { window.scrollTo(0, 1); } catch (_err) {}
-      if (document.fullscreenElement) return true;
-      const target = document.documentElement;
-      try{
-        if (target?.requestFullscreen){
-          await target.requestFullscreen({ navigationUI: "hide" });
-          return true;
-        }
-      } catch (err){
-        // 모바일 브라우저는 사용자 제스처가 아닐 때 전체화면 요청을 거절할 수 있습니다.
-      }
-      return false;
+      // Chrome mobile shows a browser-controlled fullscreen 안내문 when requestFullscreen() is called.
+      // For study mode we use CSS fullscreen instead, so the 안내문 does not appear.
+      return true;
     }
 
     async function handleRotateHotspot(){
@@ -8152,7 +8222,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       if (!button) return;
       let timer = null;
       let longTriggered = false;
-      let pointerId = null;
+      let touchActive = false;
       let startX = 0;
       let startY = 0;
       let suppressClickUntil = 0;
@@ -8167,67 +8237,70 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       };
       const runShort = () => {
         suppressClickUntil = Date.now() + 700;
-        addNewHeadwordEntry();
+        try{
+          const result = addNewHeadwordEntry();
+          if (result && typeof result.catch === "function") result.catch(console.error);
+        } catch (err){ console.error(err); }
       };
       const runLong = () => {
         suppressClickUntil = Date.now() + 700;
-        duplicateCurrentHeadwordEntry();
+        try{
+          const result = duplicateCurrentHeadwordEntry();
+          if (result && typeof result.catch === "function") result.catch(console.error);
+        } catch (err){ console.error(err); }
       };
 
-      button.addEventListener("pointerdown", (e) => {
+      button.addEventListener("touchstart", (e) => {
         if (!isMobileViewport()) return;
-        if (e.pointerType === "mouse") return;
         e.preventDefault();
-        e.stopImmediatePropagation();
-        pointerId = e.pointerId;
-        startX = e.clientX || 0;
-        startY = e.clientY || 0;
+        touchActive = true;
         longTriggered = false;
+        const t = e.touches?.[0] || null;
+        startX = t?.clientX || 0;
+        startY = t?.clientY || 0;
         clear();
-        try { button.setPointerCapture?.(e.pointerId); } catch(_err){}
         timer = setTimeout(() => {
           timer = null;
           longTriggered = true;
           runLong();
         }, holdMs);
-      }, true);
+      }, { passive:false });
 
-      button.addEventListener("pointermove", (e) => {
-        if (!isMobileViewport() || pointerId !== e.pointerId) return;
-        const dx = Math.abs((e.clientX || 0) - startX);
-        const dy = Math.abs((e.clientY || 0) - startY);
+      button.addEventListener("touchmove", (e) => {
+        if (!touchActive) return;
+        const t = e.touches?.[0] || null;
+        if (!t) return;
+        const dx = Math.abs((t.clientX || 0) - startX);
+        const dy = Math.abs((t.clientY || 0) - startY);
         if (dx > moveLimit || dy > moveLimit) clear();
-      }, true);
+      }, { passive:true });
 
-      const finish = (e) => {
-        if (!isMobileViewport()) return;
-        if (pointerId !== null && e.pointerId !== pointerId) return;
+      button.addEventListener("touchend", (e) => {
+        if (!touchActive) return;
         e.preventDefault();
-        e.stopImmediatePropagation();
+        e.stopPropagation();
         clear();
-        try { button.releasePointerCapture?.(e.pointerId); } catch(_err){}
-        pointerId = null;
         if (!longTriggered) runShort();
         longTriggered = false;
-      };
+        touchActive = false;
+      }, { passive:false });
 
-      button.addEventListener("pointerup", finish, true);
-      button.addEventListener("pointercancel", (e) => {
-        if (!isMobileViewport()) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
+      button.addEventListener("touchcancel", () => {
         clear();
-        pointerId = null;
         longTriggered = false;
-      }, true);
+        touchActive = false;
+      }, { passive:true });
 
-      // 일부 브라우저에서 pointer 이벤트가 끊길 때를 대비한 클릭 보강입니다.
       button.addEventListener("click", (e) => {
-        if (!isMobileViewport()) return;
         e.preventDefault();
-        e.stopImmediatePropagation();
-        if (Date.now() > suppressClickUntil) runShort();
-      }, true);
+        e.stopPropagation();
+        if (Date.now() < suppressClickUntil) return;
+        runShort();
+      });
+      button.addEventListener("contextmenu", (e) => e.preventDefault());
+      button.addEventListener("selectstart", (e) => e.preventDefault());
+      button.addEventListener("dragstart", (e) => e.preventDefault());
+      button.setAttribute("draggable", "false");
     }
 
     function bindHoldableButton(button, options = {}){
@@ -8925,6 +8998,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function hideAllMainPanels(){
+      document.body.classList.remove("external-video-active");
       els.mainVideo.style.display = "none";
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
       if (els.mainFrame) els.mainFrame.style.display = "none";
@@ -10531,6 +10605,7 @@ ${formatSelectionTokenLabel(token)}`, 1100);
       els.searchSuggestions.innerHTML = "";
 
       els.selectionModeBtn.classList.add("active");
+      els.selectionModeBtnFooter?.classList.add("active");
       if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
       Promise.resolve(applyFilter()).then(() => {
         if (isExampleMode(currentMode) && !filteredExamplePool.length && filteredGroups.length){
@@ -10552,6 +10627,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       selectionResumePoolIndex = currentPoolIndex;
       selectionModeActive = false;
       els.selectionModeBtn.classList.remove("active");
+      els.selectionModeBtnFooter?.classList.remove("active");
       if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
       applyFilter();
       showOverlay("선택학습 종료", 1000);
@@ -13116,6 +13192,7 @@ ${match.label}${timeText}`, 1500);
       }
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); addNewHeadwordEntry(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
 
       if (e.code === "Space"){
@@ -13780,8 +13857,6 @@ ${match.label}${timeText}`, 1500);
         });
         input?.addEventListener("focus", () => {
           if (!els.addEntryModal?.classList.contains("open")) return;
-          const shouldSelect = isMobileViewport() || addEntryFocusSelectPending || addEntryOpenSelectTarget === input;
-          if (!shouldSelect) return;
           addEntryFocusSelectPending = false;
           addEntryOpenSelectTarget = null;
           scheduleAddEntryFieldSelect(input);
@@ -13916,11 +13991,6 @@ ${match.label}${timeText}`, 1500);
         longAction: () => openNoteModal({ editable:true, focusEditor: true }),
         mouseLongAction: false
       });
-      bindHoldableButton(els.addHeadwordBtnFooter, {
-        shortAction: () => addNewHeadwordEntry(),
-        longAction: () => duplicateCurrentHeadwordEntry(),
-        mouseLongAction: false
-      });
       bindMobileAddHeadwordButton(els.addHeadwordBtnFooter);
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
@@ -14032,6 +14102,62 @@ ${match.label}${timeText}`, 1500);
       // 좌우 이동은 stage 전체 가로 슬라이드로만 처리합니다.
       // bindTapZone(els.tapPrevZone, () => goPrev(getShouldAutoplay()));
       // bindTapZone(els.tapNextZone, () => goNext(getShouldAutoplay()));
+
+      const bindLandscapeSwipeLayer = (target) => {
+        if (!target) return;
+        let startX = 0;
+        let startY = 0;
+        let tracking = false;
+        let moved = false;
+        target.addEventListener("touchstart", (e) => {
+          if (!isMobileViewport()) return;
+          if (isLandscapeViewport()) requestMobileLandscapeFullscreen();
+          const t = e.touches?.[0];
+          if (!t) return;
+          tracking = true;
+          moved = false;
+          startX = t.clientX || 0;
+          startY = t.clientY || 0;
+          e.stopPropagation();
+        }, { passive:true });
+        target.addEventListener("touchmove", (e) => {
+          if (!tracking) return;
+          const t = e.touches?.[0];
+          if (!t) return;
+          const dx = (t.clientX || 0) - startX;
+          const dy = (t.clientY || 0) - startY;
+          if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.15){
+            moved = true;
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }, { passive:false });
+        target.addEventListener("touchend", (e) => {
+          if (!tracking) return;
+          tracking = false;
+          const t = e.changedTouches?.[0];
+          if (!t) return;
+          const dx = (t.clientX || 0) - startX;
+          const dy = (t.clientY || 0) - startY;
+          if (Math.abs(dx) > 34 && Math.abs(dx) > Math.abs(dy) * 1.2){
+            e.preventDefault();
+            e.stopPropagation();
+            if (dx < 0) goNext(getShouldAutoplay());
+            else goPrev(getShouldAutoplay());
+          } else if (!moved && isLandscapeViewport()){
+            // 탭은 이동으로 처리하지 않습니다. iframe 링크에서도 오작동을 줄입니다.
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }, { passive:false });
+        target.addEventListener("click", (e) => {
+          if (!isMobileViewport() || !isLandscapeViewport()) return;
+          e.preventDefault();
+          e.stopPropagation();
+        });
+      };
+      bindLandscapeSwipeLayer(els.stageGestureLayer);
+
 
       els.stage.addEventListener("click", (e) => {
         if (isMobileViewport()) return;
