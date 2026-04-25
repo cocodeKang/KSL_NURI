@@ -1408,9 +1408,18 @@
       .header-row-actions #pushCloudBtn,
       .header-row-actions #syncRoomInput,
       .header-row-actions #firebaseStatus,
-      .header-row-actions #noteBtn,
-      .header-row-actions #playbackBtn{
+      .header-row-actions #noteBtn{
         display:none !important;
+      }
+
+      .header-row-actions #playbackBtn{
+        display:inline-flex !important;
+        order:1;
+        flex:1 1 110px;
+        min-width:96px;
+        max-width:142px;
+        padding:0 10px;
+        font-size:12px;
       }
 
       .header-row-actions #downloadXlsxMobileBtn{ order:2; }
@@ -7995,6 +8004,88 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       return map[normalized] || null;
     }
 
+    function bindMobileAddHeadwordButton(button){
+      if (!button) return;
+      let timer = null;
+      let longTriggered = false;
+      let pointerId = null;
+      let startX = 0;
+      let startY = 0;
+      let suppressClickUntil = 0;
+      const holdMs = 650;
+      const moveLimit = 18;
+
+      const clear = () => {
+        if (timer){
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      const runShort = () => {
+        suppressClickUntil = Date.now() + 700;
+        addNewHeadwordEntry();
+      };
+      const runLong = () => {
+        suppressClickUntil = Date.now() + 700;
+        duplicateCurrentHeadwordEntry();
+      };
+
+      button.addEventListener("pointerdown", (e) => {
+        if (!isMobileViewport()) return;
+        if (e.pointerType === "mouse") return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pointerId = e.pointerId;
+        startX = e.clientX || 0;
+        startY = e.clientY || 0;
+        longTriggered = false;
+        clear();
+        try { button.setPointerCapture?.(e.pointerId); } catch(_err){}
+        timer = setTimeout(() => {
+          timer = null;
+          longTriggered = true;
+          runLong();
+        }, holdMs);
+      }, true);
+
+      button.addEventListener("pointermove", (e) => {
+        if (!isMobileViewport() || pointerId !== e.pointerId) return;
+        const dx = Math.abs((e.clientX || 0) - startX);
+        const dy = Math.abs((e.clientY || 0) - startY);
+        if (dx > moveLimit || dy > moveLimit) clear();
+      }, true);
+
+      const finish = (e) => {
+        if (!isMobileViewport()) return;
+        if (pointerId !== null && e.pointerId !== pointerId) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        clear();
+        try { button.releasePointerCapture?.(e.pointerId); } catch(_err){}
+        pointerId = null;
+        if (!longTriggered) runShort();
+        longTriggered = false;
+      };
+
+      button.addEventListener("pointerup", finish, true);
+      button.addEventListener("pointercancel", (e) => {
+        if (!isMobileViewport()) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        clear();
+        pointerId = null;
+        longTriggered = false;
+      }, true);
+
+      // 일부 브라우저에서 pointer 이벤트가 끊길 때를 대비한 클릭 보강입니다.
+      button.addEventListener("click", (e) => {
+        if (!isMobileViewport()) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (Date.now() > suppressClickUntil) runShort();
+      }, true);
+    }
+
     function bindHoldableButton(button, options = {}){
       if (!button) return;
       const shortAction = typeof options.shortAction === "function" ? options.shortAction : null;
@@ -13608,6 +13699,7 @@ ${match.label}${timeText}`, 1500);
         longAction: () => duplicateCurrentHeadwordEntry(),
         mouseLongAction: false
       });
+      bindMobileAddHeadwordButton(els.addHeadwordBtnFooter);
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
       updateExactMatchButton();
