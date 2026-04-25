@@ -1848,6 +1848,35 @@
       }
     }
 
+    /* v90: 모바일 외부 iframe/유튜브 영상 위에서 세로 화면 슬라이드를 안정적으로 받는 최상위 투명 레이어 */
+    .external-swipe-shield{
+      display:none;
+      position:fixed;
+      left:0;
+      top:0;
+      width:0;
+      height:0;
+      z-index:2147483200;
+      background:rgba(0,0,0,0);
+      pointer-events:none;
+      touch-action:none;
+      -webkit-tap-highlight-color:transparent;
+      user-select:none;
+      -webkit-user-select:none;
+      transform:translateZ(0);
+      will-change:left, top, width, height;
+    }
+
+    body.external-video-active .external-swipe-shield.is-active{
+      display:block;
+      pointer-events:auto;
+    }
+
+    body.has-open-modal .external-swipe-shield{
+      display:none !important;
+      pointer-events:none !important;
+    }
+
   </style>
 </head>
 <body>
@@ -2193,7 +2222,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v88_external_video_swipe_overlay_fix";
+  const HTML_VERSION = "v90_portrait_external_video_swipe_shield";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -3942,6 +3971,7 @@
       }
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "block";
       document.body.classList.add("external-video-active");
+      try { window.__syncExternalSwipeShieldBounds?.(); setTimeout(() => window.__syncExternalSwipeShieldBounds?.(), 120); } catch (_) {}
       const config = { videoId, autoPlay: !!autoPlay, start, end };
       ytPendingConfig = config;
       try {
@@ -4028,6 +4058,7 @@
       hideAllMainPanels();
       els.mainFrame.style.display = "block";
       document.body.classList.add("external-video-active");
+      try { window.__syncExternalSwipeShieldBounds?.(); setTimeout(() => window.__syncExternalSwipeShieldBounds?.(), 120); } catch (_) {}
       const nextSrc = safe(url);
       const prevSrc = els.mainFrame.dataset.currentSrc || "";
       if (!nextSrc) return;
@@ -7928,6 +7959,11 @@ function getSearchScope(){
         try { window.scrollTo(0, 1); } catch (_err) {}
         scheduleMobileLandscapeFullscreen(120);
       }
+      try {
+        if (typeof window.__syncExternalSwipeShieldBounds === "function"){
+          window.__syncExternalSwipeShieldBounds();
+        }
+      } catch (_err) {}
     }
 
     function isVideoLikeMode(){
@@ -9083,6 +9119,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
     function hideAllMainPanels(){
       document.body.classList.remove("external-video-active");
+      try { window.__syncExternalSwipeShieldBounds?.(); } catch (_) {}
       els.mainVideo.style.display = "none";
       if (els.youtubePlayerWrap) els.youtubePlayerWrap.style.display = "none";
       if (els.mainFrame) els.mainFrame.style.display = "none";
@@ -14179,6 +14216,9 @@ ${match.label}${timeText}`, 1500);
         setTimeout(updateLandscapeFocusMode, 40);
         setTimeout(updateLandscapeFocusMode, 260);
         setTimeout(updateLandscapeFocusMode, 720);
+        if (typeof scheduleExternalSwipeShieldSync === "function"){
+          scheduleExternalSwipeShieldSync();
+        }
       }
 
       const bindTapZone = (el, fn) => {
@@ -14324,7 +14364,95 @@ ${match.label}${timeText}`, 1500);
           e.stopPropagation();
         });
       };
+      function ensureExternalSwipeShield(){
+        let shield = document.getElementById("externalSwipeShield");
+        if (!shield){
+          shield = document.createElement("div");
+          shield.id = "externalSwipeShield";
+          shield.className = "external-swipe-shield";
+          shield.setAttribute("aria-hidden", "true");
+          document.body.appendChild(shield);
+        }
+        els.externalSwipeShield = shield;
+        return shield;
+      }
+
+      function hasOpenBlockingModal(){
+        return !!document.querySelector(".note-modal.open, .mobile-sheet.open");
+      }
+
+      function getActiveExternalVideoRect(){
+        if (!document.body.classList.contains("external-video-active")) return null;
+        if (isMobileViewport() && isLandscapeViewport() && document.body.classList.contains("mobile-landscape-focus")){
+          return { left:0, top:0, width:window.innerWidth || 1, height:window.innerHeight || 1 };
+        }
+
+        const candidates = [
+          (typeof isYoutubePlayerVisible === "function" && isYoutubePlayerVisible()) ? els.youtubePlayerWrap : null,
+          (els.mainFrame && els.mainFrame.style.display !== "none") ? els.mainFrame : null,
+          els.stage
+        ].filter(Boolean);
+
+        for (const el of candidates){
+          const rect = el.getBoundingClientRect?.();
+          if (rect && rect.width > 20 && rect.height > 20){
+            return rect;
+          }
+        }
+        return null;
+      }
+
+      function syncExternalSwipeShieldBounds(){
+        const shield = ensureExternalSwipeShield();
+        const active = isMobileViewport()
+          && document.body.classList.contains("external-video-active")
+          && !hasOpenBlockingModal();
+
+        document.body.classList.toggle("has-open-modal", hasOpenBlockingModal());
+
+        if (!active){
+          shield.classList.remove("is-active");
+          shield.style.display = "none";
+          shield.style.pointerEvents = "none";
+          return;
+        }
+
+        const rect = getActiveExternalVideoRect();
+        if (!rect){
+          shield.classList.remove("is-active");
+          shield.style.display = "none";
+          shield.style.pointerEvents = "none";
+          return;
+        }
+
+        // 세로 화면에서는 헤더/버튼을 가리지 않고 영상 영역만 덮습니다.
+        // 가로 집중 모드에서는 전체 뷰포트를 덮어 유튜브 로딩 중 검정 화면에서도 제스처를 유지합니다.
+        shield.style.left = `${Math.max(0, Math.round(rect.left))}px`;
+        shield.style.top = `${Math.max(0, Math.round(rect.top))}px`;
+        shield.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+        shield.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+        shield.style.display = "block";
+        shield.style.pointerEvents = "auto";
+        shield.classList.add("is-active");
+      }
+
+      window.__syncExternalSwipeShieldBounds = syncExternalSwipeShieldBounds;
+
+      const scheduleExternalSwipeShieldSync = () => {
+        syncExternalSwipeShieldBounds();
+        requestAnimationFrame(syncExternalSwipeShieldBounds);
+        setTimeout(syncExternalSwipeShieldBounds, 120);
+        setTimeout(syncExternalSwipeShieldBounds, 420);
+      };
+
       bindLandscapeSwipeLayer(els.stageGestureLayer);
+      bindLandscapeSwipeLayer(ensureExternalSwipeShield());
+      scheduleExternalSwipeShieldSync();
+      window.addEventListener("resize", scheduleExternalSwipeShieldSync, { passive:true });
+      window.addEventListener("orientationchange", scheduleExternalSwipeShieldSync, { passive:true });
+      window.addEventListener("scroll", scheduleExternalSwipeShieldSync, { passive:true });
+      document.addEventListener("fullscreenchange", scheduleExternalSwipeShieldSync);
+      setInterval(syncExternalSwipeShieldBounds, 900);
 
 
       els.stage.addEventListener("click", (e) => {
