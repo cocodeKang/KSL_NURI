@@ -1868,8 +1868,13 @@
     }
 
     body.external-video-active .external-swipe-shield.is-active{
-      display:block;
-      pointer-events:auto;
+      display:block !important;
+      pointer-events:auto !important;
+    }
+
+    body.external-video-active .external-swipe-shield{
+      touch-action:none !important;
+      overscroll-behavior:contain;
     }
 
     body.has-open-modal .external-swipe-shield{
@@ -2222,7 +2227,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v91_mobile_swipe_end_restart_input_nav";
+  const HTML_VERSION = "v92_external_video_swipe_tap_mode_nav";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -14388,8 +14393,11 @@ ${match.label}${timeText}`, 1500);
         const now = Date.now();
         if (now < mobileSwipeNavLockUntil) return;
         mobileSwipeNavLockUntil = now + 420;
-        if (direction === "next") goNextHeadwordUnit(getShouldAutoplay());
-        else goPrevHeadwordUnit(getShouldAutoplay());
+        // v92: 화면 슬라이드는 현재 학습 모드의 순서를 그대로 따릅니다.
+        // 표제어 모드(Q/W/E/G/Z/X/C/O/M)는 표제어 목록 순서,
+        // 용례 모드(A/S/D)는 용례 목록 순서로 이동해야 랜덤 학습 순서가 깨지지 않습니다.
+        if (direction === "next") goNext(getShouldAutoplay());
+        else goPrev(getShouldAutoplay());
         // 외부 iframe/유튜브가 다음 영상으로 갈 때 짧은 검정 화면이 생겨도
         // 모바일 가로 전체화면형 레이아웃과 스와이프 레이어를 다시 잡아 둡니다.
         setTimeout(updateLandscapeFocusMode, 40);
@@ -14445,6 +14453,9 @@ ${match.label}${timeText}`, 1500);
           startX = lastX = clientX || 0;
           startY = lastY = clientY || 0;
           startTime = Date.now();
+          // 외부 iframe 위에서 시작한 손가락 입력은 부모 페이지의 투명 레이어가 우선 처리합니다.
+          // 그래야 유튜브 기본 터치가 슬라이드를 재생/일시정지로 가져가는 문제를 줄일 수 있습니다.
+          try { sourceEvent?.preventDefault?.(); } catch (_) {}
           try { sourceEvent?.stopPropagation?.(); } catch (_) {}
           return true;
         };
@@ -14455,10 +14466,10 @@ ${match.label}${timeText}`, 1500);
           lastY = clientY || 0;
           const dx = lastX - startX;
           const dy = lastY - startY;
-          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+          if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
           // 외부 iframe은 부모로 터치 이벤트가 올라오지 않으므로 투명 레이어가 잡습니다.
-          // 가로 이동으로 판단되는 순간에는 페이지/플레이어 기본 제스처를 막아 다음/이전 이동을 우선합니다.
-          if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy) * 1.05){
+          // 아주 작은 가로 움직임부터 기본 플레이어 제스처를 막아, 스와이프가 재생/일시정지로 흘러가지 않게 합니다.
+          if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 0.9){
             try { sourceEvent?.preventDefault?.(); } catch (_) {}
             try { sourceEvent?.stopPropagation?.(); } catch (_) {}
           }
@@ -14481,9 +14492,11 @@ ${match.label}${timeText}`, 1500);
             try { sourceEvent?.preventDefault?.(); } catch (_) {}
             runMobileStageSwipeNav(dx < 0 ? "next" : "prev");
           } else if (!moved){
-            // 탭은 이동으로 처리하지 않습니다. 단, 영상이 끝난 상태에서는 가운데 터치로 처음부터 다시 재생합니다.
+            // 탭과 슬라이드를 분리합니다.
+            // 탭: 재생/일시정지, 영상 종료 상태라면 처음부터 재생
+            // 슬라이드: 이전/다음 이동
             try { sourceEvent?.preventDefault?.(); } catch (_) {}
-            restartEndedActiveMedia({ play:true });
+            togglePlayPause();
           }
           pointerId = null;
         };
@@ -14625,8 +14638,10 @@ ${match.label}${timeText}`, 1500);
       const scheduleExternalSwipeShieldSync = () => {
         syncExternalSwipeShieldBounds();
         requestAnimationFrame(syncExternalSwipeShieldBounds);
-        setTimeout(syncExternalSwipeShieldBounds, 120);
+        setTimeout(syncExternalSwipeShieldBounds, 80);
+        setTimeout(syncExternalSwipeShieldBounds, 180);
         setTimeout(syncExternalSwipeShieldBounds, 420);
+        setTimeout(syncExternalSwipeShieldBounds, 900);
       };
 
       bindLandscapeSwipeLayer(els.stageGestureLayer);
@@ -14635,6 +14650,10 @@ ${match.label}${timeText}`, 1500);
       window.addEventListener("resize", scheduleExternalSwipeShieldSync, { passive:true });
       window.addEventListener("orientationchange", scheduleExternalSwipeShieldSync, { passive:true });
       window.addEventListener("scroll", scheduleExternalSwipeShieldSync, { passive:true });
+      if (window.visualViewport){
+        window.visualViewport.addEventListener("resize", scheduleExternalSwipeShieldSync, { passive:true });
+        window.visualViewport.addEventListener("scroll", scheduleExternalSwipeShieldSync, { passive:true });
+      }
       document.addEventListener("fullscreenchange", () => {
         const fs = document.fullscreenElement;
         if (fs && String(fs.tagName || "").toUpperCase() === "IFRAME" && isMobileViewport() && document.body.classList.contains("external-video-active")){
@@ -14643,7 +14662,19 @@ ${match.label}${timeText}`, 1500);
         }
         scheduleExternalSwipeShieldSync();
       });
-      setInterval(syncExternalSwipeShieldBounds, 900);
+      function keepExternalVideoSwipeLayerHealthy(){
+        // 유튜브/외부 영상은 iframe 내부 로딩과 전체화면 전환 때 레이어 위치가 틀어질 수 있어 주기적으로 복구합니다.
+        if (isMobileViewport() && document.body.classList.contains("external-video-active")){
+          try { syncExternalSwipeShieldBounds(); } catch (_) {}
+          const fs = document.fullscreenElement;
+          if (fs && String(fs.tagName || "").toUpperCase() === "IFRAME"){
+            try{ document.exitFullscreen?.(); } catch(_err){}
+            document.body.classList.add("mobile-landscape-focus");
+            try { syncExternalSwipeShieldBounds(); } catch (_) {}
+          }
+        }
+      }
+      setInterval(keepExternalVideoSwipeLayerHealthy, 650);
 
 
       els.stage.addEventListener("click", (e) => {
