@@ -1912,8 +1912,8 @@
       </div>
 
       <div class="header-row mobile-history-row" aria-label="모바일 이동·재생 제어">
-        <button id="mobileHistoryBackBtn" class="icon-btn" type="button" title="이전 표제어 학습 위치로 이동">이전</button>
-        <button id="mobileHistoryForwardBtn" class="icon-btn" type="button" title="이후 표제어 학습 위치로 이동">다음</button>
+        <button id="mobileHistoryBackBtn" class="icon-btn" type="button" title="이전 표제어로 이동">이전</button>
+        <button id="mobileHistoryForwardBtn" class="icon-btn" type="button" title="다음 표제어로 이동">다음</button>
         <button id="mobileUndoBtn" class="icon-btn" type="button" title="되돌리기">취소</button>
         <button id="playbackBtn" class="playback-btn mobile-only" type="button" title="재생모드 전환 / 길게 눌러 수동↔반복">재생: 수동</button>
         <button id="framePrevBtnMobile" class="icon-btn mobile-mini-btn" type="button" title="이전 프레임 이동">,</button>
@@ -2222,7 +2222,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v90_portrait_external_video_swipe_shield";
+  const HTML_VERSION = "v91_mobile_swipe_end_restart_input_nav";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2526,6 +2526,7 @@
     let addEntryModalOriginalNextSibling = null;
     let addEntryFocusSelectPending = false;
     let addEntryOpenSelectTarget = null;
+    let addEntrySuppressNextTouchSelect = false;
     let noteModalOriginalParent = null;
     let noteModalOriginalNextSibling = null;
     let editModalOriginalParent = null;
@@ -6025,8 +6026,17 @@
         group.wordClipEnd = Number.isFinite(exampleClipEnd) ? exampleClipEnd : null;
       }
 
-      await persistEditedRows(includeClipRange ? "표제어 영상링크+구간 덮어쓰기" : "표제어 영상링크 덮어쓰기");
-      showOverlay(includeClipRange ? "표제어 영상과 구간을 용례 기준으로 덮어썼습니다" : "표제어 영상링크를 용례영상으로 덮어썼습니다", 1400);
+      const persistLabel = includeClipRange ? "표제어 영상링크+구간 덮어쓰기" : "표제어 영상링크 덮어쓰기";
+      const persistTask = persistEditedRows(persistLabel);
+      showOverlay(includeClipRange ? "표제어 영상과 구간을 용례 기준으로 덮어썼습니다" : "표제어 영상링크를 용례영상으로 덮어썼습니다", 900);
+      if (options.fast === true){
+        Promise.resolve(persistTask).catch(err => {
+          console.error(err);
+          showOverlay("저장 중 오류가 발생했습니다", 1200);
+        });
+        return;
+      }
+      await persistTask;
     }
 
     function getEditableBaseRowIndices(group){
@@ -6750,9 +6760,37 @@
         const value = typeof field.value === "string" ? field.value : "";
         if (typeof field.setSelectionRange === "function"){
           field.setSelectionRange(0, value.length);
+          field.dataset.autoSelectedAll = "1";
         } else if (typeof field.select === "function"){
           field.select();
+          field.dataset.autoSelectedAll = "1";
         }
+      } catch(_err){}
+    }
+
+    function isEntireFieldValueSelected(field){
+      if (!field || typeof field.value !== "string") return false;
+      try{
+        return document.activeElement === field
+          && Number(field.selectionStart) === 0
+          && Number(field.selectionEnd) === field.value.length
+          && field.value.length > 0;
+      } catch(_err){
+        return false;
+      }
+    }
+
+    function moveFieldCursorToEnd(field){
+      if (!field) return;
+      try{
+        field.focus({ preventScroll:true });
+      } catch(_err){
+        try{ field.focus(); } catch(__err){}
+      }
+      try{
+        const len = typeof field.value === "string" ? field.value.length : 0;
+        if (typeof field.setSelectionRange === "function") field.setSelectionRange(len, len);
+        field.dataset.autoSelectedAll = "0";
       } catch(_err){}
     }
 
@@ -6762,6 +6800,11 @@
         requestAnimationFrame(() => {
           if (!els.addEntryModal?.classList.contains("open")) return;
           if (document.activeElement !== field) return;
+          if (addEntrySuppressNextTouchSelect){
+            addEntrySuppressNextTouchSelect = false;
+            return;
+          }
+          if (field.dataset.autoSelectedAll === "1" && isEntireFieldValueSelected(field)) return;
           selectEntireFieldValue(field);
         });
       });
@@ -6806,6 +6849,7 @@
       els.addEntryModal?.setAttribute("aria-hidden", "false");
       addEntryOpenSelectTarget = els.addEntryWord || els.addEntryId || null;
       addEntryFocusSelectPending = false;
+      addEntrySuppressNextTouchSelect = false;
       setTimeout(() => {
         const target = addEntryOpenSelectTarget || els.addEntryWord || els.addEntryId || null;
         if (!target) return;
@@ -11123,6 +11167,72 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
     }
 
+    function findExamplePoolIndexForGroupId(groupId){
+      if (!groupId || !filteredExamplePool.length) return -1;
+      const rememberedToken = lastExampleTokenByGroup[String(groupId)] || "";
+      if (rememberedToken){
+        const rememberedIndex = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === rememberedToken && String(item.groupId) === String(groupId));
+        if (rememberedIndex >= 0) return rememberedIndex;
+      }
+      return filteredExamplePool.findIndex(item => String(item.groupId) === String(groupId));
+    }
+
+    async function goNextHeadwordUnit(autoPlay = false){
+      clearUndoSnapshot();
+      currentVideoTime = 0;
+      if (!filteredGroups.length) return;
+      const startIndex = clamp(Number(currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
+      let targetIndex = -1;
+      let targetPoolIndex = -1;
+      for (let idx = startIndex + 1; idx < filteredGroups.length; idx++){
+        const group = filteredGroups[idx];
+        if (isExampleMode()){
+          const poolIndex = findExamplePoolIndexForGroupId(group?.id);
+          if (poolIndex < 0) continue;
+          targetPoolIndex = poolIndex;
+        }
+        targetIndex = idx;
+        break;
+      }
+      if (targetIndex < 0){
+        showOverlay("마지막 표제어입니다");
+        return;
+      }
+      pushNavigationHistorySnapshot(createNavigationSnapshot());
+      currentIndex = targetIndex;
+      if (isExampleMode() && targetPoolIndex >= 0) currentPoolIndex = targetPoolIndex;
+      render(autoPlay);
+      await saveState();
+    }
+
+    async function goPrevHeadwordUnit(autoPlay = false){
+      clearUndoSnapshot();
+      currentVideoTime = 0;
+      if (!filteredGroups.length) return;
+      const startIndex = clamp(Number(currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
+      let targetIndex = -1;
+      let targetPoolIndex = -1;
+      for (let idx = startIndex - 1; idx >= 0; idx--){
+        const group = filteredGroups[idx];
+        if (isExampleMode()){
+          const poolIndex = findExamplePoolIndexForGroupId(group?.id);
+          if (poolIndex < 0) continue;
+          targetPoolIndex = poolIndex;
+        }
+        targetIndex = idx;
+        break;
+      }
+      if (targetIndex < 0){
+        showOverlay("첫 표제어입니다");
+        return;
+      }
+      pushNavigationHistorySnapshot(createNavigationSnapshot());
+      currentIndex = targetIndex;
+      if (isExampleMode() && targetPoolIndex >= 0) currentPoolIndex = targetPoolIndex;
+      render(autoPlay);
+      await saveState();
+    }
+
     async function shuffleCurrentOrder(){
       rememberUndoSnapshot();
       currentVideoTime = 0;
@@ -11448,8 +11558,60 @@ ${getSelectionEntries().length}개 항목`, 1200);
       }
     }
 
+    function getActiveClipStartForRestart(){
+      const clip = getActivePlaybackClipRange();
+      if (clip && Number.isFinite(clip.start)) return Math.max(0, clip.start);
+      return 0;
+    }
+
+    function isActiveMediaEnded(){
+      if (canControlYoutubePlayer()){
+        try{
+          const state = Number(ytPlayer.getPlayerState?.());
+          const YTState = window.YT?.PlayerState || {};
+          return state === YTState.ENDED || state === 0;
+        } catch(_err){
+          return false;
+        }
+      }
+      if (els.mainVideo?.src){
+        const duration = Number(els.mainVideo.duration);
+        const current = Number(els.mainVideo.currentTime || 0);
+        return !!els.mainVideo.ended || (Number.isFinite(duration) && duration > 0 && current >= duration - 0.08);
+      }
+      return false;
+    }
+
+    function restartEndedActiveMedia(options = {}){
+      if (!isVideoMode() || !isActiveMediaEnded()) return false;
+      const start = getActiveClipStartForRestart();
+      if (canControlYoutubePlayer()){
+        try{
+          ytPlayer.seekTo(start, true);
+          currentVideoTime = start;
+          if (options.play !== false) ytPlayer.playVideo();
+          startYoutubeClipWatcher();
+          return true;
+        } catch(_err){
+          return false;
+        }
+      }
+      if (els.mainVideo?.src){
+        try{
+          els.mainVideo.currentTime = start;
+          currentVideoTime = start;
+          if (options.play !== false) els.mainVideo.play().catch(() => {});
+          return true;
+        } catch(_err){
+          return false;
+        }
+      }
+      return false;
+    }
+
     function togglePlayPause(){
       if (!isVideoMode()) return;
+      if (restartEndedActiveMedia({ play:true })) return;
       if (isActiveMediaPlaying()){
         pauseActiveMedia();
       } else {
@@ -13287,7 +13449,7 @@ ${match.label}${timeText}`, 1500);
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 's'){
         if (isTypingContext()) return;
         e.preventDefault();
-        copyCurrentExampleVideoToHeadwordVideo();
+        copyCurrentExampleVideoToHeadwordVideo({ fast:true });
         return;
       }
       if (e.altKey && !e.ctrlKey && !e.metaKey && key === 's'){
@@ -13777,7 +13939,7 @@ ${match.label}${timeText}`, 1500);
         if (mode === "S"){
           bindHoldableButton(btn, {
             shortAction: () => triggerMode("S"),
-            longAction: () => copyCurrentExampleVideoToHeadwordVideo(),
+            longAction: () => copyCurrentExampleVideoToHeadwordVideo({ fast:true }),
             mouseLongAction: false
           });
           return;
@@ -13861,8 +14023,8 @@ ${match.label}${timeText}`, 1500);
         if (dataUndoStack.length) await undoDataHistory();
         else await undoLastAction();
       });
-      if (els.mobileHistoryBackBtn) els.mobileHistoryBackBtn.addEventListener("click", async () => { await goHistoryBack(); });
-      if (els.mobileHistoryForwardBtn) els.mobileHistoryForwardBtn.addEventListener("click", async () => { await goHistoryForward(); });
+      if (els.mobileHistoryBackBtn) els.mobileHistoryBackBtn.addEventListener("click", async () => { await goPrevHeadwordUnit(getShouldAutoplay()); });
+      if (els.mobileHistoryForwardBtn) els.mobileHistoryForwardBtn.addEventListener("click", async () => { await goNextHeadwordUnit(getShouldAutoplay()); });
       if (els.mobileUndoBtn) els.mobileUndoBtn.addEventListener("click", async () => {
         if (dataUndoStack.length) await undoDataHistory();
         else await undoLastAction();
@@ -13978,12 +14140,19 @@ ${match.label}${timeText}`, 1500);
         });
         input?.addEventListener("focus", () => {
           if (!els.addEntryModal?.classList.contains("open")) return;
+          if (addEntrySuppressNextTouchSelect) return;
           addEntryFocusSelectPending = false;
           addEntryOpenSelectTarget = null;
           scheduleAddEntryFieldSelect(input);
         });
         input?.addEventListener("pointerdown", () => {
           if (isMobileViewport()){
+            if (isEntireFieldValueSelected(input)){
+              addEntrySuppressNextTouchSelect = true;
+              setTimeout(() => moveFieldCursorToEnd(input), 0);
+              setTimeout(() => { addEntrySuppressNextTouchSelect = false; }, 180);
+              return;
+            }
             addEntryOpenSelectTarget = input;
             setTimeout(() => scheduleAddEntryFieldSelect(input), 80);
             return;
@@ -13993,6 +14162,10 @@ ${match.label}${timeText}`, 1500);
         });
         input?.addEventListener("touchend", () => {
           if (!isMobileViewport()) return;
+          if (addEntrySuppressNextTouchSelect){
+            setTimeout(() => moveFieldCursorToEnd(input), 0);
+            return;
+          }
           addEntryOpenSelectTarget = input;
           setTimeout(() => scheduleAddEntryFieldSelect(input), 120);
         }, { passive:true });
@@ -14113,6 +14286,12 @@ ${match.label}${timeText}`, 1500);
         mouseLongAction: false
       });
       bindMobileAddHeadwordButton(els.addHeadwordBtnFooter);
+      els.addHeadwordBtnFooter?.addEventListener("click", (e) => {
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        e.stopPropagation();
+        addNewHeadwordEntry();
+      }, false);
       window.addNewHeadwordEntry = addNewHeadwordEntry;
       window.duplicateCurrentHeadwordEntry = duplicateCurrentHeadwordEntry;
       window.getNextAvailableSourceId = getNextAvailableSourceId;
@@ -14209,8 +14388,8 @@ ${match.label}${timeText}`, 1500);
         const now = Date.now();
         if (now < mobileSwipeNavLockUntil) return;
         mobileSwipeNavLockUntil = now + 420;
-        if (direction === "next") goNext(getShouldAutoplay());
-        else goPrev(getShouldAutoplay());
+        if (direction === "next") goNextHeadwordUnit(getShouldAutoplay());
+        else goPrevHeadwordUnit(getShouldAutoplay());
         // 외부 iframe/유튜브가 다음 영상으로 갈 때 짧은 검정 화면이 생겨도
         // 모바일 가로 전체화면형 레이아웃과 스와이프 레이어를 다시 잡아 둡니다.
         setTimeout(updateLandscapeFocusMode, 40);
@@ -14302,9 +14481,9 @@ ${match.label}${timeText}`, 1500);
             try { sourceEvent?.preventDefault?.(); } catch (_) {}
             runMobileStageSwipeNav(dx < 0 ? "next" : "prev");
           } else if (!moved){
-            // 탭은 이동으로 처리하지 않습니다. iframe 탭 조작은 투명 레이어 때문에 막히지만
-            // 의도치 않은 이전/다음 이동은 방지합니다.
+            // 탭은 이동으로 처리하지 않습니다. 단, 영상이 끝난 상태에서는 가운데 터치로 처음부터 다시 재생합니다.
             try { sourceEvent?.preventDefault?.(); } catch (_) {}
+            restartEndedActiveMedia({ play:true });
           }
           pointerId = null;
         };
@@ -14371,7 +14550,12 @@ ${match.label}${timeText}`, 1500);
           shield.id = "externalSwipeShield";
           shield.className = "external-swipe-shield";
           shield.setAttribute("aria-hidden", "true");
-          document.body.appendChild(shield);
+        }
+        const fs = document.fullscreenElement || null;
+        const canAppendToFullscreenHost = fs && fs.nodeType === 1 && String(fs.tagName || "").toUpperCase() !== "IFRAME";
+        const host = canAppendToFullscreenHost ? fs : document.body;
+        if (shield.parentNode !== host){
+          try{ host.appendChild(shield); } catch(_err){ document.body.appendChild(shield); }
         }
         els.externalSwipeShield = shield;
         return shield;
@@ -14451,7 +14635,14 @@ ${match.label}${timeText}`, 1500);
       window.addEventListener("resize", scheduleExternalSwipeShieldSync, { passive:true });
       window.addEventListener("orientationchange", scheduleExternalSwipeShieldSync, { passive:true });
       window.addEventListener("scroll", scheduleExternalSwipeShieldSync, { passive:true });
-      document.addEventListener("fullscreenchange", scheduleExternalSwipeShieldSync);
+      document.addEventListener("fullscreenchange", () => {
+        const fs = document.fullscreenElement;
+        if (fs && String(fs.tagName || "").toUpperCase() === "IFRAME" && isMobileViewport() && document.body.classList.contains("external-video-active")){
+          try{ document.exitFullscreen?.(); } catch(_err){}
+          document.body.classList.add("mobile-landscape-focus");
+        }
+        scheduleExternalSwipeShieldSync();
+      });
       setInterval(syncExternalSwipeShieldBounds, 900);
 
 
@@ -14643,6 +14834,10 @@ ${match.label}${timeText}`, 1500);
         if (playbackMode === "CONT"){
           goNext(true);
         }
+      });
+
+      els.mainVideo.addEventListener("click", () => {
+        restartEndedActiveMedia({ play:true });
       });
 
       window.addEventListener("resize", () => {
