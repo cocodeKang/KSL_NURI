@@ -1786,6 +1786,23 @@
       pointer-events:auto;
     }
 
+    @media (hover:none) and (pointer:coarse){
+      body.external-video-active .stage-gesture-layer{
+        display:block !important;
+        pointer-events:auto !important;
+        z-index:74;
+        touch-action:pan-y pinch-zoom;
+      }
+      body.mobile-landscape-focus.external-video-active .stage-gesture-layer{
+        position:fixed !important;
+        inset:0 !important;
+        width:100vw !important;
+        height:100dvh !important;
+        z-index:2147483000;
+        touch-action:none;
+      }
+    }
+
     @media (orientation: landscape) and (hover:none) and (pointer:coarse){
       body.mobile-landscape-focus .header,
       body.mobile-landscape-focus .footer,
@@ -2176,7 +2193,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v86_mobile_swipe_landscape_ui_refine";
+  const HTML_VERSION = "v88_external_video_swipe_overlay_fix";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2471,6 +2488,7 @@
     let touchStartX = 0;
     let touchStartY = 0;
     let stageTouchNavEligible = true;
+    let mobileSwipeNavLockUntil = 0;
     let mobileSheetMode = "info";
     let currentEditSession = null;
     let currentAddEntryTemplateRow = null;
@@ -6284,36 +6302,52 @@
       }
     }
 
-    function getUsedSourceIdSet(){
+    function getSourceIdFromRow(row){
+      if (!row || typeof row !== "object") return "";
+      return safe(pickValue(row, ["sourceId", "ID", "id", "Id", "아이디", "번호", "순번"])).trim();
+    }
+
+    function getUsedSourceIdSet(ignoreRowIndex = -1){
       const used = new Set();
-      rows.forEach((row) => {
-        const value = safe(pickValue(row, ["sourceId", "ID", "id", "Id"])).trim();
+      rows.forEach((row, idx) => {
+        if (idx === ignoreRowIndex) return;
+        const value = getSourceIdFromRow(row);
         if (value) used.add(value);
       });
       return used;
     }
 
-    function getNextAvailableSourceId(baseId = ""){
-      const used = getUsedSourceIdSet();
-      const baseText = safe(baseId).trim();
-
-      if (/^\d+$/.test(baseText)){
-        let next = Number(baseText) + 1;
-        if (!Number.isFinite(next) || next < 1) next = 1;
-        while (used.has(String(next))) next += 1;
-        return String(next);
-      }
-
+    function getNextAvailableSourceId(baseId = "", ignoreRowIndex = -1){
+      const used = getUsedSourceIdSet(ignoreRowIndex);
       let maxNumeric = 0;
+
       used.forEach((value) => {
-        if (/^\d+$/.test(value)){
-          const num = Number(value);
+        const text = safe(value).trim();
+        if (/^\d+$/.test(text)){
+          const num = Number(text);
           if (Number.isFinite(num) && num > maxNumeric) maxNumeric = num;
         }
       });
+
+      // 원칙: 현재 연동된 엑셀 전체에서 가장 큰 숫자 ID + 1을 우선 사용한다.
+      // 그래야 현재 표제어 주변 ID가 아니라 엑셀 전체 기준으로 중복 없는 새 번호가 생성된다.
       let next = Math.max(1, maxNumeric + 1);
+
+      // 숫자 ID가 전혀 없는 특수 자료에서는 사용자가 입력한 숫자 기준도 참고한다.
+      const baseText = safe(baseId).trim();
+      if (maxNumeric <= 0 && /^\d+$/.test(baseText)){
+        next = Math.max(1, Number(baseText) + 1);
+      }
+
       while (used.has(String(next))) next += 1;
       return String(next);
+    }
+
+    function resolveUniqueSourceId(requestedId = "", ignoreRowIndex = -1){
+      const used = getUsedSourceIdSet(ignoreRowIndex);
+      const requested = safe(requestedId).trim();
+      if (requested && !used.has(requested)) return requested;
+      return getNextAvailableSourceId(requested, ignoreRowIndex);
     }
 
     function incrementHeadwordLabel(baseWord){
@@ -6728,7 +6762,7 @@
       );
       if (els.addEntryModalTitle) els.addEntryModalTitle.textContent = safe(options.title || "새 표제어 추가");
       if (els.addEntrySaveBtn) els.addEntrySaveBtn.textContent = safe(options.actionLabel || (saveMode === "edit-existing" ? "저장" : "추가"));
-      if (els.addEntryId) els.addEntryId.value = safe(options.sourceId || getNextAvailableSourceId());
+      if (els.addEntryId) els.addEntryId.value = resolveUniqueSourceId(options.sourceId || "", currentAddEntryContext?.editRowIndex ?? -1);
       if (els.addEntryWord) els.addEntryWord.value = defaultWord;
       if (els.addEntryCategory) els.addEntryCategory.value = prefilledCategory;
       if (els.addEntryScope) els.addEntryScope.value = prefilledScope;
@@ -6749,7 +6783,12 @@
     }
 
     async function saveAddEntryModal(){
-      const cleanId = safe(els.addEntryId?.value || "").trim() || getNextAvailableSourceId();
+      const addContext = currentAddEntryContext || {};
+      const editRowIndex = Number(addContext.editRowIndex);
+      const isEditExisting = addContext.saveMode === "edit-existing" && Number.isInteger(editRowIndex) && editRowIndex >= 0 && !!getRowObject(editRowIndex);
+      const rawCleanId = safe(els.addEntryId?.value || "").trim();
+      const cleanId = resolveUniqueSourceId(rawCleanId, isEditExisting ? editRowIndex : -1);
+      if (els.addEntryId && els.addEntryId.value !== cleanId) els.addEntryId.value = cleanId;
       const cleanWord = safe(els.addEntryWord?.value || "").trim();
       if (!cleanWord){
         showOverlay("표제어를 입력해야 합니다", 1100);
@@ -6766,9 +6805,6 @@
       const memo = safe(els.addEntryMemo?.value || "");
       const extraInfo = safe(els.addEntryExtraInfo?.value || "");
 
-      const addContext = currentAddEntryContext || {};
-      const editRowIndex = Number(addContext.editRowIndex);
-      const isEditExisting = addContext.saveMode === "edit-existing" && Number.isInteger(editRowIndex) && editRowIndex >= 0 && !!getRowObject(editRowIndex);
       const wasDuplicateAdd = !isEditExisting && !!currentAddEntryTemplateRow;
       const templateRow = currentAddEntryTemplateRow
         ? { ...currentAddEntryTemplateRow }
@@ -8219,15 +8255,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function bindMobileAddHeadwordButton(button){
-      if (!button) return;
+      if (!button || button.dataset.addHeadwordBound === "1") return;
+      button.dataset.addHeadwordBound = "1";
+
       let timer = null;
       let longTriggered = false;
-      let touchActive = false;
+      let pointerActive = false;
+      let activePointerId = null;
       let startX = 0;
       let startY = 0;
-      let suppressClickUntil = 0;
+      let lastActionAt = 0;
       const holdMs = 650;
-      const moveLimit = 18;
+      const moveLimit = 20;
 
       const clear = () => {
         if (timer){
@@ -8235,68 +8274,113 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           timer = null;
         }
       };
+
       const runShort = () => {
-        suppressClickUntil = Date.now() + 700;
+        const now = Date.now();
+        if (now - lastActionAt < 430) return;
+        lastActionAt = now;
         try{
           const result = addNewHeadwordEntry();
           if (result && typeof result.catch === "function") result.catch(console.error);
         } catch (err){ console.error(err); }
       };
+
       const runLong = () => {
-        suppressClickUntil = Date.now() + 700;
+        const now = Date.now();
+        if (now - lastActionAt < 430) return;
+        lastActionAt = now;
         try{
           const result = duplicateCurrentHeadwordEntry();
           if (result && typeof result.catch === "function") result.catch(console.error);
         } catch (err){ console.error(err); }
       };
 
-      button.addEventListener("touchstart", (e) => {
-        if (!isMobileViewport()) return;
-        e.preventDefault();
-        touchActive = true;
+      const beginPress = (clientX, clientY, pointerId = null) => {
+        pointerActive = true;
+        activePointerId = pointerId;
         longTriggered = false;
-        const t = e.touches?.[0] || null;
-        startX = t?.clientX || 0;
-        startY = t?.clientY || 0;
+        startX = clientX || 0;
+        startY = clientY || 0;
         clear();
         timer = setTimeout(() => {
           timer = null;
           longTriggered = true;
           runLong();
         }, holdMs);
+      };
+
+      const movePress = (clientX, clientY) => {
+        if (!pointerActive) return;
+        const dx = Math.abs((clientX || 0) - startX);
+        const dy = Math.abs((clientY || 0) - startY);
+        if (dx > moveLimit || dy > moveLimit) clear();
+      };
+
+      const endPress = () => {
+        if (!pointerActive) return;
+        clear();
+        if (!longTriggered) runShort();
+        pointerActive = false;
+        activePointerId = null;
+        longTriggered = false;
+      };
+
+      button.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try{ button.setPointerCapture?.(e.pointerId); } catch(_err){}
+        beginPress(e.clientX, e.clientY, e.pointerId);
+      });
+
+      button.addEventListener("pointermove", (e) => {
+        if (!pointerActive || (activePointerId !== null && e.pointerId !== activePointerId)) return;
+        movePress(e.clientX, e.clientY);
+      });
+
+      button.addEventListener("pointerup", (e) => {
+        if (activePointerId !== null && e.pointerId !== activePointerId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        endPress();
+      });
+
+      button.addEventListener("pointercancel", () => {
+        clear();
+        pointerActive = false;
+        activePointerId = null;
+        longTriggered = false;
+      });
+
+      // 일부 모바일 브라우저/구형 WebView에서 pointer 이벤트가 누락될 때를 위한 보조 처리
+      button.addEventListener("touchstart", (e) => {
+        if (pointerActive) return;
+        const t = e.touches?.[0] || null;
+        if (!t) return;
+        e.preventDefault();
+        e.stopPropagation();
+        beginPress(t.clientX, t.clientY, null);
       }, { passive:false });
 
       button.addEventListener("touchmove", (e) => {
-        if (!touchActive) return;
+        if (!pointerActive) return;
         const t = e.touches?.[0] || null;
-        if (!t) return;
-        const dx = Math.abs((t.clientX || 0) - startX);
-        const dy = Math.abs((t.clientY || 0) - startY);
-        if (dx > moveLimit || dy > moveLimit) clear();
+        if (t) movePress(t.clientX, t.clientY);
       }, { passive:true });
 
       button.addEventListener("touchend", (e) => {
-        if (!touchActive) return;
+        if (!pointerActive) return;
         e.preventDefault();
         e.stopPropagation();
-        clear();
-        if (!longTriggered) runShort();
-        longTriggered = false;
-        touchActive = false;
+        endPress();
       }, { passive:false });
-
-      button.addEventListener("touchcancel", () => {
-        clear();
-        longTriggered = false;
-        touchActive = false;
-      }, { passive:true });
 
       button.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (Date.now() < suppressClickUntil) return;
         runShort();
-      });
+      }, true);
+
       button.addEventListener("contextmenu", (e) => e.preventDefault());
       button.addEventListener("selectstart", (e) => e.preventDefault());
       button.addEventListener("dragstart", (e) => e.preventDefault());
@@ -13992,6 +14076,9 @@ ${match.label}${timeText}`, 1500);
         mouseLongAction: false
       });
       bindMobileAddHeadwordButton(els.addHeadwordBtnFooter);
+      window.addNewHeadwordEntry = addNewHeadwordEntry;
+      window.duplicateCurrentHeadwordEntry = duplicateCurrentHeadwordEntry;
+      window.getNextAvailableSourceId = getNextAvailableSourceId;
 
       // 검색 모드 토글 버튼: 부분검색 ↔ 일치검색
       updateExactMatchButton();
@@ -14063,6 +14150,7 @@ ${match.label}${timeText}`, 1500);
       }, {passive:true});
 
       els.stage.addEventListener("touchend", (e) => {
+        if (document.body.classList.contains("external-video-active")) return;
         if (e.target === els.mainImage && isImageGestureActive()) return;
         if (!stageTouchNavEligible) return;
         if (!e.changedTouches || !e.changedTouches.length) return;
@@ -14070,8 +14158,7 @@ ${match.label}${timeText}`, 1500);
         const dy = e.changedTouches[0].clientY - touchStartY;
 
         if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy)){
-          if (dx < 0) goNext(getShouldAutoplay());
-          else goPrev(getShouldAutoplay());
+          runMobileStageSwipeNav(dx < 0 ? "next" : "prev");
           return;
         }
 
@@ -14080,6 +14167,19 @@ ${match.label}${timeText}`, 1500);
           else redoLastAction();
         }
       }, {passive:true});
+
+      function runMobileStageSwipeNav(direction){
+        const now = Date.now();
+        if (now < mobileSwipeNavLockUntil) return;
+        mobileSwipeNavLockUntil = now + 420;
+        if (direction === "next") goNext(getShouldAutoplay());
+        else goPrev(getShouldAutoplay());
+        // 외부 iframe/유튜브가 다음 영상으로 갈 때 짧은 검정 화면이 생겨도
+        // 모바일 가로 전체화면형 레이아웃과 스와이프 레이어를 다시 잡아 둡니다.
+        setTimeout(updateLandscapeFocusMode, 40);
+        setTimeout(updateLandscapeFocusMode, 260);
+        setTimeout(updateLandscapeFocusMode, 720);
+      }
 
       const bindTapZone = (el, fn) => {
         if (!el) return;
@@ -14107,51 +14207,119 @@ ${match.label}${timeText}`, 1500);
         if (!target) return;
         let startX = 0;
         let startY = 0;
+        let lastX = 0;
+        let lastY = 0;
+        let startTime = 0;
         let tracking = false;
         let moved = false;
-        target.addEventListener("touchstart", (e) => {
-          if (!isMobileViewport()) return;
+        let pointerId = null;
+        let lastTouchEventAt = 0;
+
+        const canHandle = () => isMobileViewport() && document.body.classList.contains("external-video-active");
+
+        const begin = (clientX, clientY, sourceEvent, id = null) => {
+          if (!canHandle()) return false;
           if (isLandscapeViewport()) requestMobileLandscapeFullscreen();
-          const t = e.touches?.[0];
-          if (!t) return;
           tracking = true;
           moved = false;
-          startX = t.clientX || 0;
-          startY = t.clientY || 0;
-          e.stopPropagation();
-        }, { passive:true });
-        target.addEventListener("touchmove", (e) => {
+          pointerId = id;
+          startX = lastX = clientX || 0;
+          startY = lastY = clientY || 0;
+          startTime = Date.now();
+          try { sourceEvent?.stopPropagation?.(); } catch (_) {}
+          return true;
+        };
+
+        const move = (clientX, clientY, sourceEvent) => {
           if (!tracking) return;
-          const t = e.touches?.[0];
-          if (!t) return;
-          const dx = (t.clientX || 0) - startX;
-          const dy = (t.clientY || 0) - startY;
-          if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.15){
-            moved = true;
-            e.preventDefault();
-            e.stopPropagation();
+          lastX = clientX || 0;
+          lastY = clientY || 0;
+          const dx = lastX - startX;
+          const dy = lastY - startY;
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+          // 외부 iframe은 부모로 터치 이벤트가 올라오지 않으므로 투명 레이어가 잡습니다.
+          // 가로 이동으로 판단되는 순간에는 페이지/플레이어 기본 제스처를 막아 다음/이전 이동을 우선합니다.
+          if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy) * 1.05){
+            try { sourceEvent?.preventDefault?.(); } catch (_) {}
+            try { sourceEvent?.stopPropagation?.(); } catch (_) {}
           }
-        }, { passive:false });
-        target.addEventListener("touchend", (e) => {
+        };
+
+        const finish = (clientX, clientY, sourceEvent) => {
           if (!tracking) return;
           tracking = false;
+          const endX = Number.isFinite(clientX) ? clientX : lastX;
+          const endY = Number.isFinite(clientY) ? clientY : lastY;
+          const dx = endX - startX;
+          const dy = endY - startY;
+          const elapsed = Math.max(1, Date.now() - startTime);
+          const velocity = Math.abs(dx) / elapsed;
+          const threshold = isLandscapeViewport() ? 28 : 34;
+          const horizontal = Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy) * 1.05;
+          const flick = Math.abs(dx) >= 22 && velocity > 0.45 && Math.abs(dx) > Math.abs(dy);
+          try { sourceEvent?.stopPropagation?.(); } catch (_) {}
+          if (horizontal || flick){
+            try { sourceEvent?.preventDefault?.(); } catch (_) {}
+            runMobileStageSwipeNav(dx < 0 ? "next" : "prev");
+          } else if (!moved){
+            // 탭은 이동으로 처리하지 않습니다. iframe 탭 조작은 투명 레이어 때문에 막히지만
+            // 의도치 않은 이전/다음 이동은 방지합니다.
+            try { sourceEvent?.preventDefault?.(); } catch (_) {}
+          }
+          pointerId = null;
+        };
+
+        target.addEventListener("touchstart", (e) => {
+          const t = e.touches?.[0];
+          if (!t) return;
+          lastTouchEventAt = Date.now();
+          begin(t.clientX, t.clientY, e, "touch");
+        }, { passive:false });
+
+        target.addEventListener("touchmove", (e) => {
+          const t = e.touches?.[0];
+          if (!t) return;
+          move(t.clientX, t.clientY, e);
+        }, { passive:false });
+
+        target.addEventListener("touchend", (e) => {
           const t = e.changedTouches?.[0];
           if (!t) return;
-          const dx = (t.clientX || 0) - startX;
-          const dy = (t.clientY || 0) - startY;
-          if (Math.abs(dx) > 34 && Math.abs(dx) > Math.abs(dy) * 1.2){
-            e.preventDefault();
-            e.stopPropagation();
-            if (dx < 0) goNext(getShouldAutoplay());
-            else goPrev(getShouldAutoplay());
-          } else if (!moved && isLandscapeViewport()){
-            // 탭은 이동으로 처리하지 않습니다. iframe 링크에서도 오작동을 줄입니다.
-            e.preventDefault();
-            e.stopPropagation();
-          }
+          finish(t.clientX, t.clientY, e);
         }, { passive:false });
+
+        target.addEventListener("touchcancel", (e) => {
+          tracking = false;
+          pointerId = null;
+          try { e.stopPropagation(); } catch (_) {}
+        }, { passive:false });
+
+        target.addEventListener("pointerdown", (e) => {
+          if (Date.now() - lastTouchEventAt < 550) return;
+          if (e.pointerType && e.pointerType !== "touch" && e.pointerType !== "pen") return;
+          if (!begin(e.clientX, e.clientY, e, e.pointerId)) return;
+          try { target.setPointerCapture?.(e.pointerId); } catch (_) {}
+        }, { passive:false });
+
+        target.addEventListener("pointermove", (e) => {
+          if (pointerId !== null && e.pointerId !== pointerId) return;
+          move(e.clientX, e.clientY, e);
+        }, { passive:false });
+
+        const endPointer = (e) => {
+          if (pointerId !== null && e.pointerId !== pointerId) return;
+          finish(e.clientX, e.clientY, e);
+          try { target.releasePointerCapture?.(e.pointerId); } catch (_) {}
+        };
+        target.addEventListener("pointerup", endPointer, { passive:false });
+        target.addEventListener("pointercancel", (e) => {
+          tracking = false;
+          pointerId = null;
+          try { target.releasePointerCapture?.(e.pointerId); } catch (_) {}
+        }, { passive:false });
+
         target.addEventListener("click", (e) => {
-          if (!isMobileViewport() || !isLandscapeViewport()) return;
+          if (!canHandle()) return;
           e.preventDefault();
           e.stopPropagation();
         });
