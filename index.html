@@ -3538,6 +3538,27 @@
       return false;
     }
 
+    // v94: 표제어 영상(W) 칸에도 GIF/이미지 파일을 넣을 수 있도록
+    // 영상 재생기 대신 이미지 표시기로 우회할지 판단합니다.
+    // normalizeImageUrl()은 구글드라이브 링크를 썸네일로 바꾸므로,
+    // 여기서는 원본 주소의 확장자/데이터 MIME을 먼저 봅니다.
+    function isLikelyDirectImageMediaUrl(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return false;
+      if (/^(data:image\/|blob:)/i.test(raw)) return true;
+      if (/signFile\/img\//i.test(raw)) return true;
+      if (/\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(raw)) return true;
+      return false;
+    }
+
+    function isLikelyGifUrl(url){
+      const raw = normalizeUrl(url);
+      if (!raw) return false;
+      if (/^data:image\/gif/i.test(raw)) return true;
+      if (/\.gif(\?|#|$)/i.test(raw)) return true;
+      return false;
+    }
+
     function isLikelyDirectVideoUrl(url){
       const raw = normalizeUrl(url);
       if (!raw) return false;
@@ -9228,6 +9249,13 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         els.mainVideo.removeAttribute("src");
         els.mainVideo.load();
         els.mainVideo.dataset.currentSrc = "";
+        return;
+      }
+
+      // v94: W(표제어 영상) 자리에 .gif/.png/.jpg/.webp/svg/data:image가 들어온 경우
+      // <video>로 재생하지 않고 <img>로 표시합니다. 특히 GIF는 애니메이션이 유지됩니다.
+      if (isLikelyDirectImageMediaUrl(originalSrc)){
+        showMainImage(originalSrc, safe(options?.fallbackAlt || (isLikelyGifUrl(originalSrc) ? "표제어 GIF" : "표제어 이미지")));
         return;
       }
 
