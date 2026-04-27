@@ -2267,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v98_history_search_delete_j";
+  const HTML_VERSION = "v100_history_scope_clear_search";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5555,6 +5555,8 @@
         currentGroupRowIndex: getGroupPrimaryRowIndex(currentGroup),
         currentGroupOrderKey: currentGroup ? getGroupShuffleOrderKey(currentGroup) : "",
         currentGroupWord: safe(currentGroup?.word || ""),
+        currentGroupCategory: safe(currentGroup?.category || ""),
+        currentGroupSourceName: safe(currentGroup?.sourceName || ""),
         currentExampleToken: currentExample ? makeExampleSelectionToken(currentExample) : "",
         currentExampleRowIndex: Number.isInteger(Number(currentExample?.rowIndex)) ? Number(currentExample.rowIndex) : -1,
         currentExampleOrderKey: currentExample ? getExampleShuffleOrderKey(currentExample) : ""
@@ -5567,11 +5569,14 @@
         currentMode: safe(snap.currentMode || "Q"),
         currentIndex: Number(snap.currentIndex) || 0,
         currentPoolIndex: Number(snap.currentPoolIndex) || 0,
-        categoryValue: safe(snap.categoryValue || ""),
-        sourceValue: safe(snap.sourceValue || ""),
+        categoryValue: safe(snap.currentGroupCategory || snap.categoryValue || ""),
+        sourceValue: safe(snap.currentGroupSourceName || snap.sourceValue || ""),
         searchValue: safe(snap.searchValue || ""),
         searchScope: safe(snap.searchScope || "word"),
         searchIdMode: !!snap.searchIdMode,
+        currentGroupId: safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap)),
+        currentGroupRowIndex: Number.isInteger(Number(snap.currentGroupRowIndex)) ? Number(snap.currentGroupRowIndex) : -1,
+        currentExampleToken: safe(snap.currentExampleToken || ""),
         groupShuffleSeed: snap.groupShuffleSeed ?? null,
         exampleShuffleSeed: snap.exampleShuffleSeed ?? null,
         viewMode: VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL",
@@ -5602,7 +5607,11 @@
       const exampleRowIndex = Number(snap.currentExampleRowIndex);
       if (Number.isInteger(exampleRowIndex) && exampleRowIndex >= 0) return `example-row:${exampleRowIndex}`;
       const word = safe(snap.currentGroupWord || "");
-      if (word) return `word:${safe(snap.categoryValue || "")}::${safe(snap.sourceValue || "")}::${word}`;
+      if (word){
+        const wordCategory = safe(snap.currentGroupCategory || snap.categoryValue || "");
+        const wordSource = safe(snap.currentGroupSourceName || snap.sourceValue || "");
+        return `word:${wordCategory}::${wordSource}::${word}`;
+      }
       return getNavigationSnapshotKey(snap);
     }
 
@@ -5631,8 +5640,8 @@
 
       const word = safe(snap.currentGroupWord || "");
       if (word){
-        const cat = safe(snap.categoryValue || "");
-        const source = safe(snap.sourceValue || "");
+        const cat = safe(snap.currentGroupCategory || snap.categoryValue || "");
+        const source = safe(snap.currentGroupSourceName || snap.sourceValue || "");
         const byFull = groups.find(g => safe(g.word) === word && (!cat || safe(g.category) === cat) && (!source || safe(g.sourceName) === source));
         if (byFull) return byFull;
         const byWord = groups.find(g => safe(g.word) === word);
@@ -5719,7 +5728,10 @@
         }
       }
 
-      applySearchFilterPair(safe(targetGroup.category || snapshot?.categoryValue || ""), safe(targetGroup.sourceName || snapshot?.sourceValue || ""));
+      applySearchFilterPair(
+        safe(targetGroup.category || snapshot?.currentGroupCategory || snapshot?.categoryValue || ""),
+        safe(targetGroup.sourceName || snapshot?.currentGroupSourceName || snapshot?.sourceValue || "")
+      );
       if (els.searchInput) els.searchInput.value = "";
       if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
       searchIdMode = false;
@@ -5777,8 +5789,13 @@
         clearMultiSelectedSearch();
         suggestionCacheKey = "";
         syncSearchModeWithScope();
-        const snapshotCategoryValue = safe(snapshot.categoryValue || "");
-        const snapshotSourceValue = safe(snapshot.sourceValue || "");
+        const targetGroupForRestore = findGlobalGroupForNavigationSnapshot(snapshot);
+        const snapshotCategoryValue = safe(
+          snapshot.currentGroupCategory || targetGroupForRestore?.category || snapshot.categoryValue || ""
+        );
+        const snapshotSourceValue = safe(
+          snapshot.currentGroupSourceName || targetGroupForRestore?.sourceName || snapshot.sourceValue || ""
+        );
         if (snapshotCategoryValue || snapshotSourceValue){
           applySearchFilterPair(snapshotCategoryValue, snapshotSourceValue);
         } else {
@@ -9982,7 +9999,8 @@ function buildHelpText(){
     "Alt+C 부가그림 편집",
     "Alt+M 메모 편집",
     "Shift+V 현재 정보 확인 / 편집",
-    "J / Delete 현재 표제어 삭제",
+    "Shift+J 검색창 텍스트 지우기",
+    "Delete 현재 표제어 삭제",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈: 현재 의미범주/범주의 첫 표제어로 이동",
@@ -11525,10 +11543,56 @@ ${getSelectionEntries().length}개 항목`, 1200);
       return filteredExamplePool.findIndex(item => String(item.groupId) === String(groupId));
     }
 
+    async function ensureCurrentHeadwordScopeForSequentialNavigation(){
+      const currentGroup = getCurrentGroup();
+      if (!currentGroup) return false;
+
+      const targetCategory = safe(currentGroup.category || "");
+      const targetSource = safe(currentGroup.sourceName || "");
+      const currentCategory = safe(els.categorySelect?.value || "");
+      const currentSource = safe(els.sourceSelect?.value || "");
+      const hasSearchConstraint = !!(
+        safe(els.searchInput?.value || "").trim() ||
+        searchIdMode ||
+        selectedSearchPick ||
+        pendingSearchPick ||
+        hasActiveMultiSearchSelection()
+      );
+      const isNarrowedToSingle = filteredGroups.length <= 1;
+      const scopeMismatch = currentCategory !== targetCategory || currentSource !== targetSource;
+
+      if (!hasSearchConstraint && !scopeMismatch && !isNarrowedToSingle) return false;
+
+      const snapshot = createNavigationSnapshot();
+      if (els.searchInput) els.searchInput.value = "";
+      if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+      searchIdMode = false;
+      pendingSearchPick = null;
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      suggestionCacheKey = "";
+      suggestionCacheItems = [];
+      searchFocusedIndex = -1;
+      if (els.searchSuggestions){
+        els.searchSuggestions.classList.remove("open");
+        els.searchSuggestions.innerHTML = "";
+      }
+      syncSearchModeWithScope();
+      applySearchFilterPair(targetCategory, targetSource);
+      setPendingRestoreTargetsFromNavigationSnapshot(snapshot);
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      updateQuickButtons();
+      await applyFilter({ save:false });
+      return true;
+    }
+
     async function goNextHeadwordUnit(autoPlay = false){
       rememberCurrentMediaPlaybackPosition();
       clearUndoSnapshot();
       currentVideoTime = 0;
+      if (!filteredGroups.length) return;
+      await ensureCurrentHeadwordScopeForSequentialNavigation();
       if (!filteredGroups.length) return;
       const startIndex = clamp(Number(currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
       let targetIndex = -1;
@@ -11558,6 +11622,8 @@ ${getSelectionEntries().length}개 항목`, 1200);
       rememberCurrentMediaPlaybackPosition();
       clearUndoSnapshot();
       currentVideoTime = 0;
+      if (!filteredGroups.length) return;
+      await ensureCurrentHeadwordScopeForSequentialNavigation();
       if (!filteredGroups.length) return;
       const startIndex = clamp(Number(currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
       let targetIndex = -1;
@@ -13843,10 +13909,20 @@ ${match.label}${timeText}`, 1500);
         toggleCurrentEntryReviewModal();
         return;
       }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && key === 'j'){
+        const active = document.activeElement;
+        const searchFocused = active === els.searchInput;
+        const modalEditing = els.noteModal?.classList.contains("open") || els.editModal?.classList.contains("open") || els.addEntryModal?.classList.contains("open") || els.clipEditorModal?.classList.contains("open") || els.rangeLookupModal?.classList.contains("open");
+        if (modalEditing && !searchFocused) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        clearSearchInputTextOnly({ focus:true, showToast:true });
+        return;
+      }
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); addNewHeadwordEntry(); return; }
-      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && key === 'j'){ e.preventDefault(); deleteCurrentHeadword(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
 
       if (e.code === "Space"){
@@ -14033,6 +14109,35 @@ ${match.label}${timeText}`, 1500);
         }
       }
       bracketRightHoldTriggered = false;
+    }
+
+    async function clearSearchInputTextOnly(options = {}){
+      const { focus = true, showToast = false } = options || {};
+      suggestionCacheKey = "";
+      suggestionCacheItems = [];
+      rememberUndoSnapshot();
+      clearTimeout(searchInputTimer);
+      if (els.searchInput) els.searchInput.value = "";
+      searchFocusedIndex = -1;
+      pendingSearchPick = null;
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      if (els.searchSuggestions){
+        els.searchSuggestions.classList.remove("open");
+        els.searchSuggestions.innerHTML = "";
+      }
+      restoreSearchPreview();
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      updateQuickButtons();
+      await applyFilter();
+      if (showToast) showOverlay("검색창을 비웠습니다", 800);
+      if (focus){
+        setTimeout(() => {
+          try{ els.searchInput?.focus({ preventScroll:true }); } catch(_err){ try{ els.searchInput?.focus(); } catch(__err){} }
+          try{ els.searchInput?.select?.(); } catch(_err){}
+        }, 0);
+      }
     }
 
     function bindEvents(){
@@ -14281,26 +14386,7 @@ ${match.label}${timeText}`, 1500);
         });
       }
       els.clearBtn.addEventListener("click", () => {
-        suggestionCacheKey = "";
-        rememberUndoSnapshot();
-        clearTimeout(searchInputTimer);
-        els.searchInput.value = "";
-        els.categorySelect.value = "";
-        if (els.sourceSelect) els.sourceSelect.value = "";
-        els.searchScopeSelect.value = "word";
-        searchIdMode = false;
-        updateSearchIdButton();
-        updateSearchPlaceholder();
-        searchFocusedIndex = -1;
-        els.searchSuggestions.classList.remove("open");
-        els.searchSuggestions.innerHTML = "";
-        restoreSearchPreview();
-        updateQuickButtons();
-        applyFilter();
-        setTimeout(() => {
-          try{ els.searchInput.focus({ preventScroll:true }); } catch(_err){ try{ els.searchInput.focus(); } catch(__err){} }
-          try{ els.searchInput.select?.(); } catch(_err){}
-        }, 0);
+        clearSearchInputTextOnly({ focus:true, showToast:false });
       });
 
       // v97: PC 하단 << / >> 버튼은 현재 모드가 용례여도 표제어 단위로 이동합니다.
