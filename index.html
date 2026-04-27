@@ -9332,6 +9332,29 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         return;
       }
 
+      // v96: 구글드라이브 공유/미리보기 링크는 <video> 직접 재생보다
+      // Drive 미리보기 iframe을 우선 사용합니다.
+      // 공유 링크를 download/uc 주소로 바꾸면 브라우저에서 HTML/권한 확인 페이지가 내려와
+      // <video>가 실패하는 경우가 많기 때문입니다. 직접 mp4/uc 주소를 넣은 경우만 <video>로 재생합니다.
+      const isGoogleDriveShareLink = !!extractGoogleDriveFileId(originalSrc) && !isGoogleDriveDirectStreamUrl(originalSrc);
+      if (isGoogleDriveShareLink){
+        const drivePreviewUrl = buildGoogleDrivePreviewUrl(originalSrc, { autoPlay });
+        if (drivePreviewUrl){
+          try { els.mainVideo.pause(); } catch (_) {}
+          els.mainVideo.removeAttribute("src");
+          els.mainVideo.load();
+          els.mainVideo.dataset.currentSrc = "";
+          showMainFrame(drivePreviewUrl);
+          scheduleMobileLandscapeFullscreen(90);
+          try {
+            els.mainFrame?.setAttribute("tabindex", "0");
+            els.mainFrame?.focus();
+          } catch (_) {}
+          showOverlay("구글드라이브 미리보기로 재생합니다", 1200);
+          return;
+        }
+      }
+
       if (!isLikelyDirectVideoUrl(nextSrc)){
         const drivePreviewUrl = buildGoogleDrivePreviewUrl(originalSrc, { autoPlay });
         if (drivePreviewUrl){
@@ -9409,10 +9432,17 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         els.mainVideo.dataset.currentSrc = "";
         clearMainFrame();
         hideAllMainPanels();
-        const fallbackText = drivePreviewUrl
-          ? "구글드라이브 직접 재생이 제한되었습니다. 원본 링크 또는 미리보기 링크를 새 창에서 열어 확인해 주세요."
-          : "구글드라이브 직접 재생이 제한되었습니다. 원본 링크를 새 창에서 열어 확인해 주세요.";
-        showMainText(fallbackText);
+        if (drivePreviewUrl){
+          showMainFrame(drivePreviewUrl);
+          scheduleMobileLandscapeFullscreen(90);
+          try {
+            els.mainFrame?.setAttribute("tabindex", "0");
+            els.mainFrame?.focus();
+          } catch (_) {}
+          showOverlay("직접 재생 실패 → 구글드라이브 미리보기로 전환", 1600);
+          return true;
+        }
+        showMainText("구글드라이브 직접 재생이 제한되었습니다. 원본 링크를 새 창에서 열어 확인해 주세요.");
         showOverlay("구글드라이브 직접 재생 실패", 1500);
         return false;
       };
