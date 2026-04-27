@@ -2267,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v95_home_multi_history";
+  const HTML_VERSION = "v98_history_search_delete_j";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5579,11 +5579,158 @@
       });
     }
 
+    function getNavigationSnapshotExampleGroupId(snapshot){
+      const token = safe(snapshot?.currentExampleToken || "");
+      if (!token) return "";
+      try {
+        const parsed = parseSelectionToken(token);
+        if (parsed?.groupId) return safe(parsed.groupId);
+      } catch (_) {}
+      const fallback = token.match(/^e:([^:]+)::/);
+      if (fallback?.[1]){
+        try { return safe(decodeURIComponent(fallback[1])); } catch (_) { return safe(fallback[1]); }
+      }
+      return "";
+    }
+
     function getNavigationSnapshotHeadwordKey(snapshot){
       const snap = snapshot || {};
-      const groupId = safe(snap.currentGroupId || "");
+      const groupId = safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap));
       if (groupId) return `group:${groupId}`;
+      const rowIndex = Number(snap.currentGroupRowIndex);
+      if (Number.isInteger(rowIndex) && rowIndex >= 0) return `row:${rowIndex}`;
+      const exampleRowIndex = Number(snap.currentExampleRowIndex);
+      if (Number.isInteger(exampleRowIndex) && exampleRowIndex >= 0) return `example-row:${exampleRowIndex}`;
+      const word = safe(snap.currentGroupWord || "");
+      if (word) return `word:${safe(snap.categoryValue || "")}::${safe(snap.sourceValue || "")}::${word}`;
       return getNavigationSnapshotKey(snap);
+    }
+
+    function findGlobalGroupForNavigationSnapshot(snapshot){
+      const snap = snapshot || {};
+      const groupId = safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap));
+      if (groupId && groupById?.has?.(String(groupId))) return groupById.get(String(groupId));
+
+      const rowIndex = Number(snap.currentGroupRowIndex);
+      if (Number.isInteger(rowIndex) && rowIndex >= 0){
+        const byRow = groups.find(g => getGroupPrimaryRowIndex(g) === rowIndex || (Array.isArray(g?.rowIndices) && g.rowIndices.includes(rowIndex)));
+        if (byRow) return byRow;
+      }
+
+      const exampleRowIndex = Number(snap.currentExampleRowIndex);
+      if (Number.isInteger(exampleRowIndex) && exampleRowIndex >= 0){
+        const example = examplePool.find(item => Number(item?.rowIndex) === exampleRowIndex);
+        if (example && groupById?.has?.(String(example.groupId))) return groupById.get(String(example.groupId));
+      }
+
+      const orderKey = safe(snap.currentGroupOrderKey || "");
+      if (orderKey){
+        const byOrder = groups.find(g => getGroupShuffleOrderKey(g) === orderKey);
+        if (byOrder) return byOrder;
+      }
+
+      const word = safe(snap.currentGroupWord || "");
+      if (word){
+        const cat = safe(snap.categoryValue || "");
+        const source = safe(snap.sourceValue || "");
+        const byFull = groups.find(g => safe(g.word) === word && (!cat || safe(g.category) === cat) && (!source || safe(g.sourceName) === source));
+        if (byFull) return byFull;
+        const byWord = groups.find(g => safe(g.word) === word);
+        if (byWord) return byWord;
+      }
+      return null;
+    }
+
+    function findFilteredGroupIndexForNavigationSnapshot(snapshot){
+      if (!filteredGroups.length) return -1;
+      const snap = snapshot || {};
+      const groupId = safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap));
+      if (groupId){
+        const byId = filteredGroups.findIndex(g => String(g?.id || "") === String(groupId));
+        if (byId >= 0) return byId;
+      }
+      const rowIndex = Number(snap.currentGroupRowIndex);
+      if (Number.isInteger(rowIndex) && rowIndex >= 0){
+        const byRow = filteredGroups.findIndex(g => getGroupPrimaryRowIndex(g) === rowIndex || (Array.isArray(g?.rowIndices) && g.rowIndices.includes(rowIndex)));
+        if (byRow >= 0) return byRow;
+      }
+      const orderKey = safe(snap.currentGroupOrderKey || "");
+      if (orderKey){
+        const byOrder = filteredGroups.findIndex(g => getGroupShuffleOrderKey(g) === orderKey);
+        if (byOrder >= 0) return byOrder;
+      }
+      const target = findGlobalGroupForNavigationSnapshot(snap);
+      if (target){
+        const byTarget = filteredGroups.findIndex(g => String(g?.id || "") === String(target.id));
+        if (byTarget >= 0) return byTarget;
+      }
+      return -1;
+    }
+
+    function findFilteredExampleIndexForNavigationSnapshot(snapshot){
+      if (!filteredExamplePool.length) return -1;
+      const snap = snapshot || {};
+      const token = safe(snap.currentExampleToken || "");
+      if (token){
+        const byToken = filteredExamplePool.findIndex(item => makeExampleSelectionToken(item) === token);
+        if (byToken >= 0) return byToken;
+      }
+      const rowIndex = Number(snap.currentExampleRowIndex);
+      if (Number.isInteger(rowIndex) && rowIndex >= 0){
+        const byRow = filteredExamplePool.findIndex(item => Number(item?.rowIndex) === rowIndex);
+        if (byRow >= 0) return byRow;
+      }
+      const orderKey = safe(snap.currentExampleOrderKey || "");
+      if (orderKey){
+        const byOrder = filteredExamplePool.findIndex(item => getExampleShuffleOrderKey(item) === orderKey);
+        if (byOrder >= 0) return byOrder;
+      }
+      const groupId = safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap));
+      if (groupId){
+        const byGroup = findExamplePoolIndexForGroupId(groupId);
+        if (byGroup >= 0) return byGroup;
+      }
+      return -1;
+    }
+
+    function setPendingRestoreTargetsFromNavigationSnapshot(snapshot){
+      const snap = snapshot || {};
+      pendingRestoreGroupId = safe(snap.currentGroupId || getNavigationSnapshotExampleGroupId(snap));
+      pendingRestoreGroupRowIndex = Number.isInteger(Number(snap.currentGroupRowIndex)) ? Number(snap.currentGroupRowIndex) : -1;
+      pendingRestoreGroupOrderKey = safe(snap.currentGroupOrderKey || "");
+      pendingRestoreExampleToken = safe(snap.currentExampleToken || "");
+      pendingRestoreExampleRowIndex = Number.isInteger(Number(snap.currentExampleRowIndex)) ? Number(snap.currentExampleRowIndex) : -1;
+      pendingRestoreExampleOrderKey = safe(snap.currentExampleOrderKey || "");
+    }
+
+    async function ensureNavigationSnapshotTargetVisible(snapshot){
+      const targetGroup = findGlobalGroupForNavigationSnapshot(snapshot);
+      if (!targetGroup) return false;
+      if (findFilteredGroupIndexForNavigationSnapshot(snapshot) >= 0) return true;
+
+      const targetGroupId = String(targetGroup.id || "");
+      if (selectionModeActive){
+        const selectedSet = getSelectionWordSet();
+        if (selectedSet && !selectedSet.has(targetGroupId)){
+          selectionModeActive = false;
+          if (els.selectionModeBtn) els.selectionModeBtn.classList.remove("active");
+          if (els.selectionModeBtnFooter) els.selectionModeBtnFooter.classList.remove("active");
+          if (els.selectionExitBtn) els.selectionExitBtn.style.display = "none";
+        }
+      }
+
+      applySearchFilterPair(safe(targetGroup.category || snapshot?.categoryValue || ""), safe(targetGroup.sourceName || snapshot?.sourceValue || ""));
+      if (els.searchInput) els.searchInput.value = "";
+      if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+      searchIdMode = false;
+      pendingSearchPick = null;
+      clearSelectedSearchPick();
+      setPendingRestoreTargetsFromNavigationSnapshot(snapshot);
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+      updateQuickButtons();
+      await applyFilter({ save:false });
+      return findFilteredGroupIndexForNavigationSnapshot(snapshot) >= 0;
     }
 
     function pushNavigationHistorySnapshot(snapshot = createNavigationSnapshot(), options = {}){
@@ -5620,9 +5767,15 @@
       try {
         currentMode = snapshot.currentMode || "Q";
         playbackMode = snapshot.playbackMode || playbackMode;
-        if (els.searchInput) els.searchInput.value = snapshot.searchValue || "";
-        if (els.searchScopeSelect) els.searchScopeSelect.value = snapshot.searchScope || "word";
-        searchIdMode = !!snapshot.searchIdMode;
+        // v98: 이전/다음 학습 위치 복원은 "검색 결과 1개짜리 목록"이 아니라
+        // 실제 표제어가 들어있는 의미범주/범주 전체 목록에서 위치를 복원합니다.
+        // 검색어를 그대로 복원하면 검색했던 표제어만 남아 첫/마지막 표제어처럼 보일 수 있습니다.
+        if (els.searchInput) els.searchInput.value = "";
+        if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+        searchIdMode = false;
+        clearSelectedSearchPick();
+        clearMultiSelectedSearch();
+        suggestionCacheKey = "";
         syncSearchModeWithScope();
         const snapshotCategoryValue = safe(snapshot.categoryValue || "");
         const snapshotSourceValue = safe(snapshot.sourceValue || "");
@@ -5648,10 +5801,40 @@
         updateViewModeButton();
         updateLiveSyncButton();
         updateQuickButtons();
+
+        // v97: 저장된 숫자 index에 의존하지 않고, 표제어 ID/행번호/용례 토큰을 기준으로 먼저 복원합니다.
+        // 검색·범주가 달라져도 실제로 학습했던 표제어가 보이도록 pending restore 값을 applyFilter에 전달합니다.
+        setPendingRestoreTargetsFromNavigationSnapshot(snapshot);
         await applyFilter({ save:false });
-        currentIndex = clamp(Number(snapshot.currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
-        currentPoolIndex = clamp(Number(snapshot.currentPoolIndex) || 0, 0, Math.max(0, filteredExamplePool.length - 1));
-        if (isExampleMode()) syncCurrentIndexToCurrentExample();
+
+        let restoredGroupIndex = findFilteredGroupIndexForNavigationSnapshot(snapshot);
+        if (restoredGroupIndex < 0){
+          await ensureNavigationSnapshotTargetVisible(snapshot);
+          restoredGroupIndex = findFilteredGroupIndexForNavigationSnapshot(snapshot);
+        }
+
+        if (restoredGroupIndex >= 0){
+          currentIndex = restoredGroupIndex;
+        } else {
+          currentIndex = clamp(Number(snapshot.currentIndex) || 0, 0, Math.max(0, filteredGroups.length - 1));
+        }
+
+        let restoredExampleIndex = findFilteredExampleIndexForNavigationSnapshot(snapshot);
+        if (isExampleMode()){
+          if (restoredExampleIndex < 0){
+            const targetGroup = filteredGroups[currentIndex] || findGlobalGroupForNavigationSnapshot(snapshot);
+            if (targetGroup) restoredExampleIndex = findExamplePoolIndexForGroupId(targetGroup.id);
+          }
+          currentPoolIndex = restoredExampleIndex >= 0
+            ? restoredExampleIndex
+            : clamp(Number(snapshot.currentPoolIndex) || 0, 0, Math.max(0, filteredExamplePool.length - 1));
+          syncCurrentIndexToCurrentExample();
+        } else {
+          currentPoolIndex = restoredExampleIndex >= 0
+            ? restoredExampleIndex
+            : clamp(Number(snapshot.currentPoolIndex) || 0, 0, Math.max(0, filteredExamplePool.length - 1));
+        }
+
         updateModeButtons(currentMode);
         applyVideoLoopState();
         updatePlaybackButton();
@@ -9186,11 +9369,13 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
 
-      applyPendingSearchPickToResults();
-      const previousGroupIndexAfterPick = findPreviousGroupIndex();
-      if (previousGroupIndexAfterPick >= 0) currentIndex = previousGroupIndexAfterPick;
-      const previousExampleIndexAfterPick = findPreviousExampleIndex();
-      if (previousExampleIndexAfterPick >= 0) currentPoolIndex = previousExampleIndexAfterPick;
+      const searchPickMoved = applyPendingSearchPickToResults();
+      if (!searchPickMoved){
+        const previousGroupIndexAfterPick = findPreviousGroupIndex();
+        if (previousGroupIndexAfterPick >= 0) currentIndex = previousGroupIndexAfterPick;
+        const previousExampleIndexAfterPick = findPreviousExampleIndex();
+        if (previousExampleIndexAfterPick >= 0) currentPoolIndex = previousExampleIndexAfterPick;
+      }
       if (currentIndex >= filteredGroups.length) currentIndex = 0;
       if (currentPoolIndex >= filteredExamplePool.length) currentPoolIndex = 0;
       if (isExampleMode()) syncCurrentIndexToCurrentExample();
@@ -9797,7 +9982,7 @@ function buildHelpText(){
     "Alt+C 부가그림 편집",
     "Alt+M 메모 편집",
     "Shift+V 현재 정보 확인 / 편집",
-    "Delete 현재 표제어 삭제",
+    "J / Delete 현재 표제어 삭제",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
     "H 홈: 현재 의미범주/범주의 첫 표제어로 이동",
@@ -10478,42 +10663,39 @@ async function initFirebaseSync(){
       if (!item) return;
       pushNavigationHistorySnapshot(createNavigationSnapshot());
       clearUndoSnapshot();
-      const suggestionValue = searchIdMode
-        ? String(item.sourceId || "").replace(/\D+/g, "")
-        : (item.type === "word" ? item.word : item.text);
+
+      // v98: 검색 제안 선택은 "검색어로 1개만 필터링"하지 않고,
+      // 해당 표제어가 속한 의미범주/범주 목록으로 이동한 뒤 그 표제어 위치를 선택합니다.
+      // 그래야 PC/모바일 모두 다음·이전 이동이 표제어 단위로 정상 작동합니다.
       pendingSearchPick = item;
-      setSelectedSearchPick(item, suggestionValue);
-      const applySearchInputValue = () => {
-        if (els.searchInput.value !== suggestionValue){
-          els.searchInput.value = suggestionValue;
-        }
-      };
-      applySearchInputValue();
-      requestAnimationFrame(applySearchInputValue);
-      setTimeout(applySearchInputValue, 0);
-      setTimeout(applySearchInputValue, 30);
+      clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      if (els.searchInput) els.searchInput.value = "";
+      if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+      searchIdMode = false;
+      searchFocusedIndex = -1;
+      suggestionCacheKey = "";
+      suggestionCacheItems = [];
+      syncSearchModeWithScope();
+      updateSearchIdButton();
+      updateSearchPlaceholder();
+
       applySearchFilterPair(item.category || "", item.sourceName || "");
-      if (typeof els.searchInput.setSelectionRange === "function"){
-        const end = suggestionValue.length;
-        requestAnimationFrame(() => {
-          try { els.searchInput.setSelectionRange(end, end); } catch {}
-        });
-      }
       if (isMobileViewport()) els.searchInput.blur();
       els.searchSuggestions.classList.remove("open");
       els.searchSuggestions.innerHTML = "";
       renderedSuggestionItems = [];
       restoreSearchPreview();
       Promise.resolve().then(() => applyFilter()).then(() => {
-        applySearchInputValue();
         lastVariantHintGroupId = "";
         maybeShowVariantHint(true);
+        setTimeout(() => focusStageForShortcuts(0), 0);
       });
     }
 
     function applyPendingSearchPickToResults(){
       const item = pendingSearchPick;
-      if (!item) return;
+      if (!item) return false;
       pendingSearchPick = null;
       let moved = false;
       if (item.type === "word" && item.id){
@@ -10540,6 +10722,7 @@ async function initFirebaseSync(){
         if (item.category) popupLines.push(`의미범주: ${item.category}`);
         showOverlay(popupLines.join("\n"), 1400);
       }
+      return moved;
     }
 
     function renderSearchSuggestions(){
@@ -13663,6 +13846,7 @@ ${match.label}${timeText}`, 1500);
       if (isTypingContext()) return;
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); duplicateCurrentHeadwordEntry(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && key === 'n'){ e.preventDefault(); addNewHeadwordEntry(); return; }
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && key === 'j'){ e.preventDefault(); deleteCurrentHeadword(); return; }
       if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'Delete'){ e.preventDefault(); deleteCurrentHeadword(); return; }
 
       if (e.code === "Space"){
@@ -14119,8 +14303,10 @@ ${match.label}${timeText}`, 1500);
         }, 0);
       });
 
-      els.prevBtn.addEventListener("click", () => goPrev(getShouldAutoplay()));
-      els.nextBtn.addEventListener("click", () => goNext(getShouldAutoplay()));
+      // v97: PC 하단 << / >> 버튼은 현재 모드가 용례여도 표제어 단위로 이동합니다.
+      // 용례 단위 이동은 키보드 ←/→ 또는 자동재생 흐름에서 그대로 유지합니다.
+      els.prevBtn.addEventListener("click", () => goPrevHeadwordUnit(getShouldAutoplay()));
+      els.nextBtn.addEventListener("click", () => goNextHeadwordUnit(getShouldAutoplay()));
 
       els.modeBtns.forEach(btn => {
         const mode = btn.dataset.mode;
@@ -14909,11 +15095,11 @@ ${match.label}${timeText}`, 1500);
         if (!rect.width) return;
         const ratioX = (e.clientX - rect.left) / rect.width;
         if (ratioX <= 0.15){
-          goPrev(getShouldAutoplay());
+          goPrevHeadwordUnit(getShouldAutoplay());
           return;
         }
         if (ratioX >= 0.85){
-          goNext(getShouldAutoplay());
+          goNextHeadwordUnit(getShouldAutoplay());
           return;
         }
         forceVariantHintPopup();
@@ -15152,7 +15338,8 @@ Space 재생/일시정지
 , . 프레임 이동
 < > 재생속도
 [ ] 구간 반복
-O 현재 화면 캡처`);
+O 현재 화면 캡처
+J 현재 표제어 삭제`);
     }
 
     async function boot(){
