@@ -91,6 +91,31 @@
       font-size:15px;
     }
 
+    .search-multi-btn{
+      position:absolute;
+      right:4px;
+      top:4px;
+      width:34px;
+      min-width:34px;
+      height:34px;
+      padding:0;
+      border-radius:10px;
+      font-size:18px;
+      font-weight:900;
+      z-index:2;
+    }
+
+    .search-multi-btn.active{
+      background:linear-gradient(180deg,#2b4f8d,#224073);
+      border-color:var(--accent);
+      color:#fff;
+      box-shadow:0 0 0 1px rgba(110,168,255,.18) inset;
+    }
+
+    .search-wrap.has-multi-btn .search{
+      padding-right:50px;
+    }
+
     .search-suggestions{
       position:absolute;
       top:calc(100% + 6px);
@@ -1360,6 +1385,20 @@
         font-size:16px;
       }
 
+      .search-wrap.has-multi-btn .search{
+        padding-right:46px;
+      }
+
+      .search-multi-btn{
+        display:inline-flex;
+        width:32px;
+        min-width:32px;
+        height:32px;
+        right:4px;
+        top:4px;
+        font-size:17px;
+      }
+
       .search-wrap{
         min-width:0;
       }
@@ -1890,6 +1929,7 @@
       <div class="header-row header-row-search">
         <div class="search-wrap">
           <input id="searchInput" class="search" type="text" placeholder="표제어 검색" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="search" />
+          <button id="searchMultiBtn" class="icon-btn search-multi-btn mobile-only" type="button" title="다중 선택 검색">＋</button>
           <div id="searchSuggestions" class="search-suggestions"></div>
         </div>
 
@@ -1917,8 +1957,8 @@
       </div>
 
       <div class="header-row mobile-history-row" aria-label="모바일 이동·재생 제어">
-        <button id="mobileHistoryBackBtn" class="icon-btn" type="button" title="이전 표제어로 이동">이전</button>
-        <button id="mobileHistoryForwardBtn" class="icon-btn" type="button" title="다음 표제어로 이동">다음</button>
+        <button id="mobileHistoryBackBtn" class="icon-btn" type="button" title="이전 학습 위치로 이동">이전</button>
+        <button id="mobileHistoryForwardBtn" class="icon-btn" type="button" title="다음 학습 위치로 이동">다음</button>
         <button id="mobileUndoBtn" class="icon-btn" type="button" title="되돌리기">취소</button>
         <button id="playbackBtn" class="playback-btn mobile-only" type="button" title="재생모드 전환 / 길게 눌러 수동↔반복">재생: 수동</button>
         <button id="framePrevBtnMobile" class="icon-btn mobile-mini-btn" type="button" title="이전 프레임 이동">,</button>
@@ -2227,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v93_resume_video_time_ctrl_arrow_seek";
+  const HTML_VERSION = "v95_home_multi_history";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2277,6 +2317,7 @@
 
     const els = {
       searchInput: document.getElementById("searchInput"),
+      searchMultiBtn: document.getElementById("searchMultiBtn"),
       searchSuggestions: document.getElementById("searchSuggestions"),
       searchScopeSelect: document.getElementById("searchScopeSelect"),
       categorySelect: document.getElementById("categorySelect"),
@@ -2450,6 +2491,7 @@
     let lastExampleTokenByGroup = {};
     let multiSelectedSearchItems = [];
     let multiSelectedSearchKeys = new Set();
+    let searchMultiSelectMode = false;
 
     let ctrlJumpBuffer = "";
     let ctrlJumpBufferTimer = null;
@@ -7891,9 +7933,28 @@ async function saveState(){
       return `${item.type||'word'}:${item.id||''}:${item.text||''}`;
     }
 
+    function updateSearchMultiButton(){
+      const btn = els.searchMultiBtn;
+      if (!btn) return;
+      const count = multiSelectedSearchItems.length;
+      btn.classList.toggle("active", !!searchMultiSelectMode);
+      btn.textContent = count ? String(count) : "＋";
+      btn.title = searchMultiSelectMode
+        ? (count ? `다중 선택 중 · ${count}개 선택` : "다중 선택 중")
+        : "다중 선택 검색";
+      const wrap = btn.closest?.(".search-wrap");
+      if (wrap) wrap.classList.add("has-multi-btn");
+    }
+
+    function setSearchMultiSelectMode(enabled){
+      searchMultiSelectMode = !!enabled;
+      updateSearchMultiButton();
+    }
+
     function clearMultiSelectedSearch(){
       multiSelectedSearchItems = [];
       multiSelectedSearchKeys = new Set();
+      updateSearchMultiButton();
     }
 
     function toggleMultiSelectedSearchItem(item){
@@ -7906,6 +7967,7 @@ async function saveState(){
         multiSelectedSearchKeys.add(key);
         multiSelectedSearchItems.push(item);
       }
+      updateSearchMultiButton();
     }
 
     function hasActiveMultiSearchSelection(){
@@ -9708,8 +9770,9 @@ function buildHelpText(){
     "Delete 현재 표제어 삭제",
     "` 연결",
     "~ 실시간 리스너 ON/OFF",
-    "H 홈",
+    "H 홈: 현재 의미범주/범주의 첫 표제어로 이동",
     "Shift+H 전체 기본 상태 (전체 의미범주 / 전체 범주 / 일반 보기)",
+    "모바일 검색창 오른쪽 ＋: 다중 선택 검색 켜기/끄기",
     "모바일 홈 길게 누름: Shift+H와 동일하게 전체 기본 상태로 초기화",
     "P 재생모드 변경",
     "Shift+P 재생: 구간 켜기/끄기",
@@ -11365,11 +11428,19 @@ ${getSelectionEntries().length}개 항목`, 1200);
     async function goHome(){
       clearUndoSnapshot();
       pushNavigationHistorySnapshot(createNavigationSnapshot());
-      els.searchInput.value = "";
-      els.categorySelect.value = "";
-        if (els.sourceSelect) els.sourceSelect.value = "";
-        els.searchScopeSelect.value = "word";
+
+      const keptCategory = safe(els.categorySelect?.value || "");
+      const keptSource = safe(els.sourceSelect?.value || "");
+
+      if (els.searchInput) els.searchInput.value = "";
+      if (els.searchScopeSelect) els.searchScopeSelect.value = "word";
+      if (els.categorySelect) els.categorySelect.value = keptCategory;
+      if (els.sourceSelect) els.sourceSelect.value = keptSource;
+      searchIdMode = false;
+      exactMatch = false;
       clearSelectedSearchPick();
+      clearMultiSelectedSearch();
+      updateSearchIdButton();
       updateSearchPlaceholder();
 
       searchFocusedIndex = -1;
@@ -11394,10 +11465,21 @@ ${getSelectionEntries().length}개 항목`, 1200);
         btn.classList.toggle("active", btn.dataset.mode === "Q");
       });
 
-      await applyFilter();
+      updateCategoryOptions();
+      if (els.categorySelect) els.categorySelect.value = keptCategory;
+      updateSourceOptions();
+      if (els.sourceSelect) els.sourceSelect.value = keptSource;
+      updateQuickButtons();
+
+      await applyFilter({ save:false });
+      currentIndex = 0;
+      currentPoolIndex = 0;
+      if (isExampleMode()) syncCurrentIndexToCurrentExample();
+      updateCount();
+      resetWordAssetState();
       render(false);
       await saveState();
-      showOverlay("처음 화면으로 이동");
+      showOverlay(keptCategory || keptSource ? "현재 범주의 첫 표제어로 이동" : "첫 표제어로 이동");
     }
 
     function toggleFullscreen(){
@@ -13793,6 +13875,22 @@ ${match.label}${timeText}`, 1500);
       });
       els.searchInput.addEventListener("keydown", handleSearchKeydown);
 
+      if (els.searchMultiBtn){
+        els.searchMultiBtn.closest?.(".search-wrap")?.classList.add("has-multi-btn");
+        updateSearchMultiButton();
+        els.searchMultiBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setSearchMultiSelectMode(!searchMultiSelectMode);
+          if (searchMultiSelectMode){
+            renderSearchSuggestions();
+            showOverlay("다중 선택 켜짐", 700);
+          } else {
+            showOverlay("다중 선택 꺼짐", 700);
+          }
+        });
+      }
+
       els.searchInput.addEventListener("blur", () => {
         setTimeout(() => {
           const active = document.activeElement;
@@ -13834,13 +13932,14 @@ ${match.label}${timeText}`, 1500);
       const handleSuggestionTap = (e) => {
         const item = getSuggestionItemFromEvent(e);
         if (!item) return;
-        if (e && (e.ctrlKey || e.metaKey)){
+        if (e && (e.ctrlKey || e.metaKey || searchMultiSelectMode)){
           clearSelectedSearchPick();
           toggleMultiSelectedSearchItem(item);
           requestRenderSearchSuggestions();
           previewSuggestionItem(item);
           applyFilter({ save:false });
           scheduleSearchStatePersist(120);
+          if (searchMultiSelectMode) showOverlay(`다중 선택 ${multiSelectedSearchItems.length}개`, 700);
           return;
         }
         clearMultiSelectedSearch();
@@ -14122,8 +14221,8 @@ ${match.label}${timeText}`, 1500);
         if (dataUndoStack.length) await undoDataHistory();
         else await undoLastAction();
       });
-      if (els.mobileHistoryBackBtn) els.mobileHistoryBackBtn.addEventListener("click", async () => { await goPrevHeadwordUnit(getShouldAutoplay()); });
-      if (els.mobileHistoryForwardBtn) els.mobileHistoryForwardBtn.addEventListener("click", async () => { await goNextHeadwordUnit(getShouldAutoplay()); });
+      if (els.mobileHistoryBackBtn) els.mobileHistoryBackBtn.addEventListener("click", async () => { await goHistoryBack(); });
+      if (els.mobileHistoryForwardBtn) els.mobileHistoryForwardBtn.addEventListener("click", async () => { await goHistoryForward(); });
       if (els.mobileUndoBtn) els.mobileUndoBtn.addEventListener("click", async () => {
         if (dataUndoStack.length) await undoDataHistory();
         else await undoLastAction();
