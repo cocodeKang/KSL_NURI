@@ -2267,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v100_history_scope_clear_search";
+  const HTML_VERSION = "v101_duplicate_id_history_source_only";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -5790,9 +5790,10 @@
         suggestionCacheKey = "";
         syncSearchModeWithScope();
         const targetGroupForRestore = findGlobalGroupForNavigationSnapshot(snapshot);
-        const snapshotCategoryValue = safe(
-          snapshot.currentGroupCategory || targetGroupForRestore?.category || snapshot.categoryValue || ""
-        );
+        // 이전/다음 학습위치 복원 시 의미범주 필터는 사용자가 당시 선택했던 값만 복원한다.
+        // 특히 "전체 의미범주" 상태에서 복제 추가 후 ALT+←로 돌아올 때,
+        // 해당 단어의 실제 의미범주로 강제 변경되지 않게 한다.
+        const snapshotCategoryValue = safe(snapshot.categoryValue || "");
         const snapshotSourceValue = safe(
           snapshot.currentGroupSourceName || targetGroupForRestore?.sourceName || snapshot.sourceValue || ""
         );
@@ -6633,8 +6634,22 @@
 
     function getNextAvailableSourceId(baseId = "", ignoreRowIndex = -1){
       const used = getUsedSourceIdSet(ignoreRowIndex);
-      let maxNumeric = 0;
+      const baseText = safe(baseId).trim();
 
+      // 현재 내용 복제/추가에서는 현재 ID 바로 다음 번호를 먼저 사용한다.
+      // 예: 현재 ID 120 → 121, 121이 이미 있으면 122, 123...처럼 빈 번호를 찾는다.
+      if (/^\d+$/.test(baseText)){
+        const width = baseText.length;
+        let next = Math.max(1, Number(baseText) + 1);
+        while (used.has(String(next).padStart(width, "0")) || used.has(String(next))){
+          next += 1;
+        }
+        const nextText = String(next).padStart(width, "0");
+        return nextText.length > String(next).length ? nextText : String(next);
+      }
+
+      // 숫자 ID가 아닌 자료에서는 기존처럼 전체 숫자 ID 중 가장 큰 번호 다음을 사용한다.
+      let maxNumeric = 0;
       used.forEach((value) => {
         const text = safe(value).trim();
         if (/^\d+$/.test(text)){
@@ -6643,16 +6658,7 @@
         }
       });
 
-      // 원칙: 현재 연동된 엑셀 전체에서 가장 큰 숫자 ID + 1을 우선 사용한다.
-      // 그래야 현재 표제어 주변 ID가 아니라 엑셀 전체 기준으로 중복 없는 새 번호가 생성된다.
       let next = Math.max(1, maxNumeric + 1);
-
-      // 숫자 ID가 전혀 없는 특수 자료에서는 사용자가 입력한 숫자 기준도 참고한다.
-      const baseText = safe(baseId).trim();
-      if (maxNumeric <= 0 && /^\d+$/.test(baseText)){
-        next = Math.max(1, Number(baseText) + 1);
-      }
-
       while (used.has(String(next))) next += 1;
       return String(next);
     }
