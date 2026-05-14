@@ -2267,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v102_history_filter_preserve";
+  const HTML_VERSION = "v103_mobile_view_order_fix";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -4276,6 +4276,7 @@
     }
 
     function applyDeterministicShuffleOrder(){
+      if (!shouldApplyShuffleForCurrentViewMode()) return;
       if (groupShuffleSeed !== null){
         filteredGroups.sort((a, b) => {
           const diff = hashString(`${groupShuffleSeed}|${safe(a.id)}`) - hashString(`${groupShuffleSeed}|${safe(b.id)}`);
@@ -4325,6 +4326,7 @@
     }
 
     function applyPreservedShuffleOrder(){
+      if (!shouldApplyShuffleForCurrentViewMode()) return;
       if (groupShuffleSeed !== null && Array.isArray(preservedGroupShuffleOrderKeys) && preservedGroupShuffleOrderKeys.length){
         applyStoredShuffleOrder(filteredGroups, preservedGroupShuffleOrderKeys, getGroupShuffleOrderKey);
       }
@@ -9120,6 +9122,24 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
         || safe(a?.text || "").localeCompare(safe(b?.text || ""), "ko");
     }
 
+    function compareByWordOrder(a, b){
+      const aWord = safe(a?.word || a?.baseWord || a?.text || "");
+      const bWord = safe(b?.word || b?.baseWord || b?.text || "");
+      return aWord.localeCompare(bWord, "ko", { numeric:true, sensitivity:"base" })
+        || safe(a?.text || "").localeCompare(safe(b?.text || ""), "ko", { numeric:true, sensitivity:"base" })
+        || compareBySourceIdOrder(a, b);
+    }
+
+    function compareByWordThenSourceIdOrder(a, b){
+      return compareByWordOrder(a, b) || compareBySourceIdOrder(a, b);
+    }
+
+    function shouldApplyShuffleForCurrentViewMode(){
+      // 표제어순/ID순 보기에서는 이전에 눌렀던 R(섞기) 순서가 정렬 결과를 덮어쓰지 않도록 막습니다.
+      // 일반 보기로 돌아가면 기존 섞기 순서는 그대로 다시 사용할 수 있습니다.
+      return viewMode === "NORMAL";
+    }
+
     function applyViewModeToGroups(list){
       let next = Array.isArray(list) ? [...list] : [];
       if (viewMode === "WORD" || viewMode === "WORD_ID") {
@@ -9131,8 +9151,12 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           return true;
         });
       }
-      if (viewMode === "ID" || viewMode === "WORD_ID") {
+      if (viewMode === "WORD") {
+        next.sort(compareByWordOrder);
+      } else if (viewMode === "ID") {
         next.sort(compareBySourceIdOrder);
+      } else if (viewMode === "WORD_ID") {
+        next.sort(compareByWordThenSourceIdOrder);
       }
       return next;
     }
@@ -9148,8 +9172,12 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           return true;
         });
       }
-      if (viewMode === "ID" || viewMode === "WORD_ID") {
+      if (viewMode === "WORD") {
+        next.sort(compareByWordOrder);
+      } else if (viewMode === "ID") {
         next.sort(compareBySourceIdOrder);
+      } else if (viewMode === "WORD_ID") {
+        next.sort(compareByWordThenSourceIdOrder);
       }
       return next;
     }
@@ -11680,6 +11708,10 @@ ${getSelectionEntries().length}개 항목`, 1200);
       rememberUndoSnapshot();
       currentVideoTime = 0;
       const keepMode = currentMode;
+      if (!shouldApplyShuffleForCurrentViewMode()){
+        viewMode = "NORMAL";
+        updateViewModeButton();
+      }
       const newSeed = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
       if (isExampleMode()){
