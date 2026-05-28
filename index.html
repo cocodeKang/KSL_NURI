@@ -1952,7 +1952,7 @@
           <option value="">전체 범주</option>
         </select>
 
-        <button id="viewModeBtn" class="icon-btn" title="보기 모드 변경">일반</button>
+        <button id="viewModeBtn" class="icon-btn" title="보기 모드 변경">가나다순</button>
         <div id="countBadge" class="count-badge">0 / 0</div>
       </div>
 
@@ -1979,15 +1979,7 @@
         <button id="selectionExitBtn" class="select-btn" title="선택학습 종료" style="display:none !important;">선택학습 종료</button>
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
-        <input id="syncRoomInput" class="sync-room-input" type="text" placeholder="이어쓰기 코드" title="같은 코드를 PC와 휴대폰에 입력하세요" />
-        <button id="syncRoomApplyBtn" class="icon-btn" title="이어쓰기 코드 연결">연결</button>
-        <!-- 버튼 옆에 화살표를 추가하여 이전에 사용한 접속 코드를 선택할 수 있는 드롭다운을 제공합니다. -->
-        <button id="syncRoomListBtn" class="icon-btn" title="최근 접속 코드 목록">▼</button>
-        <!-- 드롭다운 목록 컨테이너. 클릭 시 동적으로 채워지고 표시됩니다. -->
-        <div id="syncRoomListContainer" class="sync-room-list-container" style="display:none;"></div>
-        <button id="liveSyncBtn" class="icon-btn" title="실시간 리스너">리스너</button>
-        <button id="pushCloudBtn" class="icon-btn" title="진행상태 저장">저장</button>
-        <div id="firebaseStatus" class="firebase-status offline-badge">로컬</div>
+        <!-- 이어쓰기 코드 입력/연결 UI는 요청에 따라 삭제했습니다. -->
         <button id="noteBtn" class="icon-btn" title="노트">노트</button>
       </div>
     </header>
@@ -2307,13 +2299,22 @@
       CLIP: "재생: 구간"
     };
 
-    const VIEW_MODES = ["NORMAL", "WORD", "ID", "WORD_ID"];
+    const VIEW_MODES = ["WORD", "WORD_DEDUP", "ID", "ID_DEDUP"];
     const VIEW_MODE_LABELS = {
-      NORMAL: "일반",
-      WORD: "표제어",
+      WORD: "가나다순",
+      WORD_DEDUP: "가나다순(중복제거)",
       ID: "ID순",
-      WORD_ID: "표제어ID순"
+      ID_DEDUP: "ID순(중복제거)"
     };
+
+    function normalizeViewMode(value){
+      const mode = safe(value || "");
+      if (VIEW_MODES.includes(mode)) return mode;
+      // 예전 저장값 호환: 일반/표제어ID순으로 저장된 상태도 새 보기모드에 자연스럽게 연결합니다.
+      if (mode === "NORMAL") return "WORD";
+      if (mode === "WORD_ID") return "WORD_DEDUP";
+      return "WORD";
+    }
 
     const els = {
       searchInput: document.getElementById("searchInput"),
@@ -2469,7 +2470,7 @@
     let exampleShuffleSeed = null;
     let preservedGroupShuffleOrderKeys = null;
     let preservedExampleShuffleOrderKeys = null;
-    let viewMode = "NORMAL";
+    let viewMode = "WORD";
 
     let selectionModeActive = false;
 
@@ -5584,7 +5585,7 @@
         currentExampleToken: safe(snap.currentExampleToken || ""),
         groupShuffleSeed: snap.groupShuffleSeed ?? null,
         exampleShuffleSeed: snap.exampleShuffleSeed ?? null,
-        viewMode: VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL",
+        viewMode: normalizeViewMode(snap.viewMode),
         selectionModeActive: !!snap.selectionModeActive
       });
     }
@@ -5758,8 +5759,14 @@
       await applyFilter({ save:false });
       if (findFilteredGroupIndexForNavigationSnapshot(snapshot) >= 0) return true;
 
+      // 스냅샷이 전체 의미범주/전체 범주였으면 사용자가 건드리지 않은 필터를
+      // 표제어의 실제 의미범주/범주로 바꾸지 않습니다.
+      if (!snapshotCategoryValue && !snapshotSourceValue){
+        updateQuickButtons();
+        return false;
+      }
+
       // 그래도 못 찾을 때만 마지막 수단으로 해당 표제어의 실제 의미범주/범주로 좁힙니다.
-      // 일반적인 Alt+← 복원에서는 여기까지 오지 않으므로 전체 필터가 풀리지 않습니다.
       applySearchFilterPair(
         safe(targetGroup.category || snapshot?.currentGroupCategory || ""),
         safe(targetGroup.sourceName || snapshot?.currentGroupSourceName || "")
@@ -5830,7 +5837,7 @@
         }
         groupShuffleSeed = snapshot.groupShuffleSeed ?? null;
         exampleShuffleSeed = snapshot.exampleShuffleSeed ?? null;
-        viewMode = VIEW_MODES.includes(snapshot.viewMode) ? snapshot.viewMode : "NORMAL";
+        viewMode = normalizeViewMode(snapshot.viewMode);
         currentVideoTime = Number(snapshot.currentVideoTime) || 0;
         abLoopStart = snapshot.abLoopStart ?? null;
         abLoopEnd = snapshot.abLoopEnd ?? null;
@@ -6027,7 +6034,7 @@
       if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
-      viewMode = VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL";
+      viewMode = normalizeViewMode(snap.viewMode);
       currentVideoTime = snap.currentVideoTime || 0;
       abLoopStart = snap.abLoopStart ?? null;
       abLoopEnd = snap.abLoopEnd ?? null;
@@ -6064,7 +6071,7 @@
       if (els.sourceSelect) els.sourceSelect.value = snap.sourceValue || "";
       groupShuffleSeed = snap.groupShuffleSeed ?? null;
       exampleShuffleSeed = snap.exampleShuffleSeed ?? null;
-      viewMode = VIEW_MODES.includes(snap.viewMode) ? snap.viewMode : "NORMAL";
+      viewMode = normalizeViewMode(snap.viewMode);
       currentVideoTime = snap.currentVideoTime || 0;
       abLoopStart = snap.abLoopStart ?? null;
       abLoopEnd = snap.abLoopEnd ?? null;
@@ -7894,46 +7901,52 @@ async function saveState(){
       const nextSource = safe(targetSourceValue);
       let changed = false;
 
-      if (els.sourceSelect && safe(els.sourceSelect.value)){
+      // 의미범주와 범주는 서로 다른 필터입니다.
+      // 둘 중 하나가 빈 값이면 “현재 값 유지”가 아니라 사용자가 선택한 전체 상태 그대로 비워 둡니다.
+      if (els.sourceSelect && safe(els.sourceSelect.value) !== ""){
         els.sourceSelect.value = "";
         changed = true;
       }
       updateCategoryOptions();
 
-      if (els.categorySelect && nextCategory){
+      if (els.categorySelect){
         const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
-        if (categoryOptions.includes(nextCategory) && safe(els.categorySelect.value) !== nextCategory){
-          els.categorySelect.value = nextCategory;
+        const categoryValue = nextCategory && categoryOptions.includes(nextCategory) ? nextCategory : "";
+        if (safe(els.categorySelect.value) !== categoryValue){
+          els.categorySelect.value = categoryValue;
           changed = true;
         }
       }
 
       updateSourceOptions();
 
-      if (els.sourceSelect && nextSource){
+      if (els.sourceSelect){
         const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
-        if (sourceOptions.includes(nextSource) && safe(els.sourceSelect.value) !== nextSource){
-          els.sourceSelect.value = nextSource;
+        const sourceValue = nextSource && sourceOptions.includes(nextSource) ? nextSource : "";
+        if (safe(els.sourceSelect.value) !== sourceValue){
+          els.sourceSelect.value = sourceValue;
           changed = true;
         }
       }
 
       updateCategoryOptions();
 
-      if (els.categorySelect && nextCategory){
+      if (els.categorySelect){
         const categoryOptions = [...(els.categorySelect.options || [])].map(opt => safe(opt.value));
-        if (categoryOptions.includes(nextCategory) && safe(els.categorySelect.value) !== nextCategory){
-          els.categorySelect.value = nextCategory;
+        const categoryValue = nextCategory && categoryOptions.includes(nextCategory) ? nextCategory : "";
+        if (safe(els.categorySelect.value) !== categoryValue){
+          els.categorySelect.value = categoryValue;
           changed = true;
         }
       }
 
       updateSourceOptions();
 
-      if (els.sourceSelect && nextSource){
+      if (els.sourceSelect){
         const sourceOptions = [...(els.sourceSelect.options || [])].map(opt => safe(opt.value));
-        if (sourceOptions.includes(nextSource) && safe(els.sourceSelect.value) !== nextSource){
-          els.sourceSelect.value = nextSource;
+        const sourceValue = nextSource && sourceOptions.includes(nextSource) ? nextSource : "";
+        if (safe(els.sourceSelect.value) !== sourceValue){
+          els.sourceSelect.value = sourceValue;
           changed = true;
         }
       }
@@ -9135,14 +9148,20 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     function shouldApplyShuffleForCurrentViewMode(){
-      // 표제어순/ID순 보기에서는 이전에 눌렀던 R(섞기) 순서가 정렬 결과를 덮어쓰지 않도록 막습니다.
-      // 일반 보기로 돌아가면 기존 섞기 순서는 그대로 다시 사용할 수 있습니다.
-      return viewMode === "NORMAL";
+      // 새 보기모드는 모두 명시적인 정렬 모드입니다.
+      // R(섞기)을 누르면 정렬 모드를 벗어나지 않고, 현재 목록만 일시적으로 섞습니다.
+      return false;
     }
 
     function applyViewModeToGroups(list){
       let next = Array.isArray(list) ? [...list] : [];
-      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+      const mode = normalizeViewMode(viewMode);
+      if (mode === "WORD" || mode === "WORD_DEDUP") {
+        next.sort(compareByWordOrder);
+      } else if (mode === "ID" || mode === "ID_DEDUP") {
+        next.sort(compareBySourceIdOrder);
+      }
+      if (mode === "WORD_DEDUP" || mode === "ID_DEDUP") {
         const seen = new Set();
         next = next.filter(group => {
           const key = getGroupWordKey(group);
@@ -9151,19 +9170,18 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           return true;
         });
       }
-      if (viewMode === "WORD") {
-        next.sort(compareByWordOrder);
-      } else if (viewMode === "ID") {
-        next.sort(compareBySourceIdOrder);
-      } else if (viewMode === "WORD_ID") {
-        next.sort(compareByWordThenSourceIdOrder);
-      }
       return next;
     }
 
     function applyViewModeToExamples(list){
       let next = Array.isArray(list) ? [...list] : [];
-      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+      const mode = normalizeViewMode(viewMode);
+      if (mode === "WORD" || mode === "WORD_DEDUP") {
+        next.sort(compareByWordOrder);
+      } else if (mode === "ID" || mode === "ID_DEDUP") {
+        next.sort(compareBySourceIdOrder);
+      }
+      if (mode === "WORD_DEDUP" || mode === "ID_DEDUP") {
         const seen = new Set();
         next = next.filter(item => {
           const key = `${getExampleWordKey(item)}::${safe(item?.text)}`;
@@ -9171,13 +9189,6 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
           seen.add(key);
           return true;
         });
-      }
-      if (viewMode === "WORD") {
-        next.sort(compareByWordOrder);
-      } else if (viewMode === "ID") {
-        next.sort(compareBySourceIdOrder);
-      } else if (viewMode === "WORD_ID") {
-        next.sort(compareByWordThenSourceIdOrder);
       }
       return next;
     }
@@ -9191,13 +9202,13 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     }
 
     async function setViewMode(nextMode, options = {}){
-      const targetMode = VIEW_MODES.includes(nextMode) ? nextMode : "NORMAL";
+      const targetMode = normalizeViewMode(nextMode);
       const {
         toggleWithNormal = false,
         showToast = true
       } = options || {};
 
-      const resolvedMode = toggleWithNormal && viewMode === targetMode ? "NORMAL" : targetMode;
+      const resolvedMode = toggleWithNormal && viewMode === targetMode ? "WORD" : targetMode;
       if (resolvedMode === viewMode){
         if (showToast){
           showOverlay(`보기 모드: ${VIEW_MODE_LABELS[viewMode] || viewMode}`, 900);
@@ -9215,7 +9226,7 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
 
     async function cycleViewMode(){
       const idx = VIEW_MODES.indexOf(viewMode);
-      await setViewMode(VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "NORMAL");
+      await setViewMode(VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "WORD");
     }
 
     function sortFilteredGroupsByWordLength(list){
@@ -10714,7 +10725,13 @@ async function initFirebaseSync(){
           .slice(0, cap);
       }
 
-      if (viewMode === "WORD" || viewMode === "WORD_ID") {
+      const suggestionViewMode = normalizeViewMode(viewMode);
+      if (suggestionViewMode === "WORD" || suggestionViewMode === "WORD_DEDUP") {
+        items = [...items].sort(compareByWordOrder);
+      } else if (suggestionViewMode === "ID" || suggestionViewMode === "ID_DEDUP") {
+        items = [...items].sort(compareBySourceIdOrder);
+      }
+      if (suggestionViewMode === "WORD_DEDUP" || suggestionViewMode === "ID_DEDUP") {
         const seen = new Set();
         items = items.filter(item => {
           const key = `${safe(item.word)}::${item.type === "example" ? safe(item.text) : ""}`;
@@ -10722,9 +10739,6 @@ async function initFirebaseSync(){
           seen.add(key);
           return true;
         });
-      }
-      if (viewMode === "ID" || viewMode === "WORD_ID") {
-        items = [...items].sort(compareBySourceIdOrder);
       }
 
       suggestionCacheKey = cacheKey;
@@ -11709,7 +11723,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       currentVideoTime = 0;
       const keepMode = currentMode;
       if (!shouldApplyShuffleForCurrentViewMode()){
-        viewMode = "NORMAL";
+        viewMode = "WORD";
         updateViewModeButton();
       }
       const newSeed = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -11746,7 +11760,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       if (els.sourceSelect) els.sourceSelect.value = "";
       searchIdMode = false;
       exactMatch = false;
-      viewMode = "NORMAL";
+      viewMode = "WORD";
       groupShuffleSeed = null;
       exampleShuffleSeed = null;
       clearStoredShuffleOrders();
