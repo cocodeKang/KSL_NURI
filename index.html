@@ -1505,8 +1505,9 @@
         padding:0 6px;
       }
 
-      .header-row-actions #noteBtn{ order:11; }
-      .header-row-actions .playback-btn{ order:12; }
+      .header-row-actions #searchAutoModeBtn{ order:11; }
+      .header-row-actions #noteBtn{ order:12; }
+      .header-row-actions .playback-btn{ order:13; }
 
       /* 새로 추가된 sync room 목록 화살표 버튼의 위치를 지정합니다. */
       .header-row-actions #syncRoomListBtn{ order:7; }
@@ -1689,6 +1690,12 @@
     }
 
     }
+    #searchAutoModeBtn.active{
+      background:linear-gradient(180deg,#2b4f8d,#224073);
+      border-color:var(--accent);
+      color:#fff;
+    }
+
     .search-id-btn-active,
     #searchIdBtn.active{
       background:linear-gradient(180deg, rgba(83,132,255,.35), rgba(37,76,170,.30));
@@ -1980,6 +1987,7 @@
         <button id="mobileInfoBtn" class="icon-btn mobile-only" title="정보 보기">정보</button>
         <button id="homeBtnTop" class="icon-btn mobile-only top-home-btn" title="처음 화면으로 돌아가기">홈</button>
         <!-- 이어쓰기 코드 입력/연결 UI는 요청에 따라 삭제했습니다. -->
+        <button id="searchAutoModeBtn" class="icon-btn" title="표제어 검색창을 열 때 자동으로 전환할 보기">검색:표제어영상</button>
         <button id="noteBtn" class="icon-btn" title="노트">노트</button>
       </div>
     </header>
@@ -2259,7 +2267,7 @@
 
   const BASE_URL = "https://ksldict.korean.go.kr";
   const DEFAULT_FILENAME = "한국수어누리사전.xlsx";
-  const HTML_VERSION = "v103_mobile_view_order_fix";
+  const HTML_VERSION = "v104_search_focus_count_info_fix";
 
   const CAPTION_MASK_STORAGE_KEY = "ksl-caption-mask-state";
 
@@ -2390,6 +2398,7 @@
       // 뷰어 하단의 이미지 박스 컨테이너 (좌측 하나만 보여주기 위해 숨김 처리)
       viewerBottom: document.querySelector(".viewer-bottom"),
       undoBtn: document.getElementById("undoBtn"),
+      searchAutoModeBtn: document.getElementById("searchAutoModeBtn"),
       noteBtns: [document.getElementById("noteBtn"), document.getElementById("noteBtnDesktop")].filter(Boolean),
       selectionAddBtnFooter: document.getElementById("selectionAddBtnFooter"),
       notePopupBtnFooter: document.getElementById("notePopupBtnFooter"),
@@ -2471,6 +2480,7 @@
     let preservedGroupShuffleOrderKeys = null;
     let preservedExampleShuffleOrderKeys = null;
     let viewMode = "WORD";
+    let searchAutoTargetMode = "W";
 
     let selectionModeActive = false;
 
@@ -4946,6 +4956,7 @@
           wordNorm: row.wordNorm,
           wordSearchBlob: row.wordNorm,
           category: row.category,
+          categories: row.category ? [row.category] : [],
           sourceUrl: row.sourceUrl,
           definition: row.definition,
           definitionNorm: row.definitionNorm,
@@ -4984,6 +4995,10 @@
           group.definitionNorm = row.definitionNorm;
         }
         if (!group.category && row.category) group.category = row.category;
+        if (row.category){
+          group.categories = Array.isArray(group.categories) ? group.categories : (group.category ? [group.category] : []);
+          if (!group.categories.includes(row.category)) group.categories.push(row.category);
+        }
         if (!group.sourceName && row.sourceName) group.sourceName = row.sourceName;
         group.handShapeImages = [...new Set([...(group.handShapeImages || []), ...(row.handShapeImages || [])])];
         group.handShapeImage = group.handShapeImages[0] || "";
@@ -5160,12 +5175,15 @@
 
       [...groupsByKey.values()].forEach(group => {
         const canonicalSource = getGroupSourceKey(group) || safe(group.sourceUrl) || safe(group.sourceId);
-        const mergeKey = [
-          canonicalSource,
-          safe(group.wordNorm || group.word),
-          safe(group.category),
-          hasHeadwordClipValue(group) ? `clip:${safe(group.wordClipStartRaw)}|${safe(group.wordClipEndRaw)}|${safe(group.clipStartRaw)}|${safe(group.clipEndRaw)}` : "noclip"
-        ].join("||");
+        // 같은 원문 ID/URL과 같은 표제어는 의미범주나 구간값이 조금 달라도 하나의 표제어로 봅니다.
+        // 예: ID96026 같은 항목이 2개로 잡혀 54개가 108개로 보이는 문제 방지.
+        const mergeKey = canonicalSource
+          ? [canonicalSource, safe(group.wordNorm || group.word)].join("||")
+          : [
+              safe(group.wordNorm || group.word),
+              safe(group.category),
+              hasHeadwordClipValue(group) ? `clip:${safe(group.wordClipStartRaw)}|${safe(group.wordClipEndRaw)}|${safe(group.clipStartRaw)}|${safe(group.clipEndRaw)}` : "noclip"
+            ].join("||");
         const existing = mergedGroupMap.get(mergeKey);
         if (!existing){
           const cloned = {
@@ -5177,7 +5195,8 @@
             variants: [...(group.variants || [])],
             variantWords: [...(group.variantWords || [])],
             variantNorms: [...(group.variantNorms || [])],
-            handShapeImages: [...(group.handShapeImages || [])]
+            handShapeImages: [...(group.handShapeImages || [])],
+            categories: [...new Set([...(group.categories || []), safe(group.category)].filter(Boolean))]
           };
           mergedGroupMap.set(mergeKey, cloned);
           mergedGroups.push(cloned);
@@ -5192,6 +5211,8 @@
         if (!existing.wordSignImage && group.wordSignImage) existing.wordSignImage = group.wordSignImage;
         if (!existing.sourceUrl && group.sourceUrl) existing.sourceUrl = group.sourceUrl;
         if (!existing.sourceName && group.sourceName) existing.sourceName = group.sourceName;
+        existing.categories = [...new Set([...(existing.categories || []), ...(group.categories || []), safe(group.category)].filter(Boolean))];
+        if (!existing.category && existing.categories.length) existing.category = existing.categories[0];
         if (!existing.mouthVideo && group.mouthVideo) existing.mouthVideo = group.mouthVideo;
         if (!existing.extraInfo && group.extraInfo) existing.extraInfo = group.extraInfo;
         if (!existing.additionalImage && group.additionalImage) existing.additionalImage = group.additionalImage;
@@ -5269,9 +5290,12 @@
       examplesBySource.set("", examplePool);
 
       groups.forEach(g => {
-        const key = safe(g.category);
-        if (!groupsByCategory.has(key)) groupsByCategory.set(key, []);
-        groupsByCategory.get(key).push(g);
+        const categoryKeys = [...new Set([...(Array.isArray(g.categories) ? g.categories : []), safe(g.category)].filter(Boolean))];
+        (categoryKeys.length ? categoryKeys : [""]).forEach(key => {
+          if (!groupsByCategory.has(key)) groupsByCategory.set(key, []);
+          const arr = groupsByCategory.get(key);
+          if (!arr.includes(g)) arr.push(g);
+        });
 
         const sourceKey = safe(g.sourceName);
         if (!groupsBySource.has(sourceKey)) groupsBySource.set(sourceKey, []);
@@ -5544,7 +5568,8 @@
         exampleShuffleSeed,
         preservedGroupShuffleOrderKeys: Array.isArray(preservedGroupShuffleOrderKeys) ? [...preservedGroupShuffleOrderKeys] : null,
         preservedExampleShuffleOrderKeys: Array.isArray(preservedExampleShuffleOrderKeys) ? [...preservedExampleShuffleOrderKeys] : null,
-        viewMode
+        viewMode,
+        searchAutoTargetMode: normalizeSearchAutoTargetMode(searchAutoTargetMode)
       };
     }
 
@@ -6078,6 +6103,7 @@
       updateSearchIdButton();
       updateSearchPlaceholder();
       updateLiveSyncButton();
+      updateSearchAutoModeButton();
       await applyFilter();
       currentIndex = clamp(snap.currentIndex || 0, 0, Math.max(0, filteredGroups.length - 1));
       currentPoolIndex = clamp(snap.currentPoolIndex || 0, 0, Math.max(0, filteredExamplePool.length - 1));
@@ -7842,7 +7868,9 @@ async function saveState(){
       if (groupShuffleSeed === null && !Array.isArray(state.preservedGroupShuffleOrderKeys)) preservedGroupShuffleOrderKeys = null;
       if (exampleShuffleSeed === null && !Array.isArray(state.preservedExampleShuffleOrderKeys)) preservedExampleShuffleOrderKeys = null;
       if (typeof state.viewMode === "string" && VIEW_MODES.includes(state.viewMode)) viewMode = state.viewMode;
+      if (typeof state.searchAutoTargetMode === "string") searchAutoTargetMode = normalizeSearchAutoTargetMode(state.searchAutoTargetMode);
       updateViewModeButton();
+      updateSearchAutoModeButton();
       if (state.activeWordAssetState && typeof state.activeWordAssetState === "object") {
         activeWordAssetState = {
           groupId: safe(state.activeWordAssetState.groupId || ""),
@@ -9153,8 +9181,29 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
       return false;
     }
 
+    function getExactGroupIdentityKey(group){
+      const word = safe(group?.wordNorm || group?.word);
+      if (!word) return "";
+      const sid = safe(group?.sourceId || extractSourceIdFromSourceUrl(group?.sourceUrl));
+      if (sid) return `sid:${sid}::${word}`;
+      const source = safe(getGroupSourceKey(group) || group?.sourceUrl || "");
+      if (source) return `src:${source}::${word}`;
+      return "";
+    }
+
+    function collapseExactDuplicateGroups(list){
+      const seen = new Set();
+      return (Array.isArray(list) ? list : []).filter(group => {
+        const key = getExactGroupIdentityKey(group);
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
     function applyViewModeToGroups(list){
-      let next = Array.isArray(list) ? [...list] : [];
+      let next = collapseExactDuplicateGroups(Array.isArray(list) ? [...list] : []);
       const mode = normalizeViewMode(viewMode);
       if (mode === "WORD" || mode === "WORD_DEDUP") {
         next.sort(compareByWordOrder);
@@ -9227,6 +9276,36 @@ ${noteText || "저장된 메모가 없습니다."}`, noteText ? 2600 : 1600);
     async function cycleViewMode(){
       const idx = VIEW_MODES.indexOf(viewMode);
       await setViewMode(VIEW_MODES[(idx + 1 + VIEW_MODES.length) % VIEW_MODES.length] || "WORD");
+    }
+
+    function normalizeSearchAutoTargetMode(value){
+      return value === "S" ? "S" : "W";
+    }
+
+    function getSearchAutoModeLabel(mode = searchAutoTargetMode){
+      return normalizeSearchAutoTargetMode(mode) === "S" ? "용례영상보기" : "표제어영상보기";
+    }
+
+    function updateSearchAutoModeButton(){
+      if (!els.searchAutoModeBtn) return;
+      const mode = normalizeSearchAutoTargetMode(searchAutoTargetMode);
+      els.searchAutoModeBtn.textContent = mode === "S" ? "검색:용례영상" : "검색:표제어영상";
+      els.searchAutoModeBtn.title = `표제어 검색창 포커스 시 자동 전환: ${getSearchAutoModeLabel(mode)} (클릭하면 변경)`;
+      els.searchAutoModeBtn.dataset.searchAutoMode = mode;
+      els.searchAutoModeBtn.classList.toggle("active", mode === "S");
+    }
+
+    async function cycleSearchAutoTargetMode(){
+      searchAutoTargetMode = normalizeSearchAutoTargetMode(searchAutoTargetMode) === "W" ? "S" : "W";
+      updateSearchAutoModeButton();
+      await saveState();
+      showOverlay(`표제어 검색모드: ${getSearchAutoModeLabel(searchAutoTargetMode)}`, 1000);
+    }
+
+    async function activateSearchAutoTargetMode(){
+      const targetMode = normalizeSearchAutoTargetMode(searchAutoTargetMode);
+      if (currentMode === targetMode) return;
+      await setMode(targetMode);
     }
 
     function sortFilteredGroupsByWordLength(list){
@@ -10266,6 +10345,7 @@ function buildStatePayload(){
     preservedGroupShuffleOrderKeys: Array.isArray(preservedGroupShuffleOrderKeys) ? [...preservedGroupShuffleOrderKeys] : null,
     preservedExampleShuffleOrderKeys: Array.isArray(preservedExampleShuffleOrderKeys) ? [...preservedExampleShuffleOrderKeys] : null,
     viewMode,
+    searchAutoTargetMode: normalizeSearchAutoTargetMode(searchAutoTargetMode),
     activeWordAssetState: {
       groupId: safe(activeWordAssetState?.groupId || ""),
       index: Number.isFinite(activeWordAssetState?.index) ? Math.max(0, Number(activeWordAssetState.index)) : 0
@@ -13045,6 +13125,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
           ${buildOriginalLinkHtml(sourceUrl)}
           ${buildInfoLineHtml("표제어", escapeHtml(group.word || "없음"), { compact:true })}
           ${buildInfoLineHtml("뜻풀이", escapeHtml(group.definition || "뜻풀이 없음"), { compact:true })}
+          ${buildInfoLineHtml("부가정보", escapeHtml(group.extraInfo || "없음"), { compact:true })}
           ${buildInfoLineHtml("의미범주", escapeHtml(group.category || "없음"), { compact:true })}
           ${buildInfoLineHtml("범주", escapeHtml(group.sourceName || "없음"), { compact:true })}
         </section>
@@ -13428,6 +13509,7 @@ ${getSelectionEntries().length}개 항목`, 1200);
       updateSourceOptions();
       updateQuickButtons();
       updateViewModeButton();
+      updateSearchAutoModeButton();
 
       if (saveCacheToo){
         await saveDataCache(sourceName);
@@ -13639,20 +13721,21 @@ ${getSelectionEntries().length}개 항목`, 1200);
     }
 
     function handleSearchKeydown(e){
-      const items = getSearchSuggestions();
-      if (!items.length) return;
+      if (e.isComposing) return;
 
-      if (e.key === "ArrowDown"){
+      if (e.key === "Escape"){
         e.preventDefault();
-        searchFocusedIndex = Math.min(searchFocusedIndex + 1, items.length - 1);
-        requestRenderSearchSuggestions();
-        previewSuggestionItem(items[searchFocusedIndex]);
-      } else if (e.key === "ArrowUp"){
-        e.preventDefault();
-        searchFocusedIndex = Math.max(searchFocusedIndex - 1, 0);
-        requestRenderSearchSuggestions();
-        previewSuggestionItem(items[searchFocusedIndex]);
-      } else if (e.key === "Enter"){
+        els.searchSuggestions.classList.remove("open");
+        restoreSearchPreview();
+        clearMultiSelectedSearch();
+        try { e.target?.blur?.(); } catch(_) {}
+        setTimeout(() => focusStageForShortcuts(0), 0);
+        return;
+      }
+
+      const items = getSearchSuggestions();
+
+      if (e.key === "Enter"){
         e.preventDefault();
         if (hasActiveMultiSearchSelection()){
           clearSelectedSearchPick();
@@ -13667,11 +13750,26 @@ ${multiSelectedSearchItems.length}개`, 1000);
         }
         const item = items[Math.max(searchFocusedIndex, 0)];
         if (item) applySuggestionPick(item);
-        try { e.target?.blur?.(); } catch(_) {}
-      } else if (e.key === "Escape"){
+        else applyFilter();
         els.searchSuggestions.classList.remove("open");
         restoreSearchPreview();
-        clearMultiSelectedSearch();
+        try { e.target?.blur?.(); } catch(_) {}
+        setTimeout(() => focusStageForShortcuts(0), 0);
+        return;
+      }
+
+      if (!items.length) return;
+
+      if (e.key === "ArrowDown"){
+        e.preventDefault();
+        searchFocusedIndex = Math.min(searchFocusedIndex + 1, items.length - 1);
+        requestRenderSearchSuggestions();
+        previewSuggestionItem(items[searchFocusedIndex]);
+      } else if (e.key === "ArrowUp"){
+        e.preventDefault();
+        searchFocusedIndex = Math.max(searchFocusedIndex - 1, 0);
+        requestRenderSearchSuggestions();
+        previewSuggestionItem(items[searchFocusedIndex]);
       }
     }
 
@@ -13903,7 +14001,14 @@ ${match.label}${timeText}`, 1500);
         openClipEditorModal();
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && key === 'f'){ e.preventDefault(); els.searchInput?.focus(); els.searchInput?.select?.(); renderSearchSuggestions(); return; }
+      if ((e.ctrlKey || e.metaKey) && key === 'f'){
+        e.preventDefault();
+        activateSearchAutoTargetMode();
+        els.searchInput?.focus();
+        els.searchInput?.select?.();
+        renderSearchSuggestions();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'n'){
         if (isTypingContext() && !els.addEntryModal?.classList.contains("open")) return;
         e.preventDefault();
@@ -14263,9 +14368,21 @@ ${match.label}${timeText}`, 1500);
       document.addEventListener("keydown", () => markSyncUiBusy(900), true);
 
       els.searchInput.addEventListener("focus", () => {
+        activateSearchAutoTargetMode();
         renderSearchSuggestions();
       });
+      els.searchInput.addEventListener("pointerdown", () => {
+        activateSearchAutoTargetMode();
+      });
       els.searchInput.addEventListener("keydown", handleSearchKeydown);
+
+      if (els.searchAutoModeBtn){
+        updateSearchAutoModeButton();
+        els.searchAutoModeBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          cycleSearchAutoTargetMode();
+        });
+      }
 
       if (els.searchMultiBtn){
         els.searchMultiBtn.closest?.(".search-wrap")?.classList.add("has-multi-btn");
