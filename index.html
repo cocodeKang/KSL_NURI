@@ -8227,6 +8227,46 @@ async function saveState(){
       updateSearchMultiButton();
     }
 
+    function setMultiSelectedSearchItems(items){
+      multiSelectedSearchItems = [];
+      multiSelectedSearchKeys = new Set();
+      for (const item of (Array.isArray(items) ? items : [])){
+        const key = getSuggestionMultiKey(item);
+        if (!key || multiSelectedSearchKeys.has(key)) continue;
+        multiSelectedSearchKeys.add(key);
+        multiSelectedSearchItems.push(item);
+      }
+      updateSearchMultiButton();
+      return multiSelectedSearchItems.length;
+    }
+
+    async function applyVisibleSearchSuggestionsToLearningRange(options = {}){
+      const { close = false, showToast = false } = options || {};
+      const q = safe(els.searchInput?.value).trim();
+      if (!q || hasActiveMultiSearchSelection()) return false;
+      const items = (Array.isArray(renderedSuggestionItems) && renderedSuggestionItems.length)
+        ? renderedSuggestionItems
+        : getSearchSuggestions();
+      if (!items.length) return false;
+
+      clearSelectedSearchPick();
+      pendingSearchPick = null;
+      setSearchMultiSelectMode(true);
+      const count = setMultiSelectedSearchItems(items);
+      if (!count) return false;
+
+      searchFocusedIndex = -1;
+      await applyFilter({ save:false });
+      scheduleSearchStatePersist(120);
+      if (close && els.searchSuggestions){
+        els.searchSuggestions.classList.remove("open");
+      }
+      if (showToast){
+        showOverlay(`연관검색어 ${count}개를 학습범위로 적용`, 950);
+      }
+      return true;
+    }
+
     function toggleMultiSelectedSearchItem(item){
       const key = getSuggestionMultiKey(item);
       if (!key) return;
@@ -10895,7 +10935,8 @@ async function initFirebaseSync(){
     function renderSearchSuggestions(){
       const items = getSearchSuggestions();
       renderedSuggestionItems = items;
-      if (!items.length || document.activeElement !== els.searchInput){
+      const keepOpenForMulti = !!searchMultiSelectMode && !!safe(els.searchInput?.value).trim();
+      if (!items.length || (document.activeElement !== els.searchInput && !keepOpenForMulti)){
         els.searchSuggestions.classList.remove("open");
         els.searchSuggestions.innerHTML = "";
         searchFocusedIndex = -1;
@@ -14392,21 +14433,29 @@ ${match.label}${timeText}`, 1500);
           e.stopPropagation();
           setSearchMultiSelectMode(!searchMultiSelectMode);
           if (searchMultiSelectMode){
-            renderSearchSuggestions();
+            try{ els.searchInput?.focus?.({ preventScroll:true }); } catch(_err){ try{ els.searchInput?.focus?.(); } catch(__err){} }
+            requestRenderSearchSuggestions();
+            setTimeout(() => requestRenderSearchSuggestions(), 0);
             showOverlay("다중 선택 켜짐", 700);
           } else {
+            requestRenderSearchSuggestions();
             showOverlay("다중 선택 꺼짐", 700);
           }
         });
       }
 
       els.searchInput.addEventListener("blur", () => {
-        setTimeout(() => {
+        setTimeout(async () => {
           const active = document.activeElement;
-          const keepOpen = els.searchSuggestions.matches(":hover") || els.searchSuggestions.contains(active);
+          const searchWrap = els.searchInput?.closest?.(".search-wrap");
+          const keepOpen = els.searchSuggestions.matches(":hover")
+            || els.searchSuggestions.contains(active)
+            || (searchWrap && searchWrap.contains(active))
+            || (!!searchMultiSelectMode && !!safe(els.searchInput?.value).trim());
           if (!keepOpen) {
+            const applied = await applyVisibleSearchSuggestionsToLearningRange({ close:true, showToast:true });
+            if (!applied) restoreSearchPreview();
             els.searchSuggestions.classList.remove("open");
-            restoreSearchPreview();
           }
         }, 320);
       });
